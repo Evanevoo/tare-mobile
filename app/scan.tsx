@@ -1,22 +1,28 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  View, Text, Pressable, FlatList, Alert, TextInput, Modal, ActivityIndicator,
+  View, Text, Pressable, FlatList, Alert, TextInput, Modal, ActivityIndicator, Animated,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import { useStore } from '@/store';
 import { forOrder, counts } from '@/outbox';
-import { T, shipTone } from '@/ui';
+import { T, shipTone, Surface, Btn, Edge, Tag, mono, shadow } from '@/ui';
 
 /**
  * The scan loop.
  *
  * Everything here is tuned for one situation: a driver holding a phone in cold
- * hands, in a yard, with no signal. So — nothing blocks on the network, every
- * scan gets a distinct buzz, the mode toggle is thumb-sized, and the most
- * recent scan is always the biggest thing on screen.
+ * hands, in a yard, with no signal. Nothing blocks on the network, every scan
+ * gets a distinct buzz, the mode toggle is thumb-sized, and the most recent
+ * scan is always the biggest thing on screen.
+ *
+ * The visual work serves that rather than decorating it — the reticle tells you
+ * where to point, the confirmation card flashes in the colour of what just
+ * happened, and the active mode is a lit object rather than a tinted rectangle,
+ * because shipping when you meant to receive is the expensive mistake.
  */
 export default function Scan() {
   const router = useRouter();
@@ -32,12 +38,16 @@ export default function Scan() {
   const cooldown = useRef<Record<string, number>>({});
   const geo = useRef<{ lat: number; lng: number; accuracyM: number | null } | null>(null);
 
+  // The confirmation card flashes on each accepted scan. On a phone held at
+  // arm's length this is read peripherally — you should not have to focus on
+  // the screen to know the scan landed.
+  const flash = useRef(new Animated.Value(0)).current;
+
   const rows = orderNumber ? forOrder(outbox, orderNumber) : [];
   const c = counts(outbox, orderNumber ?? undefined);
 
   useEffect(() => { if (!perm?.granted) requestPerm(); }, [perm]);
 
-  // One fix per session is enough to prove where the delivery happened.
   useEffect(() => {
     (async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -56,13 +66,15 @@ export default function Scan() {
     const barcode = raw.trim().toUpperCase();
     if (!barcode) return;
 
-    // Continuous camera fires the same code many times a second.
     const now = Date.now();
     if (cooldown.current[barcode] && now - cooldown.current[barcode] < 2500) return;
     cooldown.current[barcode] = now;
 
     const kind = addScan(barcode, geo.current ?? undefined);
     setLast({ barcode, kind });
+
+    flash.setValue(1);
+    Animated.timing(flash, { toValue: 0, duration: 620, useNativeDriver: false }).start();
 
     if (kind === 'added') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     else if (kind === 'unknown') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
@@ -79,13 +91,13 @@ export default function Scan() {
   const banner =
     last?.kind === 'duplicate' ? { text: 'Already scanned', tone: T.steel }
     : last?.kind === 'unknown' ? { text: 'Unknown barcode — held for review', tone: T.amber }
-    : last ? { text: `${mode === 'SHIP' ? 'Shipped' : 'Returned'}`, tone: T.bottle }
+    : last ? { text: mode === 'SHIP' ? 'Shipped out' : 'Returned in', tone: T.bottle }
     : null;
 
   return (
     <View style={{ flex: 1, backgroundColor: T.zinc }}>
       {/* ── camera ── */}
-      <View style={{ height: '38%', backgroundColor: '#000' }}>
+      <View style={{ height: '36%', backgroundColor: '#000' }}>
         {perm?.granted ? (
           <CameraView
             style={{ flex: 1 }}
@@ -98,115 +110,185 @@ export default function Scan() {
           />
         ) : (
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-            <Text style={{ color: T.steel, fontSize: 14, textAlign: 'center' }}>
-              Tare needs the camera to scan barcodes.
+            <Text style={{ color: T.steel, fontSize: 14.5, textAlign: 'center', lineHeight: 21 }}>
+              Scanified needs the camera to read barcodes.
             </Text>
-            <Pressable onPress={requestPerm} style={{ marginTop: 12 }}>
-              <Text style={{ color: T.bottle, fontWeight: '700' }}>Allow camera</Text>
+            <Pressable onPress={requestPerm} style={{ marginTop: 14 }} hitSlop={12}>
+              <Text style={{ color: T.brandLit, fontWeight: '700', fontSize: 15 }}>Allow camera</Text>
             </Pressable>
           </View>
         )}
 
-        <View style={{
-          position: 'absolute', top: 0, left: 0, right: 0,
-          paddingTop: 52, paddingHorizontal: 16, paddingBottom: 10,
-          backgroundColor: 'rgba(0,0,0,.45)', flexDirection: 'row', alignItems: 'center',
-        }}>
-          <Pressable onPress={finish} hitSlop={12}>
-            <Text style={{ color: '#fff', fontSize: 15, fontWeight: '600' }}>Done</Text>
-          </Pressable>
-          <View style={{ marginLeft: 12, flex: 1 }}>
-            <Text numberOfLines={1} style={{ color: '#fff', fontSize: 14, fontWeight: '600' }}>
-              {customerName}
-            </Text>
-            <Text style={{ color: 'rgba(255,255,255,.65)', fontSize: 12, fontFamily: T.mono }}>
-              {orderNumber}
-            </Text>
+        {/* Reticle. Four corners, nothing in the middle — it frames the label
+            without covering it. */}
+        {perm?.granted && (
+          <View pointerEvents="none" style={{
+            position: 'absolute', left: '16%', right: '16%', top: '32%', bottom: '20%',
+          }}>
+            {([
+              { pos: { top: 0, left: 0 },     w: 2, e: 0, n: 2, s: 0, tl: 10, tr: 0, bl: 0, br: 0 },
+              { pos: { top: 0, right: 0 },    w: 0, e: 2, n: 2, s: 0, tl: 0, tr: 10, bl: 0, br: 0 },
+              { pos: { bottom: 0, left: 0 },  w: 2, e: 0, n: 0, s: 2, tl: 0, tr: 0, bl: 10, br: 0 },
+              { pos: { bottom: 0, right: 0 }, w: 0, e: 2, n: 0, s: 2, tl: 0, tr: 0, bl: 0, br: 10 },
+            ] as const).map((k, i) => (
+              <View
+                key={i}
+                style={{
+                  position: 'absolute', width: 26, height: 26,
+                  ...k.pos,
+                  borderColor: T.brandLit,
+                  borderTopWidth: k.n, borderBottomWidth: k.s,
+                  borderLeftWidth: k.w, borderRightWidth: k.e,
+                  borderTopLeftRadius: k.tl, borderTopRightRadius: k.tr,
+                  borderBottomLeftRadius: k.bl, borderBottomRightRadius: k.br,
+                  opacity: 0.85,
+                }}
+              />
+            ))}
           </View>
-          <Pressable onPress={() => setManual(true)} hitSlop={12}>
-            <Text style={{ color: '#fff', fontSize: 14 }}>Type code</Text>
-          </Pressable>
-        </View>
+        )}
+
+        {/* Scrim, so white text over a bright yard is still readable. */}
+        <LinearGradient
+          colors={['rgba(0,0,0,0.82)', 'rgba(0,0,0,0.34)', 'transparent']}
+          style={{ position: 'absolute', top: 0, left: 0, right: 0, paddingTop: 54,
+                   paddingHorizontal: 18, paddingBottom: 22 }}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <Pressable onPress={finish} hitSlop={14}>
+              <Text style={{ color: '#fff', fontSize: 15.5, fontWeight: '700' }}>Done</Text>
+            </Pressable>
+            <View style={{ marginLeft: 14, flex: 1 }}>
+              <Text numberOfLines={1} style={{ color: '#fff', fontSize: 14.5, fontWeight: '700' }}>
+                {customerName}
+              </Text>
+              <Text style={[mono(12, '500'), { color: 'rgba(255,255,255,0.68)' }]}>
+                {orderNumber}
+              </Text>
+            </View>
+            <Pressable onPress={() => setManual(true)} hitSlop={14}>
+              <Text style={{ color: T.brandLit, fontSize: 14, fontWeight: '700' }}>Type code</Text>
+            </Pressable>
+          </View>
+        </LinearGradient>
       </View>
 
-      {/* ── mode toggle: the single most-pressed control ── */}
-      <View style={{ flexDirection: 'row', padding: 12, gap: 10 }}>
-        {(['SHIP', 'RETURN'] as const).map((m) => (
-          <Pressable
-            key={m}
-            onPress={() => { setMode(m); Haptics.selectionAsync(); }}
-            style={{
-              flex: 1, height: 56, borderRadius: T.radius,
-              alignItems: 'center', justifyContent: 'center',
-              backgroundColor: mode === m ? shipTone(m) : T.face,
-              borderWidth: 1, borderColor: mode === m ? shipTone(m) : T.rule,
-            }}
-          >
-            <Text style={{
-              color: mode === m ? '#0E1214' : T.steel,
-              fontSize: 16, fontWeight: '800', letterSpacing: 0.4,
-            }}>
-              {m === 'SHIP' ? 'SHIP OUT' : 'RETURN IN'}
-            </Text>
-            <Text style={{
-              color: mode === m ? 'rgba(14,18,20,.7)' : T.steel, fontSize: 11, marginTop: 1,
-            }}>
-              {m === 'SHIP' ? `${c.ship} scanned` : `${c.ret} scanned`}
-            </Text>
-          </Pressable>
-        ))}
+      {/* ── mode: the single most-pressed control on the phone ── */}
+      <View style={{ flexDirection: 'row', padding: 14, gap: 11 }}>
+        {(['SHIP', 'RETURN'] as const).map((m) => {
+          const on = mode === m;
+          const tone = shipTone(m);
+          return (
+            <Pressable
+              key={m}
+              onPress={() => { setMode(m); Haptics.selectionAsync(); }}
+              style={{ flex: 1 }}
+            >
+              {on ? (
+                <LinearGradient
+                  colors={[tone, tone + 'CC']}
+                  start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }}
+                  style={[
+                    { height: 66, borderRadius: T.radiusSm,
+                      alignItems: 'center', justifyContent: 'center' },
+                    shadow(2, tone),
+                  ]}
+                >
+                  <Edge inset={14} opacity={0.9} />
+                  <Text style={{ color: T.onBrand, fontSize: 16.5, fontWeight: '900', letterSpacing: 0.4 }}>
+                    {m === 'SHIP' ? 'SHIP OUT' : 'RETURN IN'}
+                  </Text>
+                  <Text style={{ color: 'rgba(4,35,26,0.66)', fontSize: 11.5, marginTop: 2, fontWeight: '700' }}>
+                    {m === 'SHIP' ? `${c.ship} scanned` : `${c.ret} scanned`}
+                  </Text>
+                </LinearGradient>
+              ) : (
+                <View
+                  style={{
+                    height: 66, borderRadius: T.radiusSm,
+                    alignItems: 'center', justifyContent: 'center',
+                    backgroundColor: 'rgba(255,255,255,0.04)',
+                    borderWidth: 1, borderColor: T.rule,
+                  }}
+                >
+                  <Text style={{ color: T.steel, fontSize: 16.5, fontWeight: '800', letterSpacing: 0.4 }}>
+                    {m === 'SHIP' ? 'SHIP OUT' : 'RETURN IN'}
+                  </Text>
+                  <Text style={{ color: T.faint, fontSize: 11.5, marginTop: 2, fontWeight: '600' }}>
+                    {m === 'SHIP' ? `${c.ship} scanned` : `${c.ret} scanned`}
+                  </Text>
+                </View>
+              )}
+            </Pressable>
+          );
+        })}
       </View>
 
-      {/* ── last scan, large ── */}
+      {/* ── the last scan, large ── */}
       {banner && last && (
-        <View style={{
-          marginHorizontal: 12, marginBottom: 10, padding: 14, borderRadius: T.radius,
-          backgroundColor: T.face, borderLeftWidth: 3, borderLeftColor: banner.tone,
-        }}>
-          <Text style={{ color: T.ink, fontSize: 20, fontWeight: '700', fontFamily: T.mono }}>
-            {last.barcode}
-          </Text>
-          <Text style={{ color: banner.tone, fontSize: 13, marginTop: 2, fontWeight: '600' }}>
-            {banner.text}
-            {boot?.assets[last.barcode] ? ` · ${boot.assets[last.barcode]}` : ''}
-          </Text>
-        </View>
+        <Animated.View
+          style={{
+            marginHorizontal: 14, marginBottom: 12, borderRadius: T.radius,
+            borderWidth: 1,
+            borderColor: flash.interpolate({
+              inputRange: [0, 1], outputRange: [T.rule, banner.tone],
+            }),
+            backgroundColor: flash.interpolate({
+              inputRange: [0, 1],
+              outputRange: ['rgba(255,255,255,0.04)', banner.tone + '2E'],
+            }),
+            overflow: 'hidden',
+          }}
+        >
+          <View style={{ padding: 16, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+            <View style={{ width: 3, alignSelf: 'stretch', borderRadius: 2, backgroundColor: banner.tone }} />
+            <View style={{ flex: 1 }}>
+              <Text style={[mono(21, '700'), { color: T.ink }]}>{last.barcode}</Text>
+              <Text style={{ color: banner.tone, fontSize: 13, marginTop: 3, fontWeight: '700' }}>
+                {banner.text}
+                {boot?.assets[last.barcode] ? ` · ${boot.assets[last.barcode]}` : ''}
+              </Text>
+            </View>
+          </View>
+        </Animated.View>
       )}
 
-      {/* ── session list ── */}
+      {/* ── this order so far ── */}
       <FlatList
         data={[...rows].reverse()}
         keyExtractor={(s) => s.clientId}
-        contentContainerStyle={{ paddingBottom: 100 }}
+        contentContainerStyle={{ paddingBottom: 120 }}
         ListEmptyComponent={
-          <Text style={{ color: T.steel, fontSize: 13, textAlign: 'center', paddingTop: 30 }}>
+          <Text style={{ color: T.faint, fontSize: 13.5, textAlign: 'center', paddingTop: 34, lineHeight: 20 }}>
             Point the camera at a barcode.
           </Text>
         }
         renderItem={({ item }) => (
-          <View style={{
-            flexDirection: 'row', alignItems: 'center', gap: 10,
-            paddingHorizontal: 16, paddingVertical: 11,
-            borderBottomWidth: 1, borderBottomColor: T.soft,
-          }}>
-            <View style={{ width: 3, height: 22, borderRadius: 2, backgroundColor: shipTone(item.mode) }} />
+          <View
+            style={{
+              flexDirection: 'row', alignItems: 'center', gap: 12,
+              paddingHorizontal: 18, paddingVertical: 13,
+              borderBottomWidth: 1, borderBottomColor: T.soft,
+            }}
+          >
+            <View style={{ width: 3, height: 26, borderRadius: 2, backgroundColor: shipTone(item.mode) }} />
             <View style={{ flex: 1 }}>
-              <Text style={{ color: T.ink, fontSize: 15, fontFamily: T.mono }}>{item.barcode}</Text>
-              <Text style={{ color: T.steel, fontSize: 11, marginTop: 1 }}>
+              <Text style={[mono(15, '600'), { color: T.ink }]}>{item.barcode}</Text>
+              <Text style={{ color: T.faint, fontSize: 11.5, marginTop: 2 }}>
                 {item.mode === 'SHIP' ? 'Ship out' : 'Return in'}
                 {item.state !== 'QUEUED' ? ` · ${item.state.toLowerCase()}` : ''}
-                {boot && !(item.barcode in boot.assets) ? ' · unknown' : ''}
               </Text>
             </View>
+            {boot && !(item.barcode in boot.assets) && <Tag label="UNKNOWN" tone={T.amber} />}
             {item.state === 'QUEUED' && (
               <Pressable
-                hitSlop={10}
+                hitSlop={12}
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                   dispatch({ type: 'REMOVE', clientId: item.clientId });
                 }}
               >
-                <Text style={{ color: T.needle, fontSize: 13, fontWeight: '600' }}>Remove</Text>
+                <Text style={{ color: T.needle, fontSize: 13, fontWeight: '700' }}>Remove</Text>
               </Pressable>
             )}
           </View>
@@ -214,79 +296,64 @@ export default function Scan() {
       />
 
       {/* ── submit ── */}
-      <View style={{
-        position: 'absolute', left: 0, right: 0, bottom: 0,
-        padding: 12, paddingBottom: 30,
-        backgroundColor: T.face, borderTopWidth: 1, borderTopColor: T.rule,
-      }}>
-        <Pressable
-          disabled={!c.total || syncing}
-          onPress={() => {
-            Alert.alert(
-              'Submit order',
-              `${c.ship} shipped, ${c.ret} returned on ${orderNumber}.\n\nThey upload now if you have signal, and stay safe on this phone if you do not.`,
-              [{ text: 'Keep scanning', style: 'cancel' }, { text: 'Submit', onPress: finish }],
-            );
-          }}
-          style={{
-            height: 54, borderRadius: T.radius, backgroundColor: T.bottle,
-            alignItems: 'center', justifyContent: 'center', opacity: c.total ? 1 : 0.4,
-          }}
+      <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0 }}>
+        <LinearGradient
+          colors={['transparent', 'rgba(7,9,10,0.92)', T.zinc]}
+          style={{ paddingHorizontal: 14, paddingTop: 34, paddingBottom: 34 }}
         >
-          {syncing
-            ? <ActivityIndicator color="#fff" />
-            : (
-              <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>
-                Submit order · {c.total}
-              </Text>
-            )}
-        </Pressable>
+          <Btn
+            label={`Submit order · ${c.total}`}
+            sub={c.total ? `${c.ship} out · ${c.ret} in` : undefined}
+            busy={syncing}
+            disabled={!c.total}
+            onPress={() => {
+              Alert.alert(
+                'Submit order',
+                `${c.ship} shipped, ${c.ret} returned on ${orderNumber}.\n\nThey upload now if you have signal, and stay safe on this phone if you do not.`,
+                [{ text: 'Keep scanning', style: 'cancel' }, { text: 'Submit', onPress: finish }],
+              );
+            }}
+          />
+        </LinearGradient>
       </View>
 
       {/* ── manual entry ── */}
       <Modal visible={manual} transparent animationType="fade" onRequestClose={() => setManual(false)}>
-        <View style={{
-          flex: 1, backgroundColor: 'rgba(0,0,0,.65)', justifyContent: 'center', padding: 24,
-        }}>
-          <View style={{ backgroundColor: T.face, borderRadius: 14, padding: 18 }}>
-            <Text style={{ color: T.ink, fontSize: 17, fontWeight: '700', marginBottom: 4 }}>
-              Type a barcode
-            </Text>
-            <Text style={{ color: T.steel, fontSize: 12.5, marginBottom: 14 }}>
-              For a label that is scratched, painted over, or under frost.
-            </Text>
-            <TextInput
-              value={manualCode} onChangeText={(v) => setManualCode(v.toUpperCase())}
-              autoFocus autoCapitalize="characters" autoCorrect={false}
-              placeholder="PW-K-041827" placeholderTextColor={T.steel}
-              style={{
-                height: 48, borderRadius: T.radius, paddingHorizontal: 14, color: T.ink,
-                backgroundColor: T.zinc, borderWidth: 1, borderColor: T.rule,
-                fontSize: 17, fontFamily: T.mono,
-              }}
-              onSubmitEditing={() => { take(manualCode); setManualCode(''); setManual(false); }}
-            />
-            <View style={{ flexDirection: 'row', gap: 10, marginTop: 14 }}>
-              <Pressable
-                onPress={() => { setManual(false); setManualCode(''); }}
-                style={{
-                  flex: 1, height: 44, borderRadius: T.radius, borderWidth: 1,
-                  borderColor: T.rule, alignItems: 'center', justifyContent: 'center',
-                }}
-              >
-                <Text style={{ color: T.steel, fontWeight: '600' }}>Cancel</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => { take(manualCode); setManualCode(''); setManual(false); }}
-                style={{
-                  flex: 1, height: 44, borderRadius: T.radius, backgroundColor: T.bottle,
-                  alignItems: 'center', justifyContent: 'center',
-                }}
-              >
-                <Text style={{ color: '#fff', fontWeight: '700' }}>Add</Text>
-              </Pressable>
+        <View style={{ flex: 1, backgroundColor: 'rgba(3,5,6,0.78)', justifyContent: 'center', padding: 22 }}>
+          <Surface level={3}>
+            <View style={{ padding: 20 }}>
+              <Text style={{ color: T.ink, fontSize: 18.5, fontWeight: '700', marginBottom: 5 }}>
+                Type a barcode
+              </Text>
+              <Text style={{ color: T.faint, fontSize: 13, marginBottom: 16, lineHeight: 19 }}>
+                For a label that is scratched, painted over, or under frost.
+              </Text>
+              <TextInput
+                value={manualCode} onChangeText={(v) => setManualCode(v.toUpperCase())}
+                autoFocus autoCapitalize="characters" autoCorrect={false}
+                placeholder="PW-K-041827" placeholderTextColor={T.faint}
+                style={[
+                  {
+                    height: 54, borderRadius: T.radiusSm, paddingHorizontal: 15, color: T.ink,
+                    backgroundColor: 'rgba(0,0,0,0.35)', borderWidth: 1, borderColor: T.rule,
+                  },
+                  mono(18, '600'),
+                ]}
+                onSubmitEditing={() => { take(manualCode); setManualCode(''); setManual(false); }}
+              />
+              <View style={{ flexDirection: 'row', gap: 11, marginTop: 16 }}>
+                <Btn
+                  label="Cancel" variant="quiet" style={{ flex: 1 }}
+                  onPress={() => { setManual(false); setManualCode(''); }}
+                />
+                <Btn
+                  label="Add" style={{ flex: 1 }}
+                  disabled={!manualCode.trim()}
+                  onPress={() => { take(manualCode); setManualCode(''); setManual(false); }}
+                />
+              </View>
             </View>
-          </View>
+          </Surface>
         </View>
       </Modal>
     </View>

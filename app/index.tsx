@@ -4,9 +4,9 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useStore } from '@/store';
-import { pending, counts } from '@/outbox';
+import { pending } from '@/outbox';
 import { signOut } from '@/api';
-import { T } from '@/ui';
+import { T, Aurora, Surface, Btn, Dot, Eyebrow, Rise, mono } from '@/ui';
 
 export default function Home() {
   const router = useRouter();
@@ -32,149 +32,162 @@ export default function Home() {
   if (!ready) {
     return (
       <View style={{ flex: 1, backgroundColor: T.zinc, justifyContent: 'center' }}>
-        <ActivityIndicator color={T.bottle} />
+        <Aurora />
+        <ActivityIndicator color={T.brandLit} />
       </View>
     );
   }
 
-  const canStart = picked && order.trim().length >= 3;
+  const canStart = !!picked && order.trim().length >= 3;
+
+  const field = {
+    height: 52, borderRadius: T.radiusSm, paddingHorizontal: 15,
+    color: T.ink, fontSize: 16,
+    backgroundColor: 'rgba(255,255,255,0.045)',
+    borderWidth: 1, borderColor: T.rule,
+  } as const;
 
   return (
     <View style={{ flex: 1, backgroundColor: T.zinc }}>
-      {/* status strip */}
-      <View style={{
-        flexDirection: 'row', alignItems: 'center', gap: 8,
-        paddingHorizontal: 16, paddingVertical: 10,
-        backgroundColor: T.face, borderBottomWidth: 1, borderBottomColor: T.rule,
-      }}>
-        <View style={{
-          width: 8, height: 8, borderRadius: 4,
-          backgroundColor: online ? T.bottle : T.needle,
-        }} />
-        <Text style={{ color: T.steel, fontSize: 12 }}>
+      <Aurora />
+
+      {/* ── connection strip ─────────────────────────────────────────────
+          Always the first thing on screen, because a driver's first question
+          is never "what is this app" — it is "are my scans safe". */}
+      <View
+        style={{
+          flexDirection: 'row', alignItems: 'center', gap: 9,
+          paddingHorizontal: 18, paddingVertical: 12,
+          borderBottomWidth: 1, borderBottomColor: T.soft,
+          backgroundColor: 'rgba(255,255,255,0.02)',
+        }}
+      >
+        <Dot tone={online ? T.bottle : T.amber} />
+        <Text style={{ color: online ? T.steel : T.amber, fontSize: 12.5, flex: 1 }}>
           {online ? 'Online' : 'Offline — scans are saved on this phone'}
         </Text>
-        <Pressable onPress={() => router.push('/queue')} style={{ marginLeft: 'auto' }}>
-          <Text style={{
-            color: pendingCount ? T.needle : T.steel, fontSize: 12, fontWeight: '700',
-          }}>
-            {pendingCount ? `${pendingCount} to sync` : 'Synced'}
+        <Pressable onPress={() => router.push('/queue')} hitSlop={12}>
+          <Text
+            style={{
+              color: pendingCount ? T.amber : T.faint,
+              fontSize: 12.5, fontWeight: '700',
+            }}
+          >
+            {pendingCount ? `${pendingCount} to sync →` : 'All synced'}
           </Text>
         </Pressable>
       </View>
 
       <FlatList
-        data={customers}
+        data={picked ? [] : customers}
         keyExtractor={(c) => c.customerListId}
+        keyboardShouldPersistTaps="handled"
         refreshControl={
-          <RefreshControl refreshing={busy} tintColor={T.steel}
-            onRefresh={async () => { setBusy(true); await refresh(); setBusy(false); }} />
+          <RefreshControl
+            refreshing={busy} tintColor={T.steel}
+            onRefresh={async () => { setBusy(true); await refresh(); setBusy(false); }}
+          />
         }
         ListHeaderComponent={
-          <View style={{ padding: 16, paddingBottom: 4 }}>
-            <Text style={{ color: T.ink, fontSize: 22, fontWeight: '700', letterSpacing: -0.5 }}>
-              New delivery
-            </Text>
-            <Text style={{ color: T.steel, fontSize: 13, marginTop: 2, marginBottom: 16 }}>
-              {boot?.org.name ?? 'Tare'} · {boot?.user.name ?? ''}
-            </Text>
+          <View style={{ padding: 18, paddingBottom: 6 }}>
+            <Rise>
+              <Text style={{ color: T.ink, fontSize: 30, fontWeight: '700', letterSpacing: -1 }}>
+                New delivery
+              </Text>
+              <Text style={{ color: T.faint, fontSize: 13.5, marginTop: 4, marginBottom: 22 }}>
+                {boot?.org.name ?? 'Scanified'} · {boot?.user.name ?? ''}
+              </Text>
+            </Rise>
 
-            <Text style={{
-              color: T.steel, fontSize: 10, fontWeight: '700',
-              letterSpacing: 1.1, marginBottom: 6,
-            }}>
-              1 · CUSTOMER
-            </Text>
-            {picked ? (
-              <Pressable
-                onPress={() => setPicked(null)}
-                style={{
-                  padding: 14, borderRadius: T.radius, backgroundColor: T.face,
-                  borderWidth: 1, borderColor: T.bottle, marginBottom: 18,
-                }}
-              >
-                <Text style={{ color: T.ink, fontSize: 16, fontWeight: '600' }}>{picked.name}</Text>
-                <Text style={{ color: T.steel, fontSize: 12, marginTop: 2 }}>
-                  {picked.id} · tap to change
-                </Text>
-              </Pressable>
-            ) : (
-              <TextInput
-                value={q} onChangeText={setQ}
-                placeholder="Search customers…" placeholderTextColor={T.steel}
-                autoCorrect={false}
-                style={{
-                  height: 46, borderRadius: T.radius, paddingHorizontal: 14, marginBottom: 10,
-                  color: T.ink, backgroundColor: T.face, borderWidth: 1, borderColor: T.rule,
-                  fontSize: 15,
-                }}
-              />
-            )}
+            <Rise delay={70}>
+              <Eyebrow style={{ marginBottom: 9 }}>1 · Customer</Eyebrow>
+              {picked ? (
+                <Pressable onPress={() => setPicked(null)}>
+                  <Surface tint="rgba(63,180,137,0.13)" style={{ marginBottom: 22 }}>
+                    <View style={{ padding: 16 }}>
+                      <Text style={{ color: T.ink, fontSize: 17, fontWeight: '700' }}>
+                        {picked.name}
+                      </Text>
+                      <Text style={[mono(12, '500'), { color: T.faint, marginTop: 3 }]}>
+                        {picked.id} · tap to change
+                      </Text>
+                    </View>
+                  </Surface>
+                </Pressable>
+              ) : (
+                <TextInput
+                  value={q} onChangeText={setQ}
+                  placeholder="Search customers…" placeholderTextColor={T.faint}
+                  autoCorrect={false} autoCapitalize="none"
+                  style={[field, { marginBottom: 12 }]}
+                />
+              )}
+            </Rise>
 
             {picked && (
-              <>
-                <Text style={{
-                  color: T.steel, fontSize: 10, fontWeight: '700',
-                  letterSpacing: 1.1, marginBottom: 6,
-                }}>
-                  2 · ORDER NUMBER
-                </Text>
+              <Rise delay={40}>
+                <Eyebrow style={{ marginBottom: 9 }}>2 · Order number</Eyebrow>
                 <TextInput
                   value={order} onChangeText={(v) => setOrder(v.toUpperCase())}
-                  placeholder="INV-9001" placeholderTextColor={T.steel}
+                  placeholder="INV-9001" placeholderTextColor={T.faint}
                   autoCapitalize="characters" autoCorrect={false}
-                  style={{
-                    height: 46, borderRadius: T.radius, paddingHorizontal: 14,
-                    color: T.ink, backgroundColor: T.face, borderWidth: 1, borderColor: T.rule,
-                    fontSize: 16, fontFamily: T.mono, letterSpacing: 0.5,
-                  }}
+                  style={[field, mono(17, '600'), { color: T.ink }]}
                 />
 
-                <Pressable
+                <Btn
+                  label="Start scanning"
+                  style={{ marginTop: 20 }}
                   disabled={!canStart}
                   onPress={() => {
                     startDelivery(picked.id, picked.name, order.trim());
                     router.push('/scan');
                   }}
+                />
+                <Text
                   style={{
-                    height: 52, borderRadius: T.radius, backgroundColor: T.bottle,
-                    alignItems: 'center', justifyContent: 'center', marginTop: 16,
-                    opacity: canStart ? 1 : 0.4,
+                    color: T.faint, fontSize: 12, textAlign: 'center',
+                    marginTop: 14, lineHeight: 18,
                   }}
                 >
-                  <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>
-                    Start scanning
-                  </Text>
-                </Pressable>
-              </>
+                  Every scan is stamped with the time, your name and where you were.
+                </Text>
+              </Rise>
             )}
 
             {!picked && customers.length === 0 && (
-              <Text style={{ color: T.steel, fontSize: 13, paddingVertical: 24, textAlign: 'center' }}>
-                {boot ? 'No customers match.' : 'No customer list on this phone yet. Pull down to download it.'}
+              <Text
+                style={{
+                  color: T.faint, fontSize: 13.5, paddingVertical: 28,
+                  textAlign: 'center', lineHeight: 20,
+                }}
+              >
+                {boot
+                  ? 'No customers match.'
+                  : 'No customer list on this phone yet.\nPull down to download it.'}
               </Text>
             )}
           </View>
         }
-        renderItem={({ item }) => picked ? null : (
+        renderItem={({ item }) => (
           <Pressable
             onPress={() => { setPicked({ id: item.customerListId, name: item.name }); setQ(''); }}
-            style={{
-              paddingHorizontal: 16, paddingVertical: 13,
+            style={({ pressed }) => ({
+              paddingHorizontal: 18, paddingVertical: 15,
               borderBottomWidth: 1, borderBottomColor: T.soft,
-            }}
+              backgroundColor: pressed ? 'rgba(255,255,255,0.045)' : 'transparent',
+            })}
           >
-            <Text style={{ color: T.ink, fontSize: 15, fontWeight: '500' }}>{item.name}</Text>
-            <Text style={{ color: T.steel, fontSize: 12, marginTop: 1, fontFamily: T.mono }}>
+            <Text style={{ color: T.ink, fontSize: 15.5, fontWeight: '600' }}>{item.name}</Text>
+            <Text style={[mono(12, '500'), { color: T.faint, marginTop: 2 }]}>
               {item.customerListId}{item.city ? ` · ${item.city}` : ''}
             </Text>
           </Pressable>
         )}
         ListFooterComponent={
-          <Pressable onPress={signOut} style={{ padding: 24, alignItems: 'center' }}>
-            <Text style={{ color: T.steel, fontSize: 13 }}>Sign out</Text>
+          <Pressable onPress={signOut} style={{ padding: 28, alignItems: 'center' }}>
+            <Text style={{ color: T.faint, fontSize: 13.5, fontWeight: '600' }}>Sign out</Text>
             {lastSync && (
-              <Text style={{ color: T.steel, fontSize: 11, marginTop: 6 }}>
+              <Text style={{ color: T.faint, fontSize: 11.5, marginTop: 7 }}>
                 Last sync {new Date(lastSync).toLocaleString()}
               </Text>
             )}

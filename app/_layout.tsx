@@ -4,7 +4,7 @@ import { View, ActivityIndicator } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { supabase } from '@/api';
 import { useStore } from '@/store';
-import { T } from '@/ui';
+import { T, Aurora } from '@/ui';
 
 export default function RootLayout() {
   const [session, setSession] = useState<'loading' | 'in' | 'out'>('loading');
@@ -30,7 +30,8 @@ export default function RootLayout() {
   if (session === 'loading') {
     return (
       <View style={{ flex: 1, backgroundColor: T.zinc, justifyContent: 'center' }}>
-        <ActivityIndicator color={T.bottle} />
+        <Aurora />
+        <ActivityIndicator color={T.brandLit} />
       </View>
     );
   }
@@ -40,15 +41,23 @@ export default function RootLayout() {
       <StatusBar style="light" />
       <Stack
         screenOptions={{
-          headerStyle: { backgroundColor: T.face },
+          // Transparent rather than a slab: the aurora on each screen runs
+          // under the header, so the light is continuous instead of stopping
+          // at a hard edge below the status bar.
+          headerTransparent: true,
+          headerStyle: { backgroundColor: 'transparent' },
           headerTintColor: T.ink,
-          headerTitleStyle: { fontWeight: '600', fontSize: 16 },
+          headerShadowVisible: false,
+          headerTitleStyle: { fontWeight: '700', fontSize: 16.5, color: T.ink },
           contentStyle: { backgroundColor: T.zinc },
         }}
       >
         <Stack.Screen name="login" options={{ headerShown: false }} />
-        <Stack.Screen name="index" options={{ title: 'Tare' }} />
-        <Stack.Screen name="scan" options={{ title: 'Scanning', headerShown: false, presentation: 'fullScreenModal' }} />
+        <Stack.Screen name="index" options={{ headerShown: false }} />
+        <Stack.Screen
+          name="scan"
+          options={{ title: 'Scanning', headerShown: false, presentation: 'fullScreenModal' }}
+        />
         <Stack.Screen name="queue" options={{ title: 'Sync' }} />
       </Stack>
     </>
