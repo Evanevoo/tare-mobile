@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import {
   View, Text, Pressable, FlatList, Alert, TextInput, Modal, ActivityIndicator, Animated,
 } from 'react-native';
-import { CameraView, useCameraPermissions } from 'expo-camera';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import * as Location from 'expo-location';
@@ -10,6 +9,7 @@ import { useRouter } from 'expo-router';
 import { useStore } from '@/store';
 import { forOrder, counts } from '@/outbox';
 import { T, shipTone, Surface, Btn, Edge, Tag, mono, shadow } from '@/ui';
+import { Scanner } from '@/scanner';
 
 /**
  * The scan loop.
@@ -31,7 +31,6 @@ export default function Scan() {
     outbox, addScan, dispatch, endDelivery, boot, sync, syncing,
   } = useStore();
 
-  const [perm, requestPerm] = useCameraPermissions();
   const [last, setLast] = useState<{ barcode: string; kind: string } | null>(null);
   const [manual, setManual] = useState(false);
   const [manualCode, setManualCode] = useState('');
@@ -45,8 +44,6 @@ export default function Scan() {
 
   const rows = orderNumber ? forOrder(outbox, orderNumber) : [];
   const c = counts(outbox, orderNumber ?? undefined);
-
-  useEffect(() => { if (!perm?.granted) requestPerm(); }, [perm]);
 
   useEffect(() => {
     (async () => {
@@ -98,55 +95,10 @@ export default function Scan() {
     <View style={{ flex: 1, backgroundColor: T.zinc }}>
       {/* ── camera ── */}
       <View style={{ height: '36%', backgroundColor: '#000' }}>
-        {perm?.granted ? (
-          <CameraView
-            style={{ flex: 1 }}
-            facing="back"
-            barcodeScannerSettings={{
-              barcodeTypes: ['code128', 'code39', 'ean13', 'ean8', 'upc_a', 'upc_e',
-                             'qr', 'pdf417', 'datamatrix', 'itf14', 'codabar'],
-            }}
-            onBarcodeScanned={({ data }) => take(data)}
-          />
-        ) : (
-          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-            <Text style={{ color: T.steel, fontSize: 14.5, textAlign: 'center', lineHeight: 21 }}>
-              Scanified needs the camera to read barcodes.
-            </Text>
-            <Pressable onPress={requestPerm} style={{ marginTop: 14 }} hitSlop={12}>
-              <Text style={{ color: T.brandLit, fontWeight: '700', fontSize: 15 }}>Allow camera</Text>
-            </Pressable>
-          </View>
-        )}
-
-        {/* Reticle. Four corners, nothing in the middle — it frames the label
-            without covering it. */}
-        {perm?.granted && (
-          <View pointerEvents="none" style={{
-            position: 'absolute', left: '16%', right: '16%', top: '32%', bottom: '20%',
-          }}>
-            {([
-              { pos: { top: 0, left: 0 },     w: 2, e: 0, n: 2, s: 0, tl: 10, tr: 0, bl: 0, br: 0 },
-              { pos: { top: 0, right: 0 },    w: 0, e: 2, n: 2, s: 0, tl: 0, tr: 10, bl: 0, br: 0 },
-              { pos: { bottom: 0, left: 0 },  w: 2, e: 0, n: 0, s: 2, tl: 0, tr: 0, bl: 10, br: 0 },
-              { pos: { bottom: 0, right: 0 }, w: 0, e: 2, n: 0, s: 2, tl: 0, tr: 0, bl: 0, br: 10 },
-            ] as const).map((k, i) => (
-              <View
-                key={i}
-                style={{
-                  position: 'absolute', width: 26, height: 26,
-                  ...k.pos,
-                  borderColor: T.brandLit,
-                  borderTopWidth: k.n, borderBottomWidth: k.s,
-                  borderLeftWidth: k.w, borderRightWidth: k.e,
-                  borderTopLeftRadius: k.tl, borderTopRightRadius: k.tr,
-                  borderBottomLeftRadius: k.bl, borderBottomRightRadius: k.br,
-                  opacity: 0.85,
-                }}
-              />
-            ))}
-          </View>
-        )}
+        {/* One shared surface carries the hard-won parts: double-read
+            confirm, cooldown, torch, zoom, tap-to-refocus, and the ML Kit
+            still-frame fallback on builds that have it. */}
+        <Scanner onCode={take} style={{ flex: 1 }} />
 
         {/* Scrim, so white text over a bright yard is still readable. */}
         <LinearGradient

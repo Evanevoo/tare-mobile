@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { View, Text, TextInput, Pressable, ScrollView, Alert } from 'react-native';
-import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { useStore } from '@/store';
@@ -8,6 +7,7 @@ import { postFill } from '@/api';
 import {
   T, Screen, Surface, Btn, Eyebrow, Tag, Rise, Icon, ICON, mono, useBottomInset,
 } from '@/ui';
+import { Scanner } from '@/scanner';
 
 /**
  * Locate — the yard half of the day.
@@ -21,7 +21,7 @@ import {
  * The count of closed rentals comes back and is shown, because ending twelve
  * rentals with one tap is not something to find out about later.
  */
-export default function Warehouse() {
+export default function Locate() {
   const router = useRouter();
   const { boot, refresh } = useStore();
   const bottom = useBottomInset(24);
@@ -33,7 +33,6 @@ export default function Warehouse() {
   const [codes, setCodes] = useState<string[]>([]);
   const [typed, setTyped] = useState('');
   const [busy, setBusy] = useState(false);
-  const [perm, requestPerm] = useCameraPermissions();
   const [scanning, setScanning] = useState(false);
 
   const locations = boot?.locations ?? [];
@@ -79,7 +78,7 @@ export default function Warehouse() {
           r.closed ? `${r.closed} open rental${r.closed === 1 ? '' : 's'} closed — those customers stop being charged.` : null,
           r.unknown.length ? `${r.unknown.length} not in the system: ${r.unknown.slice(0, 5).join(', ')}${r.unknown.length > 5 ? '…' : ''}` : null,
         ].filter(Boolean).join('\n\n'),
-        [{ text: 'Done', onPress: () => router.replace('/' as never) }],
+        [{ text: 'Done', onPress: () => router.replace('/') }],
       );
     } catch (e: any) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
@@ -99,12 +98,12 @@ export default function Warehouse() {
   return (
     <Screen>
       <ScrollView
-        contentContainerStyle={{ paddingHorizontal: 18, paddingTop: 14, paddingBottom: bottom + 110 }}
+        contentContainerStyle={{ paddingHorizontal: 18, paddingTop: 44, paddingBottom: bottom + 90 }}
         keyboardShouldPersistTaps="handled"
       >
         <Rise>
-          <Text style={{ color: T.ink, fontSize: 30, fontWeight: '700', letterSpacing: -1.1 }}>
-            Warehouse
+          <Text style={{ color: T.ink, fontSize: 29, fontWeight: '700', letterSpacing: -1 }}>
+            Locate
           </Text>
           <Text style={{ color: T.faint, fontSize: 13.5, marginTop: 5, lineHeight: 20 }}>
             Put things away and set what is in them. No order, no customer — this is
@@ -206,41 +205,21 @@ export default function Warehouse() {
               </Text>
             </View>
 
-            {scanning && perm?.granted ? (
-              <View
+            {scanning ? (
+              <Scanner
+                onCode={add}
+                onClose={() => setScanning(false)}
                 style={{
-                  height: 230, borderRadius: T.radius, overflow: 'hidden',
-                  borderWidth: 1, borderColor: T.rule, marginBottom: 12,
+                  height: 230, borderRadius: T.radius, marginBottom: 12,
+                  borderWidth: 1, borderColor: T.rule,
                 }}
-              >
-                <CameraView
-                  style={{ flex: 1 }}
-                  facing="back"
-                  barcodeScannerSettings={{
-                    barcodeTypes: ['code128', 'code39', 'ean13', 'ean8', 'upc_a', 'qr', 'datamatrix'],
-                  }}
-                  onBarcodeScanned={({ data }) => add(data)}
-                />
-                <Pressable
-                  onPress={() => setScanning(false)}
-                  style={{
-                    position: 'absolute', right: 10, top: 10,
-                    paddingHorizontal: 14, height: 36, borderRadius: 10,
-                    backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center',
-                  }}
-                >
-                  <Text style={{ color: '#fff', fontWeight: '700', fontSize: 13.5 }}>Stop</Text>
-                </Pressable>
-              </View>
+              />
             ) : (
               <Btn
                 label="Scan with the camera"
                 variant="ghost"
                 style={{ marginBottom: 12 }}
-                onPress={async () => {
-                  if (!perm?.granted) { const r = await requestPerm(); if (!r.granted) return; }
-                  setScanning(true);
-                }}
+                onPress={() => setScanning(true)}
               />
             )}
 

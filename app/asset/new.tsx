@@ -1,8 +1,7 @@
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   View, Text, Pressable, ScrollView, Alert, KeyboardAvoidingView, Platform,
 } from 'react-native';
-import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { useStore } from '@/store';
@@ -13,6 +12,7 @@ import {
 import {
   Field, TextField, Chips, Choice, DateField, Note, isRealDate,
 } from '@/form';
+import { Scanner } from '@/scanner';
 
 /**
  * Adding something to the fleet.
@@ -47,11 +47,6 @@ export default function NewAsset() {
   const [scanning, setScanning] = useState(false);
   const [busy, setBusy] = useState(false);
   const [added, setAdded] = useState<string[]>([]);
-  const [perm, requestPerm] = useCameraPermissions();
-
-  // The camera fires continuously while pointed at a label; without this the
-  // same code lands twenty times a second.
-  const lastSeen = useRef<{ code: string; at: number }>({ code: '', at: 0 });
 
   const label = boot?.org.assetLabel ?? 'asset';
   const products = useMemo(
@@ -67,14 +62,9 @@ export default function NewAsset() {
   const dateOk = !requal || isRealDate(requal);
   const ready = !!barcode && !existing && !!product.trim() && full !== null && dateOk;
 
-  function take(raw: string) {
-    const bc = raw.replace(/\s+/g, '').trim().toUpperCase();
-    if (!bc) return;
-
-    const now = Date.now();
-    if (lastSeen.current.code === bc && now - lastSeen.current.at < 2000) return;
-    lastSeen.current = { code: bc, at: now };
-
+  // Dedupe and misread-rejection live inside Scanner; this only lands the
+  // accepted value in the form.
+  function take(bc: string) {
     setBarcode(bc);
     setScanning(false);
     Haptics.notificationAsync(
@@ -108,7 +98,7 @@ export default function NewAsset() {
       setBarcode('');
       setSerial('');
       refresh().catch(() => {});
-      if (perm?.granted) setScanning(true);
+      setScanning(true);
     } catch (e: unknown) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       if (e instanceof ApiError && e.status === 409 && e.body?.existing) {
@@ -129,19 +119,6 @@ export default function NewAsset() {
     }
   }
 
-  async function openCamera() {
-    if (!perm?.granted) {
-      const r = await requestPerm();
-      if (!r.granted) {
-        Alert.alert(
-          'Camera is off',
-          'Scanning needs the camera. You can still type barcodes in by hand.',
-        );
-        return;
-      }
-    }
-    setScanning(true);
-  }
 
   return (
     <Screen>
@@ -171,48 +148,19 @@ export default function NewAsset() {
           {/* ── the barcode leads ── */}
           <Rise delay={50}>
             <Field label="Barcode" style={{ marginTop: 24 }}>
-              {scanning && perm?.granted ? (
-                <View
+              {scanning ? (
+                <Scanner
+                  onCode={take}
+                  onClose={() => setScanning(false)}
                   style={{
-                    height: 260,
-                    borderRadius: T.radius,
-                    overflow: 'hidden',
-                    borderWidth: 1,
-                    borderColor: 'rgba(63,180,137,0.35)',
+                    height: 260, borderRadius: T.radius,
+                    borderWidth: 1, borderColor: 'rgba(63,180,137,0.35)',
                   }}
-                >
-                  <CameraView
-                    style={{ flex: 1 }}
-                    facing="back"
-                    barcodeScannerSettings={{
-                      barcodeTypes: ['code128', 'code39', 'ean13', 'ean8', 'upc_a', 'qr', 'datamatrix'],
-                    }}
-                    onBarcodeScanned={({ data }) => take(data)}
-                  />
-                  {/* A frame, so the driver knows where to hold it. */}
-                  <View
-                    pointerEvents="none"
-                    style={{
-                      position: 'absolute', left: 34, right: 34, top: 84, bottom: 84,
-                      borderWidth: 2, borderColor: 'rgba(63,180,137,0.7)', borderRadius: 10,
-                    }}
-                  />
-                  <Pressable
-                    onPress={() => setScanning(false)}
-                    accessibilityRole="button"
-                    style={{
-                      position: 'absolute', right: 10, top: 10,
-                      paddingHorizontal: 15, minHeight: 38, borderRadius: 10,
-                      backgroundColor: 'rgba(0,0,0,0.62)', justifyContent: 'center',
-                    }}
-                  >
-                    <Text style={{ color: '#fff', fontWeight: '700', fontSize: 13.5 }}>Stop</Text>
-                  </Pressable>
-                </View>
+                />
               ) : (
                 <View>
                   <Pressable
-                    onPress={openCamera}
+                    onPress={() => setScanning(true)}
                     accessibilityRole="button"
                     accessibilityLabel="Scan a barcode with the camera"
                     style={{
