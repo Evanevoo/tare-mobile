@@ -88,7 +88,7 @@ export default function Delivery() {
                   disabled={!canStart}
                   onPress={() => {
                     startDelivery(picked.id, picked.name, order.trim());
-                    router.push('/scan');
+                    router.push('/scan' as never);
                   }}
                 />
                 <Text

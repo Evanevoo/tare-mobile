@@ -21,7 +21,7 @@ import {
  * The count of closed rentals comes back and is shown, because ending twelve
  * rentals with one tap is not something to find out about later.
  */
-export default function Locate() {
+export default function Warehouse() {
   const router = useRouter();
   const { boot, refresh } = useStore();
   const bottom = useBottomInset(24);
@@ -79,7 +79,7 @@ export default function Locate() {
           r.closed ? `${r.closed} open rental${r.closed === 1 ? '' : 's'} closed — those customers stop being charged.` : null,
           r.unknown.length ? `${r.unknown.length} not in the system: ${r.unknown.slice(0, 5).join(', ')}${r.unknown.length > 5 ? '…' : ''}` : null,
         ].filter(Boolean).join('\n\n'),
-        [{ text: 'Done', onPress: () => router.replace('/') }],
+        [{ text: 'Done', onPress: () => router.replace('/' as never) }],
       );
     } catch (e: any) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
@@ -99,12 +99,12 @@ export default function Locate() {
   return (
     <Screen>
       <ScrollView
-        contentContainerStyle={{ paddingHorizontal: 18, paddingTop: 44, paddingBottom: bottom + 90 }}
+        contentContainerStyle={{ paddingHorizontal: 18, paddingTop: 14, paddingBottom: bottom + 110 }}
         keyboardShouldPersistTaps="handled"
       >
         <Rise>
-          <Text style={{ color: T.ink, fontSize: 29, fontWeight: '700', letterSpacing: -1 }}>
-            Locate
+          <Text style={{ color: T.ink, fontSize: 30, fontWeight: '700', letterSpacing: -1.1 }}>
+            Warehouse
           </Text>
           <Text style={{ color: T.faint, fontSize: 13.5, marginTop: 5, lineHeight: 20 }}>
             Put things away and set what is in them. No order, no customer — this is

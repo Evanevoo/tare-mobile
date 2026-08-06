@@ -7,6 +7,17 @@ import { supabase } from '@/api';
 import { useStore } from '@/store';
 import { T, Aurora } from '@/ui';
 
+/**
+ * The root is a stack that holds one tab navigator and the things that sit on
+ * top of it.
+ *
+ * Scanning is a full-screen modal rather than a tab, because a scan session is
+ * a mode you are in until you submit — offering a tab bar mid-session invites
+ * a driver to wander off with forty unsent scans.
+ *
+ * Nothing is registered here that does not exist. A route that opens a blank
+ * screen costs more trust than a missing feature.
+ */
 export default function RootLayout() {
   const [session, setSession] = useState<'loading' | 'in' | 'out'>('loading');
   const hydrate = useStore((s) => s.hydrate);
@@ -42,9 +53,6 @@ export default function RootLayout() {
       <StatusBar style="light" />
       <Stack
         screenOptions={{
-          // Transparent rather than a slab: the light on each screen runs under
-          // the header, so it is continuous instead of stopping at a hard edge
-          // below the status bar.
           headerTransparent: true,
           headerStyle: { backgroundColor: 'transparent' },
           headerTintColor: T.ink,
@@ -55,14 +63,12 @@ export default function RootLayout() {
         }}
       >
         <Stack.Screen name="login" options={{ headerShown: false }} />
-        <Stack.Screen name="index" options={{ headerShown: false }} />
-        <Stack.Screen name="delivery" options={{ title: 'New delivery' }} />
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen
           name="scan"
-          options={{ title: 'Scanning', headerShown: false, presentation: 'fullScreenModal' }}
+          options={{ headerShown: false, presentation: 'fullScreenModal' }}
         />
-        <Stack.Screen name="locate" options={{ title: 'Locate' }} />
-        <Stack.Screen name="queue" options={{ title: 'Sync' }} />
+        <Stack.Screen name="search" options={{ title: 'Search' }} />
         <Stack.Screen name="settings" options={{ title: 'Settings' }} />
         <Stack.Screen name="asset/[barcode]" options={{ title: '' }} />
         <Stack.Screen name="customer/[id]" options={{ title: '' }} />
