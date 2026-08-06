@@ -3,7 +3,7 @@ import {
   View, Text, TextInput, Pressable, StyleProp, ViewStyle, TextStyle,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { T, Eyebrow, Icon, ICON, mono } from '@/ui';
+import { T, Eyebrow, Icon, ICON, mono, tint, wash } from '@/ui';
 
 /**
  * Form parts, shared by Add and Edit so the two screens cannot drift.
@@ -27,7 +27,7 @@ export const fieldStyle = {
   paddingVertical: 13,
   color: T.ink,
   fontSize: 16,
-  backgroundColor: 'rgba(255,255,255,0.05)',
+  backgroundColor: tint(0.05),
   borderWidth: 1,
   borderColor: T.rule,
 } as const;
@@ -128,9 +128,9 @@ export function Chips({
                 paddingHorizontal: 15,
                 paddingVertical: 8,
                 borderRadius: T.radiusSm,
-                backgroundColor: on ? 'rgba(63,180,137,0.16)' : 'rgba(255,255,255,0.045)',
+                backgroundColor: on ? wash(0.16) : tint(0.045),
                 borderWidth: 1,
-                borderColor: on ? 'rgba(63,180,137,0.45)' : T.rule,
+                borderColor: on ? wash(0.45) : T.rule,
               }}
             >
               <Text
@@ -190,7 +190,7 @@ export function Choice<V extends string>({
               paddingHorizontal: 6,
               paddingVertical: 10,
               borderRadius: T.radiusSm,
-              backgroundColor: on ? withAlpha(tone, 0.16) : 'rgba(255,255,255,0.04)',
+              backgroundColor: on ? withAlpha(tone, 0.16) : tint(0.04),
               borderWidth: 1,
               borderColor: on ? withAlpha(tone, 0.5) : T.rule,
             }}
@@ -266,7 +266,7 @@ export function DateField({
             style={{
               minHeight: 40, justifyContent: 'center', paddingHorizontal: 13,
               borderRadius: T.radiusSm, borderWidth: 1, borderColor: T.rule,
-              backgroundColor: 'rgba(255,255,255,0.04)',
+              backgroundColor: tint(0.04),
             }}
           >
             <Text style={{ color: T.steel, fontSize: 13, fontWeight: '700' }}>+{y} yr</Text>
@@ -309,7 +309,7 @@ export function Note({
         marginTop: 16,
         padding: 14,
         borderRadius: T.radiusSm,
-        backgroundColor: 'rgba(255,255,255,0.035)',
+        backgroundColor: tint(0.035),
         borderWidth: 1,
         borderColor: T.rule,
       }}

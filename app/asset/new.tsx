@@ -6,9 +6,7 @@ import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { useStore } from '@/store';
 import { createAsset, ApiError, type AssetDraft } from '@/api';
-import {
-  T, Screen, Surface, Btn, Rise, Icon, ICON, mono, useBottomInset,
-} from '@/ui';
+import { T, Screen, Surface, Btn, Rise, Icon, ICON, mono, useBottomInset, wash } from '@/ui';
 import {
   Field, TextField, Chips, Choice, DateField, Note, isRealDate,
 } from '@/form';
@@ -154,7 +152,7 @@ export default function NewAsset() {
                   onClose={() => setScanning(false)}
                   style={{
                     height: 260, borderRadius: T.radius,
-                    borderWidth: 1, borderColor: 'rgba(63,180,137,0.35)',
+                    borderWidth: 1, borderColor: wash(0.35),
                   }}
                 />
               ) : (
@@ -168,8 +166,8 @@ export default function NewAsset() {
                       borderRadius: T.radius,
                       borderWidth: 1,
                       borderStyle: 'dashed',
-                      borderColor: 'rgba(63,180,137,0.4)',
-                      backgroundColor: 'rgba(63,180,137,0.06)',
+                      borderColor: wash(0.4),
+                      backgroundColor: wash(0.06),
                       alignItems: 'center',
                       justifyContent: 'center',
                       flexDirection: 'row',

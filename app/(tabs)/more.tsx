@@ -3,7 +3,7 @@ import { useRouter } from 'expo-router';
 import { useStore } from '@/store';
 import { pending } from '@/outbox';
 import { signOut } from '@/api';
-import { T, Screen, Surface, Eyebrow, Rise, Hairline, Icon, ICON } from '@/ui';
+import { T, Screen, Surface, Eyebrow, Rise, Hairline, Icon, ICON, tint } from '@/ui';
 
 /**
  * Everything that is not one of the two jobs.
@@ -164,7 +164,7 @@ function Item({
       style={({ pressed }) => ({
         paddingHorizontal: 18, paddingVertical: 16, minHeight: 56,
         flexDirection: 'row', alignItems: 'center', gap: 14,
-        backgroundColor: pressed ? 'rgba(255,255,255,0.04)' : 'transparent',
+        backgroundColor: pressed ? tint(0.04) : 'transparent',
       })}
     >
       <Icon name={icon} size={ICON.md} color={T.steel} />

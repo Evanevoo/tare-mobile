@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { View, Text, TextInput, Pressable, FlatList } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useStore } from '@/store';
-import { T, Screen, Surface, Btn, Eyebrow, Rise, Tag, mono } from '@/ui';
+import { T, Screen, Surface, Btn, Eyebrow, Rise, Tag, mono, tint } from '@/ui';
 
 /**
  * Delivery setup: who, and against what document.
@@ -35,7 +35,7 @@ export default function Delivery() {
   const field = {
     height: 52, borderRadius: T.radiusSm, paddingHorizontal: 15,
     color: T.ink, fontSize: 16,
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: tint(0.05),
     borderWidth: 1, borderColor: T.rule,
   } as const;
 
@@ -122,7 +122,7 @@ export default function Delivery() {
             style={({ pressed }) => ({
               paddingHorizontal: 18, paddingVertical: 15,
               borderBottomWidth: 1, borderBottomColor: T.soft,
-              backgroundColor: pressed ? 'rgba(255,255,255,0.05)' : 'transparent',
+              backgroundColor: pressed ? tint(0.05) : 'transparent',
               flexDirection: 'row', alignItems: 'center', gap: 10,
             })}
           >

@@ -1,7 +1,7 @@
 import { View, Text, ScrollView, Pressable } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useStore } from '@/store';
-import { T, Screen, Surface, Btn, Eyebrow, Tag, Rise, Hairline, mono } from '@/ui';
+import { T, Screen, Surface, Btn, Eyebrow, Tag, Rise, Hairline, mono, tint } from '@/ui';
 
 /**
  * One asset, everything known about it.
@@ -64,7 +64,7 @@ export default function AssetDetail() {
               <Pressable
                 onPress={() => customer && router.push(`/customer/${customer.id}` as never)}
                 style={({ pressed }) => ({
-                  padding: 18, backgroundColor: pressed ? 'rgba(255,255,255,0.04)' : 'transparent',
+                  padding: 18, backgroundColor: pressed ? tint(0.04) : 'transparent',
                   flexDirection: 'row', alignItems: 'center', gap: 12,
                 })}
               >

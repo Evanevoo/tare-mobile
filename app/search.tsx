@@ -4,7 +4,7 @@ import { useRouter } from 'expo-router';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Haptics from 'expo-haptics';
 import { useStore } from '@/store';
-import { T, Screen, Surface, Eyebrow, Tag, Icon, ICON, mono } from '@/ui';
+import { T, Screen, Surface, Eyebrow, Tag, Icon, ICON, mono, tint, wash } from '@/ui';
 import type { AssetRec, CustomerRec } from '@/api';
 
 /**
@@ -87,8 +87,8 @@ export default function Search() {
             style={{
               flex: 1, height: 54, borderRadius: T.radiusSm, paddingHorizontal: 16,
               color: T.ink, fontSize: 16,
-              backgroundColor: 'rgba(255,255,255,0.05)',
-              borderWidth: 1, borderColor: term ? 'rgba(63,180,137,0.4)' : T.rule,
+              backgroundColor: tint(0.05),
+              borderWidth: 1, borderColor: term ? wash(0.4) : T.rule,
             }}
           />
           <Pressable
@@ -101,8 +101,8 @@ export default function Search() {
             style={{
               width: 54, height: 54, borderRadius: T.radiusSm,
               alignItems: 'center', justifyContent: 'center',
-              backgroundColor: cam ? 'rgba(63,180,137,0.16)' : 'rgba(255,255,255,0.05)',
-              borderWidth: 1, borderColor: cam ? 'rgba(63,180,137,0.45)' : T.rule,
+              backgroundColor: cam ? wash(0.16) : tint(0.05),
+              borderWidth: 1, borderColor: cam ? wash(0.45) : T.rule,
             }}
           >
             <Icon name={cam ? 'x' : 'camera'} size={ICON.md} color={cam ? T.brandLit : T.steel} />

@@ -1,6 +1,6 @@
 import { View, Text, SectionList } from 'react-native';
 import { useStore } from '@/store';
-import { T, Screen, Surface, Eyebrow, Rise, shipTone } from '@/ui';
+import { T, Screen, Surface, Eyebrow, Rise, shipTone, tint } from '@/ui';
 
 /**
  * Every scan this phone has made, newest first.
@@ -67,7 +67,7 @@ export default function History() {
             renderItem={({ item: s }) => (
               <View style={{
                 flexDirection: 'row', alignItems: 'center', gap: 12,
-                paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)',
+                paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: tint(0.05),
               }}>
                 {/* The direction is a bar, not a word — it reads at walking pace. */}
                 <View style={{ width: 3, alignSelf: 'stretch', borderRadius: 2, backgroundColor: shipTone(s.mode) }} />

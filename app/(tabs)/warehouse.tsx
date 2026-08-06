@@ -5,7 +5,7 @@ import { useRouter } from 'expo-router';
 import { useStore } from '@/store';
 import { postFill } from '@/api';
 import {
-  T, Screen, Surface, Btn, Eyebrow, Tag, Rise, Icon, ICON, mono, useBottomInset,
+  T, Screen, Surface, Btn, Eyebrow, Tag, Rise, Icon, ICON, mono, useBottomInset, tint, wash,
 } from '@/ui';
 import { Scanner } from '@/scanner';
 
@@ -91,7 +91,7 @@ export default function Locate() {
   const field = {
     height: 52, borderRadius: T.radiusSm, paddingHorizontal: 15,
     color: T.ink, fontSize: 16,
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: tint(0.05),
     borderWidth: 1, borderColor: T.rule,
   } as const;
 
@@ -132,9 +132,9 @@ export default function Locate() {
                   style={{
                     minHeight: 46, justifyContent: 'center', paddingHorizontal: 16,
                     borderRadius: T.radiusSm,
-                    backgroundColor: location === l ? 'rgba(63,180,137,0.16)' : 'rgba(255,255,255,0.045)',
+                    backgroundColor: location === l ? wash(0.16) : tint(0.045),
                     borderWidth: 1,
-                    borderColor: location === l ? 'rgba(63,180,137,0.45)' : T.rule,
+                    borderColor: location === l ? wash(0.45) : T.rule,
                   }}
                 >
                   <Text
@@ -173,11 +173,11 @@ export default function Locate() {
                     flex: 1, height: 62, borderRadius: T.radiusSm,
                     alignItems: 'center', justifyContent: 'center',
                     backgroundColor: state === k
-                      ? (k === 'full' ? 'rgba(63,180,137,0.18)' : 'rgba(255,255,255,0.07)')
-                      : 'rgba(255,255,255,0.04)',
+                      ? (k === 'full' ? wash(0.18) : tint(0.07))
+                      : tint(0.04),
                     borderWidth: 1,
                     borderColor: state === k
-                      ? (k === 'full' ? 'rgba(63,180,137,0.5)' : 'rgba(255,255,255,0.22)')
+                      ? (k === 'full' ? wash(0.5) : tint(0.22))
                       : T.rule,
                   }}
                 >

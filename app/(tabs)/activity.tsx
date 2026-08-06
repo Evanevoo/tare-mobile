@@ -3,7 +3,9 @@ import { View, Text, Pressable, SectionList, RefreshControl } from 'react-native
 import { useRouter } from 'expo-router';
 import { useStore } from '@/store';
 import { pending } from '@/outbox';
-import { T, Screen, Surface, Btn, Dot, Eyebrow, Tag, Rise, Icon, ICON, mono } from '@/ui';
+import {
+  T, Screen, Surface, Btn, Dot, Eyebrow, Tag, Rise, Icon, ICON, mono, tint, wash,
+} from '@/ui';
 
 /**
  * Activity: what this phone is holding, and what it has sent.
@@ -116,9 +118,9 @@ export default function Activity() {
                   style={{
                     minHeight: 44, justifyContent: 'center', paddingHorizontal: 18,
                     borderRadius: T.radiusSm,
-                    backgroundColor: seg === k ? 'rgba(63,180,137,0.16)' : 'rgba(255,255,255,0.04)',
+                    backgroundColor: seg === k ? wash(0.16) : tint(0.04),
                     borderWidth: 1,
-                    borderColor: seg === k ? 'rgba(63,180,137,0.45)' : T.rule,
+                    borderColor: seg === k ? wash(0.45) : T.rule,
                   }}
                 >
                   <Text
@@ -179,7 +181,7 @@ export default function Activity() {
               paddingHorizontal: 18, paddingVertical: 13,
               borderBottomWidth: 1, borderBottomColor: T.soft,
               opacity: item.state === 'SENT' ? 0.55 : 1,
-              backgroundColor: pressed ? 'rgba(255,255,255,0.04)' : 'transparent',
+              backgroundColor: pressed ? tint(0.04) : 'transparent',
             })}
           >
             <View

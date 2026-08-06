@@ -7,6 +7,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Feather } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
+import { DARK, LIGHT } from '@/theme';
 
 /**
  * INSTRUMENT — the handset half of the design system.
@@ -29,48 +30,54 @@ import * as Haptics from 'expo-haptics';
  *                        emits both and they are tuned to match.
  */
 
+/**
+ * The palette is mutable on purpose. Every screen reads `T.zinc` inline at
+ * render, so swapping the object's contents and remounting the tree (the root
+ * does both, in applyPalette below) re-themes the whole app without a single
+ * screen knowing a theme exists. The measurements live in theme.ts.
+ */
 export const T = {
-  // Base
-  zinc: '#07090A',
-  face: '#141B1E',
-  panelTop: '#171E21',
-  panelBot: '#0D1315',
-
-  // Ink. Contrast measured against #141B1E, the most common surface:
-  // ink 13.9:1, steel 6.6:1, faint 4.7:1. All clear AA at body size.
-  ink: '#EDEFEC',
-  steel: '#98A4AB',
-  faint: '#7C8A91',
-
-  // Lines
-  rule: 'rgba(255,255,255,0.085)',
-  soft: 'rgba(255,255,255,0.05)',
-  edgeLit: 'rgba(255,255,255,0.13)',
-  stamp: '#151C1F',
-
-  // Brand
-  bottle: '#3FB489',
-  brandLit: '#5FD3A6',
-  brandDark: '#2E9A73',
-  onBrand: '#04231A',
-  needle: '#F0654A',
-  amber: '#E0A43A',
-
+  ...DARK,
   radius: 16,
   radiusSm: 12,
   gap: 12,
   mono: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-} as const;
+};
+
+/** Called by the root before it renders, never during a frame. */
+export function applyPalette(mode: 'light' | 'dark') {
+  Object.assign(T, mode === 'light' ? LIGHT : DARK);
+}
+
+/**
+ * A wash of the room's own light — white over a dark floor, ink over paper.
+ * Every "slightly raised" surface in the app is one of these. Hardcoding
+ * rgba(255,255,255,…) is how a dark app looks broken the first time somebody
+ * turns the lights on: the lift simply disappears.
+ */
+export const tint = (a: number) =>
+  (T.statusBar === 'dark' ? `rgba(16,23,26,${a})` : `rgba(255,255,255,${a})`);
+
+/** The same idea in the brand's colour, for a selected chip or segment. */
+export const wash = (a: number, hex: string = T.bottle) => {
+  const h = hex.replace('#', '');
+  const n = parseInt(h.length === 3 ? h.split('').map((c) => c + c).join('') : h, 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+};
 
 export const shipTone = (m: 'SHIP' | 'RETURN') => (m === 'SHIP' ? T.amber : T.bottle);
 
 /** iOS and Android do not share a shadow model, so emit both and tune to match. */
-export function shadow(level: 1 | 2 | 3 = 2, color = '#000'): ViewStyle {
+export function shadow(level: 1 | 2 | 3 = 2, color?: string): ViewStyle {
+  // On paper the same opacities read as soot, so the light palette both tints
+  // the shadow and thins it.
+  const paper = T.statusBar === 'dark';
   const cfg = {
-    1: { h: 2, o: 0.34, r: 6, e: 3 },
-    2: { h: 10, o: 0.46, r: 18, e: 8 },
-    3: { h: 22, o: 0.6, r: 34, e: 16 },
+    1: { h: 2, o: paper ? 0.10 : 0.34, r: 6, e: 3 },
+    2: { h: 10, o: paper ? 0.13 : 0.46, r: 18, e: 8 },
+    3: { h: 22, o: paper ? 0.17 : 0.6, r: 34, e: 16 },
   }[level];
+  color = color ?? T.shadowInk;
   return Platform.select<ViewStyle>({
     ios: {
       shadowColor: color,
@@ -94,12 +101,14 @@ export function Aurora({ intensity = 1 }: { intensity?: number }) {
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="none">
       <View style={[StyleSheet.absoluteFill, { backgroundColor: T.zinc }]} />
+      {/* On paper these read as stains rather than light, so the palette turns
+          them most of the way down and leaves a tint of the brand behind. */}
       <Image
         source={require('../assets/glow-green.png')}
         resizeMode="stretch"
         style={{
           position: 'absolute', top: -230, left: -190, width: 560, height: 520,
-          opacity: 0.5 * intensity,
+          opacity: 0.5 * intensity * T.glow,
         }}
       />
       <Image
@@ -107,13 +116,13 @@ export function Aurora({ intensity = 1 }: { intensity?: number }) {
         resizeMode="stretch"
         style={{
           position: 'absolute', top: 180, right: -220, width: 520, height: 560,
-          opacity: 0.34 * intensity,
+          opacity: 0.34 * intensity * T.glow,
         }}
       />
       <Image
         source={require('../assets/grain.png')}
         resizeMode="repeat"
-        style={[StyleSheet.absoluteFill, { opacity: 0.5 }]}
+        style={[StyleSheet.absoluteFill, { opacity: 0.5 * T.glow }]}
       />
     </View>
   );
@@ -256,9 +265,9 @@ export function Btn({
             style={{
               minHeight: 56, borderRadius: T.radiusSm,
               alignItems: 'center', justifyContent: 'center',
-              backgroundColor: variant === 'ghost' ? 'rgba(255,255,255,0.055)' : 'transparent',
+              backgroundColor: variant === 'ghost' ? tint(0.055) : 'transparent',
               borderWidth: 1,
-              borderColor: variant === 'ghost' ? 'rgba(255,255,255,0.12)' : T.rule,
+              borderColor: variant === 'ghost' ? tint(0.12) : T.rule,
             }}
           >
             {body}

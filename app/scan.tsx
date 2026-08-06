@@ -8,7 +8,7 @@ import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import { useStore } from '@/store';
 import { forOrder, counts } from '@/outbox';
-import { T, shipTone, Surface, Btn, Edge, Tag, mono, shadow } from '@/ui';
+import { T, shipTone, Surface, Btn, Edge, Tag, mono, shadow, tint } from '@/ui';
 import { Scanner } from '@/scanner';
 
 /**
@@ -159,7 +159,7 @@ export default function Scan() {
                   style={{
                     height: 66, borderRadius: T.radiusSm,
                     alignItems: 'center', justifyContent: 'center',
-                    backgroundColor: 'rgba(255,255,255,0.04)',
+                    backgroundColor: tint(0.04),
                     borderWidth: 1, borderColor: T.rule,
                   }}
                 >
@@ -187,7 +187,7 @@ export default function Scan() {
             }),
             backgroundColor: flash.interpolate({
               inputRange: [0, 1],
-              outputRange: ['rgba(255,255,255,0.04)', banner.tone + '2E'],
+              outputRange: [tint(0.04), banner.tone + '2E'],
             }),
             overflow: 'hidden',
           }}

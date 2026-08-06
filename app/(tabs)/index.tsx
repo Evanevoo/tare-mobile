@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { useRouter } from 'expo-router';
 import { useStore } from '@/store';
 import { pending } from '@/outbox';
-import { T, Screen, Surface, Btn, Dot, Eyebrow, Rise, Icon, ICON, mono } from '@/ui';
+import { T, Screen, Surface, Btn, Dot, Eyebrow, Rise, Icon, ICON, mono, tint } from '@/ui';
 
 /**
  * Home does one job.
@@ -67,7 +67,7 @@ export default function Home() {
               style={({ pressed }) => ({
                 width: 46, height: 46, borderRadius: 14, marginTop: 4,
                 alignItems: 'center', justifyContent: 'center',
-                backgroundColor: pressed ? 'rgba(255,255,255,0.09)' : 'rgba(255,255,255,0.05)',
+                backgroundColor: pressed ? tint(0.09) : tint(0.05),
                 borderWidth: 1, borderColor: T.rule,
               })}
             >

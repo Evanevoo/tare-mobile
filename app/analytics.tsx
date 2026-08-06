@@ -1,6 +1,6 @@
 import { View, Text, ScrollView } from 'react-native';
 import { useStore } from '@/store';
-import { T, Screen, Surface, Eyebrow, Rise, Hairline } from '@/ui';
+import { T, Screen, Surface, Eyebrow, Rise, Hairline, tint } from '@/ui';
 
 /**
  * The fleet, counted — entirely from the phone's own cache.
@@ -87,7 +87,7 @@ export default function Analytics() {
                   </View>
                   {/* One bar, two truths: the lit span is out earning, the dim
                       remainder is sitting in the yard. */}
-                  <View style={{ height: 6, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.08)', marginTop: 6, overflow: 'hidden' }}>
+                  <View style={{ height: 6, borderRadius: 3, backgroundColor: tint(0.08), marginTop: 6, overflow: 'hidden' }}>
                     <View style={{
                       height: 6, borderRadius: 3, backgroundColor: T.amber,
                       width: `${p.total ? Math.max(2, Math.round((p.out / p.total) * 100)) : 0}%`,
@@ -115,5 +115,5 @@ function Stat({ v, l, tone }: { v: string; l: string; tone?: string }) {
 }
 
 function VRule() {
-  return <View style={{ width: 1, backgroundColor: 'rgba(255,255,255,0.07)' }} />;
+  return <View style={{ width: 1, backgroundColor: tint(0.07) }} />;
 }

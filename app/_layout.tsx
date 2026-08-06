@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
-import { View, ActivityIndicator } from 'react-native';
+import { View, ActivityIndicator, useColorScheme } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { supabase } from '@/api';
 import { useStore } from '@/store';
-import { T, Aurora } from '@/ui';
+import { T, Aurora, applyPalette } from '@/ui';
+import { useTheme } from '@/theme';
 
 /**
  * The root is a stack that holds one tab navigator and the things that sit on
@@ -23,6 +24,18 @@ export default function RootLayout() {
   const hydrate = useStore((s) => s.hydrate);
   const router = useRouter();
   const segments = useSegments();
+
+  /* Theme. The palette is swapped during render — before any screen below has
+     read a colour — and `key={mode}` remounts the tree so every inline style
+     is recomputed. Both are cheap because this happens twice a year, and the
+     alternative is a theme prop threaded through forty screens. */
+  const os = useColorScheme();
+  const mode = useTheme((s) => s.mode);
+  const setSystem = useTheme((s) => s.setSystem);
+  const hydrateTheme = useTheme((s) => s.hydrate);
+  useEffect(() => { hydrateTheme(); }, []);
+  useEffect(() => { setSystem(os === 'light' ? 'light' : 'dark'); }, [os]);
+  applyPalette(mode);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session ? 'in' : 'out'));
@@ -50,8 +63,9 @@ export default function RootLayout() {
 
   return (
     <SafeAreaProvider>
-      <StatusBar style="light" />
+      <StatusBar style={T.statusBar} />
       <Stack
+        key={mode}
         screenOptions={{
           headerTransparent: true,
           headerStyle: { backgroundColor: 'transparent' },

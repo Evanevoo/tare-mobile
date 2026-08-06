@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { View, Text, ScrollView, Pressable, Linking } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useStore } from '@/store';
-import { T, Screen, Surface, Btn, Eyebrow, Tag, Rise, Hairline, mono } from '@/ui';
+import { T, Screen, Surface, Btn, Eyebrow, Tag, Rise, Hairline, mono, tint } from '@/ui';
 
 /**
  * A customer and what they are holding.
@@ -133,7 +133,7 @@ export default function CustomerDetail() {
                   style={({ pressed }) => ({
                     paddingHorizontal: 16, paddingVertical: 14,
                     borderTopWidth: i ? 1 : 0, borderTopColor: T.soft,
-                    backgroundColor: pressed ? 'rgba(255,255,255,0.05)' : 'transparent',
+                    backgroundColor: pressed ? tint(0.05) : 'transparent',
                     flexDirection: 'row', alignItems: 'center', gap: 10,
                   })}
                 >

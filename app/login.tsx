@@ -4,7 +4,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { signIn } from '@/api';
-import { T, Aurora, Surface, Btn, Edge, Rise, shadow } from '@/ui';
+import { T, Aurora, Surface, Btn, Edge, Rise, shadow, tint } from '@/ui';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -24,7 +24,7 @@ export default function Login() {
   const field = {
     height: 54, borderRadius: T.radiusSm, paddingHorizontal: 16,
     color: T.ink, fontSize: 16,
-    backgroundColor: 'rgba(255,255,255,0.045)',
+    backgroundColor: tint(0.045),
     borderWidth: 1, borderColor: T.rule,
   } as const;
 

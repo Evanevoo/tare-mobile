@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform, Pressable, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 import { CameraView, useCameraPermissions, type BarcodeType } from 'expo-camera';
 import * as Haptics from 'expo-haptics';
-import { T, Icon, ICON } from '@/ui';
+import { T, Icon, ICON, wash } from '@/ui';
 
 /**
  * The one camera surface.
@@ -290,7 +290,7 @@ function Ctl({
         minHeight: 40, minWidth: 40, borderRadius: 11,
         paddingHorizontal: label ? 13 : 0,
         alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6,
-        backgroundColor: active ? 'rgba(63,180,137,0.85)' : 'rgba(0,0,0,0.62)',
+        backgroundColor: active ? wash(0.85) : 'rgba(0,0,0,0.62)',
         borderWidth: glow ? 1.5 : 0,
         borderColor: glow ? T.amber : 'transparent',
       }}
