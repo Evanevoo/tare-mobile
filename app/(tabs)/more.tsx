@@ -56,6 +56,12 @@ export default function More() {
               hint="New stock, or something found with no record"
               onPress={() => router.push('/asset/new' as never)}
             />
+            <Hairline />
+            <Item
+              icon="bar-chart-2" label="Analytics"
+              hint="The fleet counted — works offline"
+              onPress={() => router.push('/analytics' as never)}
+            />
           </Surface>
         </Rise>
 
@@ -72,6 +78,12 @@ export default function More() {
               icon="upload-cloud" label="Sync"
               hint={unsent ? `${unsent} waiting to upload` : 'Everything is on the server'}
               onPress={() => router.push('/activity' as never)}
+            />
+            <Hairline />
+            <Item
+              icon="clock" label="History"
+              hint="Every scan this phone has made"
+              onPress={() => router.push('/history' as never)}
             />
           </Surface>
         </Rise>
