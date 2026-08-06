@@ -57,7 +57,7 @@ export default function Settings() {
               value={lastSync ? new Date(lastSync).toLocaleString() : 'never'}
             />
             <Hairline />
-            <Row label="Downloaded" value={`${(boot?.stats.total ?? 0).toLocaleString()} on file`} mono />
+            <Row label="Downloaded" value={`${(boot?.stats?.total ?? 0).toLocaleString()} on file`} mono />
             <Hairline />
             <Row label="Server" value={API_URL.replace(/^https?:\/\//, '')} mono />
           </Surface>

@@ -59,7 +59,11 @@ export interface CustomerRec {
   held: number;
 }
 
+export const BOOTSTRAP_VERSION = 2;
+
 export interface Bootstrap {
+  /** Shape version. A cache without this is from an older app and is discarded. */
+  v?: number;
   org: { name: string; assetLabel: string; assetPlural: string };
   user: { name: string; email: string; role: string };
   customers: CustomerRec[];

@@ -3,7 +3,7 @@ import { reduce, empty, pending, queued, type Action, type Outbox, type Mode, ty
   from './outbox';
 import { ulid } from './ulid';
 import { loadOutbox, saveOutbox, cacheGet, cacheSet } from './db';
-import { fetchBootstrap, postScans, type Bootstrap } from './api';
+import { fetchBootstrap, postScans, BOOTSTRAP_VERSION, type Bootstrap } from './api';
 
 interface State {
   ready: boolean;
@@ -44,11 +44,20 @@ export const useStore = create<State>((set, get) => ({
   mode: 'SHIP',
 
   async hydrate() {
-    const [outbox, boot, lastSync] = await Promise.all([
+    const [outbox, cached, lastSync] = await Promise.all([
       loadOutbox(),
       cacheGet<Bootstrap>('bootstrap'),
       cacheGet<string>('lastSync'),
     ]);
+
+    // A cache written by an older build has a different shape: `assets` used to
+    // be barcode -> string and is now barcode -> object. Reading `.p` off a
+    // string does not throw where it happens; it yields undefined, and the
+    // crash surfaces three screens later — the worst kind of bug to debug from
+    // a yard. So the payload carries a version, and anything that does not
+    // match is discarded and refetched rather than trusted.
+    const boot = cached && cached.v === BOOTSTRAP_VERSION ? cached : null;
+
     set({ outbox, boot, lastSync, ready: true });
     get().refresh().catch(() => {});
   },
