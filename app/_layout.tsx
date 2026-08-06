@@ -70,6 +70,8 @@ export default function RootLayout() {
         />
         <Stack.Screen name="search" options={{ title: 'Search' }} />
         <Stack.Screen name="settings" options={{ title: 'Settings' }} />
+        <Stack.Screen name="asset/new" options={{ title: 'Add' }} />
+        <Stack.Screen name="asset/edit/[barcode]" options={{ title: 'Correct' }} />
         <Stack.Screen name="asset/[barcode]" options={{ title: '' }} />
         <Stack.Screen name="customer/[id]" options={{ title: '' }} />
       </Stack>

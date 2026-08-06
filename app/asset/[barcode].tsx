@@ -28,7 +28,11 @@ export default function AssetDetail() {
             Not on this phone.{'\n'}
             It may be new, or the list may be out of date — pull down on Home to refresh.
           </Text>
-          <Btn label="Back" variant="ghost" style={{ marginTop: 24, minWidth: 160 }}
+          {/* An unknown barcode in a driver's hand is usually a real thing
+              nobody has recorded yet, so the useful next step is to record it. */}
+          <Btn label="Add it to the fleet" style={{ marginTop: 24, minWidth: 220 }}
+               onPress={() => router.replace('/asset/new' as never)} />
+          <Btn label="Back" variant="ghost" style={{ marginTop: 10, minWidth: 220 }}
                onPress={() => router.back()} />
         </View>
       </Screen>
@@ -139,7 +143,14 @@ export default function AssetDetail() {
         )}
 
         <Rise delay={180} style={{ marginTop: 22 }}>
-          <Btn label="Back" variant="ghost" onPress={() => router.back()} />
+          {/* Correcting the record is an edit; moving it to a customer is a
+              scan. Only the first of those belongs on this screen. */}
+          <Btn
+            label="Correct this record"
+            variant="ghost"
+            onPress={() => router.push(`/asset/edit/${encodeURIComponent(code)}` as never)}
+          />
+          <Btn label="Back" variant="ghost" style={{ marginTop: 10 }} onPress={() => router.back()} />
         </Rise>
 
         <Text

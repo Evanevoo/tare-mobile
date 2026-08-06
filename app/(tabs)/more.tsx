@@ -47,7 +47,19 @@ export default function More() {
           </Surface>
         </Rise>
 
-        <Rise delay={100} style={{ marginTop: 22 }}>
+        <Rise delay={90} style={{ marginTop: 22 }}>
+          <Eyebrow style={{ marginBottom: 12 }}>Fleet</Eyebrow>
+          <Surface>
+            <Item
+              icon="plus-circle"
+              label={`Add ${(boot?.org.assetPlural ?? 'assets').toLowerCase()}`}
+              hint="New stock, or something found with no record"
+              onPress={() => router.push('/asset/new' as never)}
+            />
+          </Surface>
+        </Rise>
+
+        <Rise delay={130} style={{ marginTop: 22 }}>
           <Eyebrow style={{ marginBottom: 12 }}>App</Eyebrow>
           <Surface>
             <Item

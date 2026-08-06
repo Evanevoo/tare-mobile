@@ -59,7 +59,13 @@ export interface CustomerRec {
   held: number;
 }
 
-export const BOOTSTRAP_VERSION = 2;
+/** One product code and how many of them the fleet has. */
+export interface ProductRec {
+  code: string;
+  n: number;
+}
+
+export const BOOTSTRAP_VERSION = 3;
 
 export interface Bootstrap {
   /** Shape version. A cache without this is from an older app and is discarded. */
@@ -69,6 +75,8 @@ export interface Bootstrap {
   customers: CustomerRec[];
   assets: Record<string, AssetRec>;
   locations: string[];
+  /** Commonest first. Drives the product picker when adding something new. */
+  products: ProductRec[];
   stats: {
     total: number; out: number; inHouse: number; full: number; customers: number;
   };
@@ -135,6 +143,77 @@ export async function postFill(
     throw new Error(j?.error ?? `Could not save (${res.status})`);
   }
   return res.json();
+}
+
+/** The editable half of an asset. Everything here is what the thing IS. */
+export interface AssetDraft {
+  productCode: string;
+  serialNumber?: string | null;
+  status?: 'available' | 'rented' | 'maintenance' | 'lost' | 'retired';
+  isFull?: boolean;
+  location?: string | null;
+  customerOwned?: boolean;
+  lastRequalOn?: string | null;
+  nextRequalOn?: string | null;
+}
+
+/**
+ * An error that carries the server's structured answer.
+ *
+ * Adding something that already exists and editing something that still has an
+ * open rental are both refusals the UI has a real response to — open the
+ * existing record, or ask before ending somebody's billing. Flattening them
+ * into a message string would throw that away.
+ */
+export class ApiError extends Error {
+  status: number;
+  body: any;
+  constructor(message: string, status: number, body: any) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.body = body;
+  }
+}
+
+async function send(path: string, method: 'POST' | 'PATCH', body: unknown) {
+  const res = await fetch(`${API_URL}${path}`, {
+    method,
+    headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+    body: JSON.stringify(body),
+  });
+  if (res.status === 401) throw new Error('Your session expired. Sign in again.');
+  const json = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new ApiError(json?.error ?? `Could not save (${res.status})`, res.status, json);
+  }
+  return json;
+}
+
+/**
+ * Add something to the fleet.
+ *
+ * Needs signal. A new barcode invented offline could be invented twice on two
+ * phones, and the loser would silently lose their work at sync — better to say
+ * so now than to lie about having saved it.
+ */
+export function createAsset(barcode: string, draft: AssetDraft) {
+  return send('/api/mobile/assets', 'POST', { barcode, ...draft }) as Promise<{
+    asset: AssetRec & { id: string; barcode: string };
+  }>;
+}
+
+/**
+ * Correct the record on something.
+ *
+ * `confirmCloseRentals` is the second half of a two-step: the first call comes
+ * back 409 with how many rentals are open, the driver is told what ending them
+ * means, and only then does the same call go again with the flag set.
+ */
+export function updateAsset(barcode: string, draft: Partial<AssetDraft> & { confirmCloseRentals?: boolean }) {
+  return send(`/api/mobile/assets/${encodeURIComponent(barcode)}`, 'PATCH', draft) as Promise<{
+    asset: any; closed: number; changed: string[];
+  }>;
 }
 
 export async function signIn(email: string, password: string) {
