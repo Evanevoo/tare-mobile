@@ -32,11 +32,42 @@ async function authHeader(): Promise<Record<string, string>> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+/** One asset, as it arrives. Keys are short because there are forty thousand. */
+export interface AssetRec {
+  p: string | null;        // product code
+  sn: string | null;       // serial number
+  s: string;               // status
+  f: 0 | 1;                // is full
+  l: string | null;        // location
+  c: string | null;        // customer account number, null = in-house
+  own: 0 | 1;              // customer-owned
+  rq: string | null;       // next requalification, YYYY-MM-DD
+  lq: string | null;       // last requalification
+}
+
+export interface CustomerRec {
+  id: string;
+  customerListId: string;
+  name: string;
+  city: string | null;
+  region: string | null;
+  address: string | null;
+  postal: string | null;
+  contact: string | null;
+  phone: string | null;
+  email: string | null;
+  held: number;
+}
+
 export interface Bootstrap {
   org: { name: string; assetLabel: string; assetPlural: string };
   user: { name: string; email: string; role: string };
-  customers: { customerListId: string; name: string; city: string | null }[];
-  assets: Record<string, string>;   // barcode → product code
+  customers: CustomerRec[];
+  assets: Record<string, AssetRec>;
+  locations: string[];
+  stats: {
+    total: number; out: number; inHouse: number; full: number; customers: number;
+  };
   outCount: number;
   syncedAt: string;
 }
@@ -45,6 +76,7 @@ export async function fetchBootstrap(): Promise<Bootstrap> {
   const res = await fetch(`${API_URL}/api/mobile/bootstrap`, {
     headers: { ...(await authHeader()) },
   });
+  if (res.status === 401) throw new Error('Your session expired. Sign in again.');
   if (!res.ok) throw new Error(`Bootstrap failed (${res.status})`);
   return res.json();
 }
@@ -68,6 +100,36 @@ export async function postScans(scans: QueuedScan[]): Promise<SyncResult> {
   });
   if (res.status === 401) throw new Error('Your session expired. Sign in again.');
   if (!res.ok) throw new Error(`Sync failed (${res.status})`);
+  return res.json();
+}
+
+export interface FillResult {
+  updated: number;
+  /** Rentals that were open on these assets and have now been ended. */
+  closed: number;
+  unknown: string[];
+}
+
+/**
+ * Locate: put a batch of assets at a location and mark them full or empty.
+ *
+ * Unlike a delivery this needs signal, because it settles rentals rather than
+ * recording evidence — and a rental closed optimistically on a phone that
+ * never reconnects is a customer billed for nothing.
+ */
+export async function postFill(
+  location: string, state: 'full' | 'empty', barcodes: string[],
+): Promise<FillResult> {
+  const res = await fetch(`${API_URL}/api/mobile/fill`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+    body: JSON.stringify({ location, state, barcodes }),
+  });
+  if (res.status === 401) throw new Error('Your session expired. Sign in again.');
+  if (!res.ok) {
+    const j = await res.json().catch(() => null);
+    throw new Error(j?.error ?? `Could not save (${res.status})`);
+  }
   return res.json();
 }
 

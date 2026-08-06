@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { View, ActivityIndicator } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { supabase } from '@/api';
 import { useStore } from '@/store';
@@ -37,29 +38,35 @@ export default function RootLayout() {
   }
 
   return (
-    <>
+    <SafeAreaProvider>
       <StatusBar style="light" />
       <Stack
         screenOptions={{
-          // Transparent rather than a slab: the aurora on each screen runs
-          // under the header, so the light is continuous instead of stopping
-          // at a hard edge below the status bar.
+          // Transparent rather than a slab: the light on each screen runs under
+          // the header, so it is continuous instead of stopping at a hard edge
+          // below the status bar.
           headerTransparent: true,
           headerStyle: { backgroundColor: 'transparent' },
           headerTintColor: T.ink,
           headerShadowVisible: false,
           headerTitleStyle: { fontWeight: '700', fontSize: 16.5, color: T.ink },
+          headerBackTitle: 'Back',
           contentStyle: { backgroundColor: T.zinc },
         }}
       >
         <Stack.Screen name="login" options={{ headerShown: false }} />
         <Stack.Screen name="index" options={{ headerShown: false }} />
+        <Stack.Screen name="delivery" options={{ title: 'New delivery' }} />
         <Stack.Screen
           name="scan"
           options={{ title: 'Scanning', headerShown: false, presentation: 'fullScreenModal' }}
         />
+        <Stack.Screen name="locate" options={{ title: 'Locate' }} />
         <Stack.Screen name="queue" options={{ title: 'Sync' }} />
+        <Stack.Screen name="settings" options={{ title: 'Settings' }} />
+        <Stack.Screen name="asset/[barcode]" options={{ title: '' }} />
+        <Stack.Screen name="customer/[id]" options={{ title: '' }} />
       </Stack>
-    </>
+    </SafeAreaProvider>
   );
 }

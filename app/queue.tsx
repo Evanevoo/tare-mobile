@@ -1,7 +1,7 @@
 import { View, Text, Pressable, FlatList } from 'react-native';
 import { useStore } from '@/store';
 import { pending } from '@/outbox';
-import { T, shipTone, Aurora, Surface, Btn, Dot, Eyebrow, Tag, Rise, mono } from '@/ui';
+import { T, shipTone, Screen, Surface, Btn, Dot, Eyebrow, Tag, Rise, mono } from '@/ui';
 
 /**
  * The outbox, on screen.
@@ -19,14 +19,12 @@ export default function Queue() {
     s === 'SENT' ? T.bottle : s === 'UPLOADING' ? T.amber : T.faint;
 
   return (
-    <View style={{ flex: 1, backgroundColor: T.zinc }}>
-      <Aurora intensity={0.7} />
-
+    <Screen intensity={0.7}>
       <FlatList
         data={[...unsent, ...sent]}
         keyExtractor={(s) => s.clientId}
         ListHeaderComponent={
-          <View style={{ padding: 18 }}>
+          <View style={{ padding: 18, paddingTop: 46 }}>
             <Rise>
               <Surface level={3} tint={unsent.length ? 'rgba(224,164,58,0.10)' : undefined}>
                 <View style={{ padding: 20 }}>
@@ -122,6 +120,6 @@ export default function Queue() {
           </View>
         )}
       />
-    </View>
+    </Screen>
   );
 }

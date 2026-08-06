@@ -1,9 +1,11 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
-  View, Text, Image, Pressable, Animated, Platform, StyleSheet,
+  View, Text, Image, Pressable, Animated, Platform, StyleSheet, AccessibilityInfo,
   type ViewStyle, type TextStyle, type StyleProp,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Feather } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 
 /**
@@ -227,6 +229,9 @@ export function Btn({
         onPressIn={() => !disabled && spring(0.98)}
         onPressOut={() => spring(1)}
         disabled={disabled || busy}
+        accessibilityRole="button"
+        accessibilityLabel={sub ? `${label}. ${sub}` : label}
+        accessibilityState={{ disabled: !!disabled || !!busy, busy: !!busy }}
         // 56pt: comfortably past the 44pt floor, because this gets pressed
         // with a glove on.
         style={{ opacity: disabled ? 0.38 : 1, minHeight: 56 }}
@@ -262,6 +267,68 @@ export function Btn({
       </Pressable>
     </Animated.View>
   );
+}
+
+/**
+ * Icons are vectors, never glyphs.
+ *
+ * The first pass used Unicode symbols — the kind of thing that looks fine in an
+ * editor and renders as an empty box on somebody's Android. A vector set scales,
+ * themes, and is the same shape on every handset in the fleet.
+ *
+ * Sizes are tokens rather than numbers at the call site, because mixing 20, 24
+ * and 28 across screens is one of the loudest tells of an unfinished app.
+ */
+export const ICON = { sm: 16, md: 20, lg: 24, xl: 30 } as const;
+
+export function Icon({
+  name, size = ICON.md, color = T.steel,
+}: {
+  name: React.ComponentProps<typeof Feather>['name'];
+  size?: number;
+  color?: string;
+}) {
+  return <Feather name={name} size={size} color={color} />;
+}
+
+/**
+ * Every screen starts here.
+ *
+ * Carries the light, and — more importantly — the safe area. Hard-coded top
+ * padding is right on exactly one phone; on anything with a Dynamic Island the
+ * first line of the header ends up underneath it.
+ */
+export function Screen({
+  children, intensity = 1, pad = 0,
+}: { children: React.ReactNode; intensity?: number; pad?: number }) {
+  const insets = useSafeAreaInsets();
+  return (
+    <View style={{ flex: 1, backgroundColor: T.zinc }}>
+      <Aurora intensity={intensity} />
+      <View style={{ flex: 1, paddingTop: insets.top + pad }}>{children}</View>
+    </View>
+  );
+}
+
+export function useBottomInset(extra = 0) {
+  const insets = useSafeAreaInsets();
+  return insets.bottom + extra;
+}
+
+/**
+ * Whether the person has asked the system to calm things down. Honoured by
+ * every entrance in this file — a driver who turned this on in Accessibility
+ * did it for a reason.
+ */
+export function useReducedMotion(): boolean {
+  const [reduced, setReduced] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    AccessibilityInfo.isReduceMotionEnabled().then((v) => { if (alive) setReduced(v); });
+    const sub = AccessibilityInfo.addEventListener('reduceMotionChanged', setReduced);
+    return () => { alive = false; sub?.remove?.(); };
+  }, []);
+  return reduced;
 }
 
 /** A lit status dot. The glow ring is what makes it read as an indicator. */
@@ -324,13 +391,15 @@ export function Rise({
   children, delay = 0, style,
 }: { children: React.ReactNode; delay?: number; style?: StyleProp<ViewStyle> }) {
   const v = useRef(new Animated.Value(0)).current;
+  const reduced = useReducedMotion();
   useEffect(() => {
+    if (reduced) { v.setValue(1); return; }
     const a = Animated.timing(v, {
       toValue: 1, duration: 420, delay, useNativeDriver: true,
     });
     a.start();
     return () => a.stop();
-  }, [delay, v]);
+  }, [delay, v, reduced]);
   return (
     <Animated.View
       style={[

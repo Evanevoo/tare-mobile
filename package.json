@@ -14,6 +14,7 @@
     "submit:android": "eas submit --platform android --latest"
   },
   "dependencies": {
+    "@expo/vector-icons": "^15.0.3",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@supabase/supabase-js": "^2.47.10",
     "babel-preset-expo": "~54.0.10",
