@@ -42,6 +42,22 @@ import { T, Icon, ICON, wash } from '@/ui';
  * feature simply does not appear where it is not installed.
  */
 
+/**
+ * THE ROOT MUST NEVER BE ZERO-HEIGHT.
+ *
+ * A camera preview has no intrinsic size — it is whatever box you put it in.
+ * Mounted inside a full-screen <Modal> with no height and no flex, this View
+ * laid out at exactly 0px and the driver saw the Modal's own white backdrop:
+ * the "scan opens a white screen" bug. Nothing threw, nothing logged, the
+ * camera really was running behind a zero-pixel window.
+ *
+ * flexGrow makes it fill a flex parent (a Modal, a screen). flexBasis 'auto'
+ * — NOT the 0% that `flex: 1` implies — means an explicit height from a
+ * caller still wins, which is what the two inline 230/260px scanners rely on.
+ * So one default serves both shapes and neither call site has to know.
+ */
+const FILL = { flexGrow: 1, flexShrink: 1, flexBasis: 'auto', backgroundColor: '#000' } as const;
+
 // Lowercase names are REQUIRED on iOS — uppercase silently matches nothing.
 const DEFAULT_TYPES: BarcodeType[] = [
   'code128', 'code39', 'code93', 'codabar', 'itf14',
@@ -179,7 +195,7 @@ export function Scanner({
 
   if (!perm?.granted) {
     return (
-      <View style={[{ backgroundColor: '#000', alignItems: 'center', justifyContent: 'center', padding: 24 }, style]}>
+      <View style={[FILL, { alignItems: 'center', justifyContent: 'center', padding: 24 }, style]}>
         <Text style={{ color: T.steel, fontSize: 14.5, textAlign: 'center', lineHeight: 21 }}>
           Scanified needs the camera to read barcodes.
         </Text>
@@ -194,7 +210,7 @@ export function Scanner({
   const hasMlkit = loadMlkit() !== null;
 
   return (
-    <View style={[{ backgroundColor: '#000', overflow: 'hidden' }, style]}>
+    <View style={[FILL, { overflow: 'hidden' }, style]}>
       <Pressable style={{ flex: 1 }} onPress={refocus}>
         <CameraView
           ref={cam}
