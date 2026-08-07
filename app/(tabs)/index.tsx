@@ -1,10 +1,10 @@
 import {
-  View, Text, Pressable, ScrollView, RefreshControl, ActivityIndicator, Modal,
+  View, Text, Pressable, ScrollView, RefreshControl, ActivityIndicator, Modal, Alert,
 } from 'react-native';
 import { useState } from 'react';
 import { useRouter } from 'expo-router';
 import { useStore } from '@/store';
-import { pending } from '@/outbox';
+import { pending, counts } from '@/outbox';
 import { useScanRoute } from '@/scan-route';
 import { Scanner } from '@/scanner';
 import {
@@ -64,7 +64,10 @@ const ACTIONS = [
 
 export default function Home() {
   const router = useRouter();
-  const { boot, ready, online, outbox, refresh, lastSync } = useStore();
+  const {
+    boot, ready, online, outbox, refresh, lastSync,
+    orderNumber, customerName, customerListId, endDelivery, sync,
+  } = useStore();
   const [busy, setBusy] = useState(false);
   const [scanning, setScanning] = useState(false);
   const route = useScanRoute();
@@ -90,6 +93,94 @@ export default function Home() {
   const todayLine = mine.length
     ? `${mine.length} scanned today · ${orders} order${orders === 1 ? '' : 's'}`
     : 'Customer, order number, then scan';
+
+  /**
+   * A DELIVERY LEFT OPEN.
+   *
+   * The job now survives a force-quit, but surviving is only half of it: a
+   * restored job nobody is told about is the same as a lost one, because the
+   * driver taps Delivery, gets the setup screen, and concludes it is gone.
+   *
+   * So when a job is in flight it takes over the largest object on the screen.
+   * It is amber rather than brand blue on purpose — this is not the normal
+   * resting state of the app, it is something with a loose end, and it should
+   * read that way at a glance from a phone on a dashboard mount.
+   *
+   * Two ways out, because "saved until it is done, or we cancel it" is two
+   * different intentions: carry on scanning, or stop. Stopping keeps every
+   * scan — they are already in the outbox and already belong to that order —
+   * and only clears the job, so the wording says so rather than saying
+   * "cancel", which sounds like it throws the work away.
+   */
+  const job = !!(orderNumber && customerListId);
+  const c = orderNumber ? counts(outbox, orderNumber) : null;
+
+  function closeJob() {
+    Alert.alert(
+      'Put this delivery down?',
+      `${c?.total ?? 0} scan${c?.total === 1 ? '' : 's'} on ${orderNumber} stay saved and still upload — this only clears it off the home screen so you can start another.`,
+      [
+        { text: 'Keep scanning', style: 'cancel' },
+        {
+          text: 'Put it down',
+          onPress: () => { endDelivery(); sync().catch(() => {}); },
+        },
+      ],
+    );
+  }
+
+  const Resume = () => (
+    <Pressable
+      onPress={() => router.push('/scan' as never)}
+      accessibilityRole="button"
+      accessibilityLabel={`Resume delivery for ${customerName}, order ${orderNumber}, ${c?.total ?? 0} scanned`}
+      style={({ pressed }) => ({ opacity: pressed ? 0.88 : 1 })}
+    >
+      <Surface level={3} tint="rgba(224,164,58,0.16)">
+        <View style={{ padding: 18, flexDirection: 'row', alignItems: 'center', gap: 15 }}>
+          <View
+            style={{
+              width: 52, height: 52, borderRadius: 15,
+              alignItems: 'center', justifyContent: 'center',
+              backgroundColor: T.amber,
+            }}
+          >
+            <Edge inset={11} opacity={0.7} />
+            <Icon name="play" size={ICON.lg} color="#2A1B02" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Eyebrow style={{ color: T.amber }}>Still open</Eyebrow>
+            <Text
+              numberOfLines={1}
+              style={{ color: T.ink, fontSize: 19, fontWeight: '700', letterSpacing: -0.4, marginTop: 4 }}
+            >
+              {customerName}
+            </Text>
+            <Text style={[mono(12, '500'), { color: T.steel, marginTop: 3 }]}>
+              {orderNumber} · {c?.total ?? 0} scanned
+              {c && c.total > 0 ? ` · ${c.ship} out, ${c.ret} in` : ''}
+            </Text>
+          </View>
+          <Icon name="arrow-right" size={ICON.md} color={T.amber} />
+        </View>
+        <Pressable
+          onPress={closeJob}
+          accessibilityRole="button"
+          accessibilityLabel="Put this delivery down"
+          hitSlop={8}
+          style={({ pressed }) => ({
+            borderTopWidth: 1, borderTopColor: T.soft,
+            paddingVertical: 13, alignItems: 'center',
+            backgroundColor: pressed ? tint(0.05) : 'transparent',
+          })}
+        >
+          <Text style={{ color: T.steel, fontSize: 13, fontWeight: '600' }}>
+            Put it down — scans stay saved
+          </Text>
+        </Pressable>
+      </Surface>
+    </Pressable>
+  );
 
   return (
     <Screen>
@@ -172,40 +263,42 @@ export default function Home() {
 
         {/* ── the reason the app is open ── */}
         <Rise delay={80} style={{ marginTop: 24 }}>
-          <Pressable
-            onPress={() => router.push('/delivery' as never)}
-            accessibilityRole="button"
-            accessibilityLabel={`Delivery. ${todayLine}`}
-            style={({ pressed }) => ({ opacity: pressed ? 0.88 : 1 })}
-          >
-            <Surface level={3} tint={wash(0.15)}>
-              <View
-                style={{
-                  padding: 18, flexDirection: 'row', alignItems: 'center', gap: 15,
-                }}
-              >
+          {job ? <Resume /> : (
+            <Pressable
+              onPress={() => router.push('/delivery' as never)}
+              accessibilityRole="button"
+              accessibilityLabel={`Delivery. ${todayLine}`}
+              style={({ pressed }) => ({ opacity: pressed ? 0.88 : 1 })}
+            >
+              <Surface level={3} tint={wash(0.15)}>
                 <View
                   style={{
-                    width: 52, height: 52, borderRadius: 15,
-                    alignItems: 'center', justifyContent: 'center',
-                    backgroundColor: T.bottle,
+                    padding: 18, flexDirection: 'row', alignItems: 'center', gap: 15,
                   }}
                 >
-                  <Edge inset={11} opacity={0.7} />
-                  <Icon name="truck" size={ICON.lg} color={T.onBrand} />
+                  <View
+                    style={{
+                      width: 52, height: 52, borderRadius: 15,
+                      alignItems: 'center', justifyContent: 'center',
+                      backgroundColor: T.bottle,
+                    }}
+                  >
+                    <Edge inset={11} opacity={0.7} />
+                    <Icon name="truck" size={ICON.lg} color={T.onBrand} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: T.ink, fontSize: 21, fontWeight: '700', letterSpacing: -0.5 }}>
+                      Delivery
+                    </Text>
+                    <Text style={{ color: T.steel, fontSize: 12.5, marginTop: 3 }}>
+                      {todayLine}
+                    </Text>
+                  </View>
+                  <Icon name="arrow-right" size={ICON.md} color={T.brandLit} />
                 </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ color: T.ink, fontSize: 21, fontWeight: '700', letterSpacing: -0.5 }}>
-                    Delivery
-                  </Text>
-                  <Text style={{ color: T.steel, fontSize: 12.5, marginTop: 3 }}>
-                    {todayLine}
-                  </Text>
-                </View>
-                <Icon name="arrow-right" size={ICON.md} color={T.brandLit} />
-              </View>
-            </Surface>
-          </Pressable>
+              </Surface>
+            </Pressable>
+          )}
         </Rise>
 
         {/* ── the other five ── */}
