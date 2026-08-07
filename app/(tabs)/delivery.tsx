@@ -3,6 +3,7 @@ import { View, Text, TextInput, Pressable, FlatList, Modal } from 'react-native'
 import { useRouter } from 'expo-router';
 import { useStore } from '@/store';
 import { Scanner } from '@/scanner';
+import { useScanRoute } from '@/scan-route';
 import { T, Screen, Surface, Btn, Eyebrow, Rise, Tag, mono, tint } from '@/ui';
 
 /**
@@ -15,6 +16,7 @@ import { T, Screen, Surface, Btn, Eyebrow, Rise, Tag, mono, tint } from '@/ui';
  */
 export default function Delivery() {
   const router = useRouter();
+  const route = useScanRoute();
   const { boot, startDelivery } = useStore();
   const [q, setQ] = useState('');
   const [picked, setPicked] = useState<{ id: string; name: string } | null>(null);
@@ -50,33 +52,27 @@ export default function Delivery() {
    * invoice unexplainable later — the failure this screen exists to prevent.
    */
   function handleCode(code: string) {
-    const up = code.trim().toUpperCase();
-    if (!up) return;
+    const t = route(code);
+    if (!t) return;
+    setScanning(false);
 
-    if (boot?.assets?.[up]) {
-      setScanning(false);
-      router.push(`/asset/${encodeURIComponent(up)}` as never);
-      return;
-    }
+    // An asset was already pushed by route() — the driver is looking at the
+    // cylinder now, and nothing on this screen should change underneath them.
+    if (t.kind === 'asset') return;
 
-    const hit = (boot?.customers ?? []).find(
-      (c) => c.customerListId.toUpperCase() === up,
-    );
-    if (hit) {
-      setPicked({ id: hit.customerListId, name: hit.name });
+    if (t.kind === 'customer') {
+      setPicked({ id: t.id, name: t.name });
       setQ('');
-      setNote(`Customer set from scan — ${hit.name}`);
-      setScanning(false);
+      setNote(`Customer set from scan — ${t.name}`);
       return;
     }
 
-    setOrder(up);
+    setOrder(t.code);
     setNote(
       picked
-        ? `Order number set from scan — ${up}`
-        : `Read ${up} as the order number. Pick the customer first if that is wrong.`,
+        ? `Order number set from scan — ${t.code}`
+        : `Read ${t.code} as the order number. Pick the customer first if that is wrong.`,
     );
-    setScanning(false);
   }
 
   const canStart = !!picked && order.trim().length >= 3;
@@ -223,30 +219,36 @@ export default function Delivery() {
         presentationStyle="fullScreen"
         onRequestClose={() => setScanning(false)}
       >
-        <Scanner
-          onCode={handleCode}
-          onClose={() => setScanning(false)}
-          cooldownMs={1200}
-        >
-          <View style={{ position: 'absolute', left: 0, right: 0, bottom: 44, paddingHorizontal: 26 }}>
-            <Text
-              style={{
-                color: '#FFFFFF', fontSize: 14, textAlign: 'center',
-                lineHeight: 20, opacity: 0.9,
-              }}
-            >
-              Read the order number or the customer code.
-            </Text>
-            <Text
-              style={{
-                color: '#FFFFFF', fontSize: 12.5, textAlign: 'center',
-                lineHeight: 18, opacity: 0.6, marginTop: 6,
-              }}
-            >
-              Scan a cylinder here and it opens that cylinder instead.
-            </Text>
-          </View>
-        </Scanner>
+        {/* The black floor is not decoration. A Modal's own backdrop is white,
+            and it is visible for the whole slide-in before the camera's first
+            frame arrives — a white flash in a dark cab at 06:10. */}
+        <View style={{ flex: 1, backgroundColor: '#000' }}>
+          <Scanner
+            onCode={handleCode}
+            onClose={() => setScanning(false)}
+            cooldownMs={1200}
+            style={{ flex: 1 }}
+          >
+            <View style={{ position: 'absolute', left: 0, right: 0, bottom: 44, paddingHorizontal: 26 }}>
+              <Text
+                style={{
+                  color: '#FFFFFF', fontSize: 14, textAlign: 'center',
+                  lineHeight: 20, opacity: 0.9,
+                }}
+              >
+                Read the order number or the customer code.
+              </Text>
+              <Text
+                style={{
+                  color: '#FFFFFF', fontSize: 12.5, textAlign: 'center',
+                  lineHeight: 18, opacity: 0.6, marginTop: 6,
+                }}
+              >
+                Scan a cylinder here and it opens that cylinder instead.
+              </Text>
+            </View>
+          </Scanner>
+        </View>
       </Modal>
     </Screen>
   );
