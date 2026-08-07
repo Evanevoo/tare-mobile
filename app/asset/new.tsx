@@ -4,6 +4,7 @@ import {
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
+import { useHeaderHeight } from '@react-navigation/elements';
 import { useStore } from '@/store';
 import { createAsset, ApiError, type AssetDraft } from '@/api';
 import { T, Screen, Surface, Btn, Rise, Icon, ICON, mono, useBottomInset, wash } from '@/ui';
@@ -34,6 +35,7 @@ import { Scanner } from '@/scanner';
 export default function NewAsset() {
   const router = useRouter();
   const { boot, refresh } = useStore();
+  const header = useHeaderHeight();
   const bottom = useBottomInset(24);
 
   const [barcode, setBarcode] = useState('');
@@ -127,7 +129,9 @@ export default function NewAsset() {
         <ScrollView
           contentContainerStyle={{
             paddingHorizontal: 18,
-            paddingTop: 8,
+            // Clear of the transparent header, or the first field lands
+            // behind the back button.
+            paddingTop: header + 10,
             paddingBottom: bottom + (ready ? 108 : 40),
           }}
           keyboardShouldPersistTaps="handled"

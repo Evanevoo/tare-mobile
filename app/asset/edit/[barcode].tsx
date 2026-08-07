@@ -4,6 +4,7 @@ import {
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useHeaderHeight } from '@react-navigation/elements';
 import { useStore } from '@/store';
 import { updateAsset, ApiError, type AssetDraft } from '@/api';
 import {
@@ -38,6 +39,7 @@ type Status = Serviceable | 'retired';
  */
 export default function EditAsset() {
   const router = useRouter();
+  const header = useHeaderHeight();
   const { barcode: raw } = useLocalSearchParams<{ barcode: string }>();
   const barcode = (raw ?? '').toUpperCase();
   const { boot, refresh } = useStore();
@@ -160,7 +162,11 @@ export default function EditAsset() {
         <ScrollView
           contentContainerStyle={{
             paddingHorizontal: 18,
-            paddingTop: 8,
+            // The root stack draws a transparent header, so the first control
+            // on the page sits underneath the back button unless it is pushed
+            // clear of it. 8px was not clear of anything — the barcode field
+            // was landing directly behind Back.
+            paddingTop: header + 10,
             paddingBottom: bottom + (count ? 108 : 40),
           }}
           keyboardShouldPersistTaps="handled"

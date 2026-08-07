@@ -44,10 +44,13 @@ export const useStore = create<State>((set, get) => ({
   mode: 'SHIP',
 
   async hydrate() {
-    const [outbox, cached, lastSync] = await Promise.all([
+    const [outbox, cached, lastSync, job] = await Promise.all([
       loadOutbox(),
       cacheGet<Bootstrap>('bootstrap'),
       cacheGet<string>('lastSync'),
+      cacheGet<{
+        customerListId: string; customerName: string; orderNumber: string; mode: Mode;
+      }>('delivery'),
     ]);
 
     // A cache written by an older build has a different shape: `assets` used to
@@ -58,7 +61,15 @@ export const useStore = create<State>((set, get) => ({
     // match is discarded and refetched rather than trusted.
     const boot = cached && cached.v === BOOTSTRAP_VERSION ? cached : null;
 
-    set({ outbox, boot, lastSync, ready: true });
+    // Restore the job in flight, if there was one. A driver who force-quit at
+    // bottle thirty comes back to bottle thirty.
+    set({
+      outbox, boot, lastSync, ready: true,
+      customerListId: job?.customerListId ?? null,
+      customerName: job?.customerName ?? null,
+      orderNumber: job?.orderNumber ?? null,
+      mode: job?.mode ?? 'SHIP',
+    });
     get().refresh().catch(() => {});
   },
 
@@ -104,13 +115,38 @@ export const useStore = create<State>((set, get) => ({
     return boot && !(barcode in boot.assets) ? 'unknown' : 'added';
   },
 
+  /**
+   * THE JOB SURVIVES THE APP DYING.
+   *
+   * Scans were always safe — every dispatch writes the outbox to SQLite, so a
+   * force-quit mid-load loses nothing that was scanned. But the *job* around
+   * them lived only in memory: customer, order number and direction. Relaunch
+   * and they came back null, `scan.tsx` bounced the driver to Home, and forty
+   * scans sat in the outbox belonging to an order the app could no longer show
+   * them. They would still upload on the next sync, so nothing was lost — but
+   * a driver who cannot see the job assumes it is gone and scans the load
+   * again, and a double-scanned load is a real problem even when the server
+   * dedupes it.
+   *
+   * So the job is written down too. Same cache the bootstrap uses, one small
+   * object, rewritten only when a delivery starts, ends, or changes direction
+   * — three times a job, not once a scan.
+   */
   startDelivery(customerListId, customerName, orderNumber) {
     set({ customerListId, customerName, orderNumber, mode: 'SHIP' });
+    cacheSet('delivery', { customerListId, customerName, orderNumber, mode: 'SHIP' })
+      .catch(() => {});
   },
   endDelivery() {
     set({ customerListId: null, customerName: null, orderNumber: null });
+    cacheSet('delivery', null).catch(() => {});
   },
-  setMode(mode) { set({ mode }); },
+  setMode(mode) {
+    set({ mode });
+    const { customerListId, customerName, orderNumber } = get();
+    if (!orderNumber) return;
+    cacheSet('delivery', { customerListId, customerName, orderNumber, mode }).catch(() => {});
+  },
 
   async sync() {
     const { outbox, syncing } = get();

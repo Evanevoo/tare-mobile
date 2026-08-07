@@ -227,8 +227,12 @@ export function Scanner({
       </Pressable>
 
       {/* ── reticle: four corners, nothing covering the label ── */}
+      {/* Narrower than the old 16% inset. A wide reticle invites the driver to
+          stand back and frame the whole label, which is the worst way to read a
+          small code; a tighter box brings them closer, and the decoder gets
+          more pixels per bar. */}
       {reticle && (
-        <View pointerEvents="none" style={{ position: 'absolute', left: '16%', right: '16%', top: '30%', bottom: '26%' }}>
+        <View pointerEvents="none" style={{ position: 'absolute', left: '26%', right: '26%', top: '32%', bottom: '30%' }}>
           {([
             { pos: { top: 0, left: 0 }, n: 2, s: 0, w: 2, e: 0, r: { borderTopLeftRadius: 10 } },
             { pos: { top: 0, right: 0 }, n: 2, s: 0, w: 0, e: 2, r: { borderTopRightRadius: 10 } },
