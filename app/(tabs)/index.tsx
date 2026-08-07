@@ -8,45 +8,46 @@ import { pending } from '@/outbox';
 import { useScanRoute } from '@/scan-route';
 import { Scanner } from '@/scanner';
 import {
-  T, Screen, Surface, Dot, Eyebrow, Rise, Icon, ICON, mono, tint, wash,
+  T, Screen, Surface, Edge, Dot, Eyebrow, Rise, Icon, ICON, mono, tint, wash,
 } from '@/ui';
 
 /**
- * HOME IS A LAUNCHER AGAIN.
+ * HOME IS A LAUNCHER AGAIN — AND IT HAS AN OPINION.
  *
- * The previous version of this screen offered two buttons and argued, in a
+ * The first version of this screen offered two buttons and argued, in a
  * comment, that a grid of tiles was "a dashboard wall — the thing that made
- * the old app need training." That reasoning is sound for a product nobody
- * has used yet. It is wrong for this one.
+ * the old app need training." That is right for a product nobody has used
+ * yet. It is wrong for this one: thirteen people use Scanified every day and
+ * are being moved onto this, and for them the grid is not a wall to learn, it
+ * is the map they already carry. Familiarity beats a cleaner taxonomy when
+ * the users are known, existing, and mid-migration.
  *
- * Thirteen people use Scanified every day and are being moved onto this app.
- * For them the grid is not a wall to learn, it is the map they already have,
- * and the six words on it are the six words they already read. Familiarity
- * beats a cleaner taxonomy when the users are known, existing, and mid-
- * migration. So the grid comes back — in this app's language rather than the
- * old pastel-on-lavender, which is the part that was worth leaving behind.
+ * But a straight port of the old grid would be six equally loud boxes, which
+ * is a screen with no view about why you opened it. Two things fix that.
  *
- * Four things are deliberately not copied from the old home:
+ * HIERARCHY. Delivery is most of a driver's day; Analytics is a thing you
+ * look at monthly. Drawing them the same size is a lie about importance. So
+ * Delivery is a full-width lead card carrying today's real state, and the
+ * other five sit quietly underneath.
  *
- *   THE CAMERA IS IN THE SEARCH BAR and actually scans. It reads a label and
- *   opens whatever the label turned out to be. In the old app the equivalent
- *   button was the most-pressed control on the phone, and here it had been
- *   demoted to an icon that only opened a text field.
+ * THE CUSTODY BAR. This is the one memorable object on the screen, and it
+ * earns the boldness because it is the company's whole question in one line:
+ * of everything you own, how much is out earning, how much is sitting here,
+ * and how much of what is sitting here is actually ready to go. Three numbers
+ * in a row cannot say that. A proportional bar says it before you read it —
+ * and an empty cylinder in your own yard reading as dead grey rather than as
+ * a neutral statistic is the point.
  *
- *   NO BELL. The old one carries four thousand unread, which is what a badge
- *   becomes when nothing depends on clearing it. The queue card below says
- *   the one thing a driver actually needs told — whether their scans reached
- *   the server — in words, and its number can reach zero.
- *
- *   TILES HAVE A HINT LINE. "Edit" on its own is the reason somebody taps it
- *   to find out what it does.
- *
- *   ONE TILE IS LIT. Six equally loud tiles is the wall. One lit and five
- *   quiet is a screen with an opinion about why you opened it.
+ * Everything else stays quiet. The old home's notification bell is gone: it
+ * sat at four thousand unread, which is what a badge becomes when clearing it
+ * changes nothing. The queue card below says the one thing a driver actually
+ * needs told — whether their scans reached the server — in words, and its
+ * number can reach zero.
  */
 
 /**
- * The six, in Scanified's own words and Scanified's own order.
+ * The five, in Scanified's own words. Delivery is not in this list because it
+ * is not one of five — it is the reason the app is open.
  *
  * `Edit` points at search on purpose: correcting a record needs a barcode, so
  * the honest route is find-it-then-fix-it. Pointing a tile at a screen that
@@ -54,12 +55,11 @@ import {
  * route that opens nothing costs more trust than a missing feature.
  */
 const ACTIONS = [
-  { key: 'delivery',  icon: 'truck',       label: 'Delivery',  hint: 'Customer, order, scan', href: '/delivery',  lead: true },
-  { key: 'add',       icon: 'plus',        label: 'Add',       hint: 'New to the fleet',      href: '/asset/new', lead: false },
-  { key: 'edit',      icon: 'edit-2',      label: 'Edit',      hint: 'Correct a record',      href: '/search',    lead: false },
-  { key: 'locate',    icon: 'map-pin',     label: 'Locate',    hint: 'Shelf, full or empty',  href: '/warehouse', lead: false },
-  { key: 'history',   icon: 'clock',       label: 'History',   hint: 'What was scanned',      href: '/history',   lead: false },
-  { key: 'analytics', icon: 'trending-up', label: 'Analytics', hint: 'Where the fleet sits',  href: '/analytics', lead: false },
+  { key: 'add',       icon: 'plus',        label: 'Add',       hint: 'New to the fleet',     href: '/asset/new' },
+  { key: 'edit',      icon: 'edit-2',      label: 'Edit',      hint: 'Correct a record',     href: '/search' },
+  { key: 'locate',    icon: 'map-pin',     label: 'Locate',    hint: 'Shelf, full or empty', href: '/warehouse' },
+  { key: 'history',   icon: 'clock',       label: 'History',   hint: 'What was scanned',     href: '/history' },
+  { key: 'analytics', icon: 'trending-up', label: 'Analytics', hint: 'Where the fleet sits', href: '/analytics' },
 ] as const;
 
 export default function Home() {
@@ -81,6 +81,15 @@ export default function Home() {
   }
 
   const s = boot?.stats;
+
+  // Today, from the outbox rather than the server, so it is still true in a
+  // yard with no signal — which is where this screen is usually read.
+  const today = new Date().toISOString().slice(0, 10);
+  const mine = outbox.scans.filter((x) => x.scannedAt.slice(0, 10) === today);
+  const orders = new Set(mine.map((x) => x.orderNumber)).size;
+  const todayLine = mine.length
+    ? `${mine.length} scanned today · ${orders} order${orders === 1 ? '' : 's'}`
+    : 'Customer, order number, then scan';
 
   return (
     <Screen>
@@ -161,8 +170,46 @@ export default function Home() {
           </Surface>
         </Rise>
 
-        {/* ── the six ── */}
+        {/* ── the reason the app is open ── */}
         <Rise delay={80} style={{ marginTop: 24 }}>
+          <Pressable
+            onPress={() => router.push('/delivery' as never)}
+            accessibilityRole="button"
+            accessibilityLabel={`Delivery. ${todayLine}`}
+            style={({ pressed }) => ({ opacity: pressed ? 0.88 : 1 })}
+          >
+            <Surface level={3} tint={wash(0.15)}>
+              <View
+                style={{
+                  padding: 18, flexDirection: 'row', alignItems: 'center', gap: 15,
+                }}
+              >
+                <View
+                  style={{
+                    width: 52, height: 52, borderRadius: 15,
+                    alignItems: 'center', justifyContent: 'center',
+                    backgroundColor: T.bottle,
+                  }}
+                >
+                  <Edge inset={11} opacity={0.7} />
+                  <Icon name="truck" size={ICON.lg} color={T.onBrand} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: T.ink, fontSize: 21, fontWeight: '700', letterSpacing: -0.5 }}>
+                    Delivery
+                  </Text>
+                  <Text style={{ color: T.steel, fontSize: 12.5, marginTop: 3 }}>
+                    {todayLine}
+                  </Text>
+                </View>
+                <Icon name="arrow-right" size={ICON.md} color={T.brandLit} />
+              </View>
+            </Surface>
+          </Pressable>
+        </Rise>
+
+        {/* ── the other five ── */}
+        <Rise delay={120} style={{ marginTop: 12 }}>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
             {ACTIONS.map((a) => (
               <Pressable
@@ -174,27 +221,19 @@ export default function Home() {
                   width: '47%', flexGrow: 1, opacity: pressed ? 0.86 : 1,
                 })}
               >
-                <Surface
-                  level={a.lead ? 2 : 1}
-                  tint={a.lead ? wash(0.13) : undefined}
-                  style={{ minHeight: 108 }}
-                >
+                <Surface level={1} style={{ minHeight: 104 }}>
                   <View style={{ padding: 15 }}>
                     <View
                       style={{
-                        width: 38, height: 38, borderRadius: 11, marginBottom: 12,
+                        width: 36, height: 36, borderRadius: 11, marginBottom: 11,
                         alignItems: 'center', justifyContent: 'center',
-                        backgroundColor: a.lead ? T.bottle : tint(0.06),
-                        borderWidth: a.lead ? 0 : 1, borderColor: T.rule,
+                        backgroundColor: tint(0.06),
+                        borderWidth: 1, borderColor: T.rule,
                       }}
                     >
-                      <Icon
-                        name={a.icon}
-                        size={ICON.md}
-                        color={a.lead ? T.onBrand : T.brandLit}
-                      />
+                      <Icon name={a.icon} size={ICON.md} color={T.brandLit} />
                     </View>
-                    <Text style={{ color: T.ink, fontSize: 15.5, fontWeight: '700' }}>
+                    <Text style={{ color: T.ink, fontSize: 15, fontWeight: '700' }}>
                       {a.label}
                     </Text>
                     <Text
@@ -211,7 +250,7 @@ export default function Home() {
         </Rise>
 
         {/* ── are my scans safe ── */}
-        <Rise delay={130} style={{ marginTop: 26 }}>
+        <Rise delay={160} style={{ marginTop: 26 }}>
           <Pressable
             onPress={() => router.push('/activity' as never)}
             accessibilityRole="button"
@@ -237,35 +276,7 @@ export default function Home() {
           </Pressable>
         </Rise>
 
-        {/* ── the fleet, quietly ── */}
-        {s && (
-          <Rise delay={170} style={{ marginTop: 14 }}>
-            <Surface>
-              <View style={{ flexDirection: 'row' }}>
-                {[
-                  ['Out on rent', s.out, T.amber],
-                  ['In house', s.inHouse, T.ink],
-                  ['Full', s.full, T.bottle],
-                ].map(([label, value, tone], i) => (
-                  <View
-                    key={label as string}
-                    style={{
-                      flex: 1, padding: 16,
-                      borderLeftWidth: i ? 1 : 0, borderLeftColor: T.soft,
-                    }}
-                  >
-                    <Text style={[mono(21, '800'), { color: tone as string }]}>
-                      {(value as number).toLocaleString()}
-                    </Text>
-                    <Text style={{ color: T.faint, fontSize: 11.5, marginTop: 5 }}>
-                      {label as string}
-                    </Text>
-                  </View>
-                ))}
-              </View>
-            </Surface>
-          </Rise>
-        )}
+        {s && <Custody out={s.out} inHouse={s.inHouse} full={s.full} />}
       </ScrollView>
 
       {/* ── the camera, full screen ──────────────────────────────────────
@@ -298,6 +309,82 @@ export default function Home() {
         </View>
       </Modal>
     </Screen>
+  );
+}
+
+/**
+ * THE CUSTODY BAR — the one object on this screen worth remembering.
+ *
+ * Everything this company owns is in one of three states, and they are not
+ * equally good. Out on rent is earning. Full and in house is ready to earn.
+ * Empty and in house is a steel cylinder taking up floor space, which is the
+ * state nobody tracks and everybody pays for. Three numbers in a row give all
+ * three the same weight; a proportional bar shows the actual shape of the
+ * fleet before you have read a single digit.
+ *
+ * The split is drawn from `out` and `inHouse` rather than from `total`,
+ * because those two are what the server counts and their sum is the fleet by
+ * definition — deriving the denominator from `total` instead would leave a
+ * ghost segment whenever the counts disagree by a row or two. `full` is a
+ * subset of what is in house, so it is clamped to it and drawn inside it.
+ */
+function Custody({ out, inHouse, full }: { out: number; inHouse: number; full: number }) {
+  const ready = Math.min(full, inHouse);
+  const empty = Math.max(0, inHouse - ready);
+  const fleet = out + inHouse;
+  if (fleet <= 0) return null;
+
+  const seg = [
+    { n: out,   tone: T.amber,  label: 'Out on rent', hint: 'earning' },
+    { n: ready, tone: T.bottle, label: 'Full',        hint: 'ready to go' },
+    { n: empty, tone: T.steel,  label: 'Empty',       hint: 'here, idle' },
+  ].filter((x) => x.n > 0);
+
+  return (
+    <Rise delay={200} style={{ marginTop: 14 }}>
+      <Surface>
+        <View style={{ padding: 16 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'baseline', marginBottom: 13 }}>
+            <Eyebrow>The fleet</Eyebrow>
+            <Text style={[mono(12, '700'), { color: T.faint, marginLeft: 'auto' }]}>
+              {fleet.toLocaleString()}
+            </Text>
+          </View>
+
+          {/* One bar. The gaps between segments are 2px of the panel showing
+              through, which reads as machined rather than as a stacked chart. */}
+          <View
+            style={{
+              flexDirection: 'row', height: 12, borderRadius: 6,
+              overflow: 'hidden', backgroundColor: tint(0.06), gap: 2,
+            }}
+          >
+            {seg.map((x) => (
+              <View key={x.label} style={{ flex: x.n, backgroundColor: x.tone }} />
+            ))}
+          </View>
+
+          <View style={{ flexDirection: 'row', marginTop: 14 }}>
+            {seg.map((x, i) => (
+              <View key={x.label} style={{ flex: 1, paddingLeft: i ? 12 : 0 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <View style={{ width: 7, height: 7, borderRadius: 2, backgroundColor: x.tone }} />
+                  <Text style={[mono(17, '800'), { color: T.ink }]}>
+                    {x.n.toLocaleString()}
+                  </Text>
+                </View>
+                <Text style={{ color: T.steel, fontSize: 11.5, marginTop: 4, fontWeight: '600' }}>
+                  {x.label}
+                </Text>
+                <Text style={{ color: T.faint, fontSize: 10.5, marginTop: 1 }}>
+                  {x.hint}
+                </Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      </Surface>
+    </Rise>
   );
 }
 
