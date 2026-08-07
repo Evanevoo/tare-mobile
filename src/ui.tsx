@@ -103,9 +103,15 @@ export function Aurora({ intensity = 1 }: { intensity?: number }) {
       <View style={[StyleSheet.absoluteFill, { backgroundColor: T.zinc }]} />
       {/* On paper these read as stains rather than light, so the palette turns
           them most of the way down and leaves a tint of the brand behind. */}
+      {/* The two PNGs were authored green, back when the brand was. Rather
+          than ship new binaries, `tintColor` recolours an alpha image whole
+          while preserving its falloff — so the light in the room now follows
+          the palette, in both themes, and the asset filenames are the only
+          thing left that still says green. */}
       <Image
         source={require('../assets/glow-green.png')}
         resizeMode="stretch"
+        tintColor={T.brandLit}
         style={{
           position: 'absolute', top: -230, left: -190, width: 560, height: 520,
           opacity: 0.5 * intensity * T.glow,
@@ -114,6 +120,7 @@ export function Aurora({ intensity = 1 }: { intensity?: number }) {
       <Image
         source={require('../assets/glow-teal.png')}
         resizeMode="stretch"
+        tintColor={T.bottle}
         style={{
           position: 'absolute', top: 180, right: -220, width: 520, height: 560,
           opacity: 0.34 * intensity * T.glow,
@@ -161,7 +168,10 @@ export function Surface({
         style={{
           borderRadius: radius,
           borderWidth: 1,
-          borderColor: tint ? 'rgba(63,180,137,0.28)' : T.rule,
+          // Derived, not literal. This was a hardcoded green, which meant a
+          // tinted surface stayed green after the brand went blue and was the
+          // wrong shade in light mode besides. wash() follows the palette.
+          borderColor: tint ? wash(0.28) : T.rule,
           overflow: 'hidden',
           backgroundColor: tint ? T.panelBot : undefined,
         }}

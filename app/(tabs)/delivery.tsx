@@ -4,7 +4,7 @@ import { useRouter } from 'expo-router';
 import { useStore } from '@/store';
 import { Scanner } from '@/scanner';
 import { useScanRoute } from '@/scan-route';
-import { T, Screen, Surface, Btn, Eyebrow, Rise, Tag, mono, tint } from '@/ui';
+import { T, Screen, Surface, Btn, Eyebrow, Rise, Tag, mono, tint, wash } from '@/ui';
 
 /**
  * Delivery setup: who, and against what document.
@@ -108,7 +108,7 @@ export default function Delivery() {
               <Eyebrow style={{ marginBottom: 10 }}>1 · Customer</Eyebrow>
               {picked ? (
                 <Pressable onPress={() => setPicked(null)}>
-                  <Surface tint="rgba(63,180,137,0.13)" style={{ marginBottom: 22 }}>
+                  <Surface tint={wash(0.13)} style={{ marginBottom: 22 }}>
                     <View style={{ padding: 16 }}>
                       <Text style={{ color: T.ink, fontSize: 17, fontWeight: '700' }}>
                         {picked.name}
@@ -137,8 +137,8 @@ export default function Delivery() {
                 <View
                   style={{
                     marginBottom: 16, padding: 12, borderRadius: T.radiusSm,
-                    backgroundColor: 'rgba(63,180,137,0.10)',
-                    borderWidth: 1, borderColor: 'rgba(63,180,137,0.24)',
+                    backgroundColor: wash(0.10),
+                    borderWidth: 1, borderColor: wash(0.24),
                   }}
                 >
                   <Text style={{ color: T.brandLit, fontSize: 13, lineHeight: 19 }}>{note}</Text>

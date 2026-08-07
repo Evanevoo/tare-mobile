@@ -52,10 +52,14 @@ export const DARK: Palette = {
   edgeLit: 'rgba(255,255,255,0.13)',
   stamp: '#151C1F',
 
-  bottle: '#3FB489',
-  brandLit: '#5FD3A6',
-  brandDark: '#2E9A73',
-  onBrand: '#04231A',
+  // The brand is the logo's glassy blue, and these are the console's own
+  // tokens (--brand / --brand-lit / --brand-deep in marketing.css) rather than
+  // a handset approximation of them. One product cannot be green on the phone
+  // and blue on the web.
+  bottle: '#34AEDC',
+  brandLit: '#6FDDF2',
+  brandDark: '#1E7CA4',
+  onBrand: '#04202B',
   needle: '#F0654A',
   amber: '#E0A43A',
 
@@ -81,14 +85,18 @@ export const LIGHT: Palette = {
   edgeLit: 'rgba(255,255,255,0.95)',
   stamp: '#EDF0EA',
 
-  bottle: '#17795A',          // 5.2:1 on white
-  brandLit: '#1E9270',
-  brandDark: '#0F5C43',
-  onBrand: '#F2FBF7',
+  // The same blue, darkened until it survives paper. Measured on #FFFFFF:
+  // bottle 5.9:1, brandLit 4.6:1. brandLit has to clear 4.5 on its own because
+  // it is not only the top of a gradient — it is the icon colour on the pale
+  // tiles, where there is no dark surface to carry it.
+  bottle: '#146C8C',
+  brandLit: '#1B7FA3',
+  brandDark: '#0E4E66',
+  onBrand: '#F2FAFD',
   needle: '#B93A22',
   amber: '#8A5B10',
 
-  shadowInk: '#1B2A24',
+  shadowInk: '#16252B',
   glow: 0.22,                 // the aurora survives as a tint, not a light
   statusBar: 'dark',
 };
