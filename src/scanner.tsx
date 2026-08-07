@@ -311,10 +311,10 @@ function Ctl({
         borderColor: glow ? T.amber : 'transparent',
       }}
     >
-      {icon && <Icon name={icon} size={ICON.sm} color={active ? '#04231A' : glow ? T.amber : '#fff'} />}
+      {icon && <Icon name={icon} size={ICON.sm} color={active ? T.onBrand : glow ? T.amber : '#fff'} />}
       {label && (
         <View>
-          <Text style={{ color: active ? '#04231A' : '#fff', fontWeight: '800', fontSize: 12.5 }}>
+          <Text style={{ color: active ? T.onBrand : '#fff', fontWeight: '800', fontSize: 12.5 }}>
             {label}
           </Text>
           {hint && <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 8.5 }}>{hint}</Text>}

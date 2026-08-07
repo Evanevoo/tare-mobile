@@ -4,7 +4,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { signIn, requestPasswordReset } from '@/api';
-import { T, Aurora, Surface, Btn, Edge, Rise, shadow, tint } from '@/ui';
+import { T, Aurora, Surface, Btn, Edge, Rise, shadow, tint, wash } from '@/ui';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -131,8 +131,8 @@ export default function Login() {
                   <View
                     style={{
                       marginTop: 14, padding: 12, borderRadius: T.radiusSm,
-                      backgroundColor: 'rgba(63,180,137,0.10)',
-                      borderWidth: 1, borderColor: 'rgba(63,180,137,0.26)',
+                      backgroundColor: wash(0.10),
+                      borderWidth: 1, borderColor: wash(0.26),
                     }}
                   >
                     <Text style={{ color: T.brandLit, fontSize: 13.5, lineHeight: 19 }}>
