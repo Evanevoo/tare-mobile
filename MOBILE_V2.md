@@ -22,24 +22,49 @@ from a dashboard, which is why it needed training.
 ```
 login                          not signed in
 └── (tabs)                     signed in
-    ├── index        Home      one job, plus "are my scans safe"
+    ├── index        Home      scan-search, six actions, "are my scans safe"
     ├── delivery     Delivery  customer + order → scan
     ├── warehouse    Warehouse location + full/empty → scan
     ├── activity     Activity  waiting | sent, grouped by order
     └── more         More      profile, settings, help, sign out
 scan                           FULL-SCREEN MODAL, outside the tabs
 search                         stack, from Home
-settings                       stack, from More
+settings                       stack, from Home and More
+history                        stack, from Home
+analytics                      stack, from Home
+asset/new                      stack, from Home
+asset/edit/[barcode]           stack, from an asset
 asset/[barcode]                stack, from anywhere
 customer/[id]                  stack, from anywhere
 ```
+
+### Home is a launcher, and that is a reversal
+
+The first version of Home offered two buttons and argued that a grid of tiles
+was the dashboard wall that made the old app need training. That is right for a
+product nobody has used yet and wrong for this one: thirteen people use
+Scanified daily and are being migrated onto this. The grid is not a wall they
+have to learn, it is the map they already carry, and the six labels — Delivery,
+Add, Edit, Locate, History, Analytics — are Scanified's own words in Scanified's
+own order. Familiarity beats a cleaner taxonomy when the users are known,
+existing, and mid-migration.
+
+What is not copied from the old home: the notification bell (its badge sat at
+four thousand unread, which is what a badge becomes when clearing it changes
+nothing), and the palette. The camera moved into the search bar and became a
+real scan-and-go — read a label, open whatever it turned out to be. `src/scan-route.ts`
+owns that asset-then-customer-then-text decision so Home and Delivery cannot
+drift apart on it.
 
 Scanning is a modal rather than a tab on purpose. A scan session is a mode you
 are in until you submit, and a tab bar mid-session invites someone to wander off
 with forty unsent scans.
 
-Nothing is registered that does not exist. A route that opens a blank screen
-costs more trust than a missing feature.
+Nothing is registered that does not exist, and nothing that exists goes
+unregistered. The first half stops a tile opening a blank screen; the second
+stops a screen arriving with the default header — wrong tint, wrong weight,
+wrong back affordance — which is what History and Analytics did for a while
+because the files were on disk but not on the stack.
 
 ## Business rules
 
@@ -149,12 +174,18 @@ Not aspirational — these are met.
 
 ## Not built yet
 
-Named so nobody has to go looking:
+Named so nobody has to go looking. **Add asset, Edit asset and Analytics were
+on this list and are not any more** — all three shipped, and the Home grid
+points at them.
 
-- **Add asset** and **Edit asset** — registration and correction from the phone.
-- **Analytics** — counts by period. The console has this; the handset does not.
 - **History editing** — Activity shows what this phone sent, not the org's last
-  24 hours, and there is no edit-within-24h path yet.
+  24 hours, and there is no edit-within-24h path yet. This is the largest
+  remaining gap on the handset: it needs two API endpoints and a rewrite of
+  `app/history.tsx` to group by order across the whole organization.
+- **Edit-by-scan** — the Edit tile routes through search, because correcting a
+  record needs a barcode and `asset/edit/[barcode]` cannot render without one.
+  Pointing the camera at a label and landing straight on its correction form is
+  the shorter path and is not built.
 - **Support tickets** — More links to email instead. One finished path beats two
   half-built ones.
 - **Biometric unlock.**
