@@ -221,4 +221,26 @@ export async function signIn(email: string, password: string) {
   if (error) throw new Error(error.message);
 }
 
+/**
+ * Send a recovery link.
+ *
+ * The link lands on the web app rather than back in here, because setting a
+ * new password is a once-every-few-years job and building a deep-link handler
+ * for it on the handset is a lot of surface for something a browser already
+ * does well. It goes through `/auth/callback` so the PKCE code is exchanged
+ * for a session before the reset form is shown — the same route the signup
+ * confirmation uses.
+ *
+ * Never reports whether the address is known. A login screen that answers
+ * "no such account" is an account-enumeration oracle, and the driver who
+ * genuinely mistyped is helped just as well by "if that address is on the
+ * account, a link is on its way".
+ */
+export async function requestPasswordReset(email: string) {
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: `${API_URL}/auth/callback?next=/reset-password`,
+  });
+  if (error) throw new Error(error.message);
+}
+
 export const signOut = () => supabase.auth.signOut();

@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
-import { View, Text, TextInput, Pressable, FlatList } from 'react-native';
+import { View, Text, TextInput, Pressable, FlatList, Modal } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useStore } from '@/store';
+import { Scanner } from '@/scanner';
 import { T, Screen, Surface, Btn, Eyebrow, Rise, Tag, mono, tint } from '@/ui';
 
 /**
@@ -18,6 +19,8 @@ export default function Delivery() {
   const [q, setQ] = useState('');
   const [picked, setPicked] = useState<{ id: string; name: string } | null>(null);
   const [order, setOrder] = useState('');
+  const [scanning, setScanning] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
 
   const customers = useMemo(() => {
     const all = boot?.customers ?? [];
@@ -30,6 +33,52 @@ export default function Delivery() {
     ).slice(0, 60);
   }, [boot, q]);
 
+  /**
+   * One camera for both fields, because a driver holding a phone in one hand
+   * does not want to choose which kind of code they are about to read. What
+   * the code IS decides where it goes:
+   *
+   *   a barcode already in the fleet → they scanned a bottle by reflex before
+   *       setting the job up. Show them the bottle rather than swallowing it —
+   *       nine times in ten that is what they wanted to look at anyway, and
+   *       the tenth time they press back and carry on.
+   *   a code matching a customer account → fill in the customer
+   *   anything else → it is the document number
+   *
+   * The order matters. Asset first, because a mis-scanned cylinder landing
+   * silently in the order-number field is precisely the error that makes an
+   * invoice unexplainable later — the failure this screen exists to prevent.
+   */
+  function handleCode(code: string) {
+    const up = code.trim().toUpperCase();
+    if (!up) return;
+
+    if (boot?.assets?.[up]) {
+      setScanning(false);
+      router.push(`/asset/${encodeURIComponent(up)}` as never);
+      return;
+    }
+
+    const hit = (boot?.customers ?? []).find(
+      (c) => c.customerListId.toUpperCase() === up,
+    );
+    if (hit) {
+      setPicked({ id: hit.customerListId, name: hit.name });
+      setQ('');
+      setNote(`Customer set from scan — ${hit.name}`);
+      setScanning(false);
+      return;
+    }
+
+    setOrder(up);
+    setNote(
+      picked
+        ? `Order number set from scan — ${up}`
+        : `Read ${up} as the order number. Pick the customer first if that is wrong.`,
+    );
+    setScanning(false);
+  }
+
   const canStart = !!picked && order.trim().length >= 3;
 
   const field = {
@@ -38,6 +87,17 @@ export default function Delivery() {
     backgroundColor: tint(0.05),
     borderWidth: 1, borderColor: T.rule,
   } as const;
+
+  /** Sits inside a field the way Show/Hide does on the sign-in screen. */
+  const ScanBtn = () => (
+    <Pressable
+      onPress={() => { setNote(null); setScanning(true); }}
+      hitSlop={12}
+      style={{ position: 'absolute', right: 13, top: 0, height: 52, justifyContent: 'center' }}
+    >
+      <Text style={[mono(12, '700'), { color: T.brandLit, letterSpacing: 0.6 }]}>SCAN</Text>
+    </Pressable>
+  );
 
   return (
     <Screen>
@@ -64,24 +124,44 @@ export default function Delivery() {
                   </Surface>
                 </Pressable>
               ) : (
-                <TextInput
-                  value={q} onChangeText={setQ}
-                  placeholder="Search customers…" placeholderTextColor={T.faint}
-                  autoCorrect={false} autoCapitalize="none"
-                  style={[field, { marginBottom: 12 }]}
-                />
+                <View style={{ marginBottom: 12 }}>
+                  <TextInput
+                    value={q} onChangeText={setQ}
+                    placeholder="Search or scan a customer…" placeholderTextColor={T.faint}
+                    autoCorrect={false} autoCapitalize="none"
+                    style={[field, { paddingRight: 62 }]}
+                  />
+                  <ScanBtn />
+                </View>
               )}
             </Rise>
+
+            {note && (
+              <Pressable onPress={() => setNote(null)}>
+                <View
+                  style={{
+                    marginBottom: 16, padding: 12, borderRadius: T.radiusSm,
+                    backgroundColor: 'rgba(63,180,137,0.10)',
+                    borderWidth: 1, borderColor: 'rgba(63,180,137,0.24)',
+                  }}
+                >
+                  <Text style={{ color: T.brandLit, fontSize: 13, lineHeight: 19 }}>{note}</Text>
+                </View>
+              </Pressable>
+            )}
 
             {picked && (
               <Rise delay={40}>
                 <Eyebrow style={{ marginBottom: 10 }}>2 · Order number</Eyebrow>
-                <TextInput
-                  value={order} onChangeText={(v) => setOrder(v.toUpperCase())}
-                  placeholder="INV-9001" placeholderTextColor={T.faint}
-                  autoCapitalize="characters" autoCorrect={false} autoFocus
-                  style={[field, mono(17, '600'), { color: T.ink }]}
-                />
+                <View>
+                  <TextInput
+                    value={order} onChangeText={(v) => setOrder(v.toUpperCase())}
+                    placeholder="INV-9001" placeholderTextColor={T.faint}
+                    autoCapitalize="characters" autoCorrect={false} autoFocus
+                    style={[field, mono(17, '600'), { color: T.ink, paddingRight: 62 }]}
+                  />
+                  <ScanBtn />
+                </View>
                 <Btn
                   label="Start scanning"
                   style={{ marginTop: 20 }}
@@ -136,6 +216,38 @@ export default function Delivery() {
           </Pressable>
         )}
       />
+
+      <Modal
+        visible={scanning}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        onRequestClose={() => setScanning(false)}
+      >
+        <Scanner
+          onCode={handleCode}
+          onClose={() => setScanning(false)}
+          cooldownMs={1200}
+        >
+          <View style={{ position: 'absolute', left: 0, right: 0, bottom: 44, paddingHorizontal: 26 }}>
+            <Text
+              style={{
+                color: '#FFFFFF', fontSize: 14, textAlign: 'center',
+                lineHeight: 20, opacity: 0.9,
+              }}
+            >
+              Read the order number or the customer code.
+            </Text>
+            <Text
+              style={{
+                color: '#FFFFFF', fontSize: 12.5, textAlign: 'center',
+                lineHeight: 18, opacity: 0.6, marginTop: 6,
+              }}
+            >
+              Scan a cylinder here and it opens that cylinder instead.
+            </Text>
+          </View>
+        </Scanner>
+      </Modal>
     </Screen>
   );
 }

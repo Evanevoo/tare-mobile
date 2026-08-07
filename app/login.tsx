@@ -3,7 +3,7 @@ import {
   View, Text, TextInput, KeyboardAvoidingView, Platform, ScrollView, Pressable,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { signIn } from '@/api';
+import { signIn, requestPasswordReset } from '@/api';
 import { T, Aurora, Surface, Btn, Edge, Rise, shadow, tint } from '@/ui';
 
 export default function Login() {
@@ -12,12 +12,28 @@ export default function Login() {
   const [show, setShow] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sent, setSent] = useState(false);
 
   async function submit() {
     if (!email || !password || busy) return;
-    setBusy(true); setError(null);
+    setBusy(true); setError(null); setSent(false);
     try { await signIn(email.trim(), password); }
     catch (e: any) { setError(e?.message ?? 'Could not sign in'); }
+    finally { setBusy(false); }
+  }
+
+  /**
+   * Reuses whatever is already in the email field rather than opening a second
+   * screen to ask for it again — by the time somebody taps this they have
+   * usually typed their address once and failed the password twice.
+   */
+  async function forgot() {
+    if (busy) return;
+    const addr = email.trim();
+    if (!addr) { setError('Type your work email first, then tap this again.'); return; }
+    setBusy(true); setError(null);
+    try { await requestPasswordReset(addr); setSent(true); }
+    catch (e: any) { setError(e?.message ?? 'Could not send the link'); }
     finally { setBusy(false); }
   }
 
@@ -100,6 +116,32 @@ export default function Login() {
                     </Text>
                   </Pressable>
                 </View>
+
+                <Pressable
+                  onPress={forgot}
+                  hitSlop={10}
+                  style={{ alignSelf: 'flex-end', marginTop: 12 }}
+                >
+                  <Text style={{ color: T.steel, fontSize: 13, fontWeight: '600' }}>
+                    Forgot your password?
+                  </Text>
+                </Pressable>
+
+                {sent && (
+                  <View
+                    style={{
+                      marginTop: 14, padding: 12, borderRadius: T.radiusSm,
+                      backgroundColor: 'rgba(63,180,137,0.10)',
+                      borderWidth: 1, borderColor: 'rgba(63,180,137,0.26)',
+                    }}
+                  >
+                    <Text style={{ color: T.brandLit, fontSize: 13.5, lineHeight: 19 }}>
+                      If {email.trim()} is on the account, a reset link is on its way.
+                      Open it on this phone or any browser, set a new password, then
+                      come back and sign in.
+                    </Text>
+                  </View>
+                )}
 
                 {error && (
                   <View
