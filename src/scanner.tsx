@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, Text, View, type StyleProp, type ViewStyle } from 'react-native';
-import { CameraView, useCameraPermissions, type BarcodeType } from 'expo-camera';
+import {
+  CameraView, useCameraPermissions, scanFromURLAsync, type BarcodeType,
+} from 'expo-camera';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as Haptics from 'expo-haptics';
 import { T, Icon, ICON, wash } from '@/ui';
 import { useStore } from './store';
-import { candidatesFrom, hasOcr, matchKnown, recognizeText } from './ocr';
+import { candidatesFrom, matchKnown, recognizeText, OcrUnavailable } from './ocr';
 import { key } from './scan-match';
 
 /**
@@ -108,25 +110,10 @@ const DEFAULT_TYPES: BarcodeType[] = [
  *
  * The reticle is now honestly what it always was: an aiming guide for the
  * driver, not a constraint on the decoder. If the decode area ever genuinely
- * needs narrowing, it has to happen by cropping a still frame before handing it
- * to ML Kit — the Snap path below — because that is the only place in this
- * stack where the pixels are ours to cut.
+ * needs narrowing, it has to happen by cropping a still frame before handing
+ * the picture to a decoder — the Snap path below — because that is the only
+ * place in this stack where the pixels are ours to cut.
  */
-
-/** Loaded once, lazily. Null where the native module is not in the build. */
-let mlkit: { scan: (uri: string) => Promise<{ value?: string | null }[]> } | null | undefined;
-function loadMlkit() {
-  if (mlkit !== undefined) return mlkit;
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const mod = require('@react-native-ml-kit/barcode-scanning');
-    const scanner = mod?.default ?? mod;
-    mlkit = typeof scanner?.scan === 'function' ? scanner : null;
-  } catch {
-    mlkit = null;
-  }
-  return mlkit;
-}
 
 export interface ScannerProps {
   /** Called once per accepted read. Already trimmed and uppercased. */
@@ -172,7 +159,8 @@ export function Scanner({
   const [struggling, setStruggling] = useState(false);
   const [snapBusy, setSnapBusy] = useState(false);
   const [aiBusy, setAiBusy] = useState(false);
-  const [aiMiss, setAiMiss] = useState(false);
+  /** Why the last "Read text" tap produced nothing — shown under the button. */
+  const [aiMiss, setAiMiss] = useState<string | null>(null);
   const [androidFocusOff, setAndroidFocusOff] = useState(false);
   const [mounted, setMounted] = useState(Platform.OS !== 'android');
 
@@ -287,10 +275,36 @@ export function Scanner({
     onCode(code);
   }, [accept, cooldownMs, onCode]);
 
-  /** The ML Kit still-frame path, for labels the live decoder cannot crack. */
+  /**
+   * The still-frame path, for labels the live decoder cannot crack.
+   *
+   * THIS USED TO CALL ML KIT AND THE BUTTON NEVER APPEARED.
+   * `@react-native-ml-kit/barcode-scanning` resolves its native side through
+   * `NativeModules.BarcodeScanning`, and when that is missing the package
+   * substitutes a Proxy whose every property access THROWS. `loadMlkit`
+   * probed it with `typeof scanner?.scan === 'function'` — which is a property
+   * access — so the probe threw, the catch set the module to null, and the
+   * Snap button was never rendered at all. Not a subtle bug: the feature was
+   * shipped twice and had never once run on a device.
+   *
+   * The native module is missing because that package is a plain old-
+   * architecture React Native module (`ReactPackage`, no `codegenConfig`,
+   * peer range stopping at RN 0.x) and this app runs `newArchEnabled: true` on
+   * SDK 54 / RN 0.81. Rather than fight the linking, use the decoder that is
+   * already in the build: expo-camera ships `scanFromURLAsync`, first-party,
+   * new-architecture native, and doing precisely this job — decode a barcode
+   * out of a still image file. One fewer dependency and it actually runs.
+   *
+   * MULTIPLE PASSES, CHEAPEST FIRST. A still frame can be re-read as many
+   * times as we like, which is the one real advantage a photo has over the
+   * video stream, and the old code used it twice. Now: the reticle crop, then
+   * the full frame, then the full frame upscaled 2× — a small, low-contrast
+   * code that resolves at no scale often resolves when the bars are wider than
+   * one pixel. Every pass is a real decoder either resolving or failing, so
+   * more attempts can only find a barcode that was genuinely in the picture.
+   */
   const snap = useCallback(async () => {
-    const kit = loadMlkit();
-    if (!kit || !cam.current || snapBusy) return;
+    if (!cam.current || snapBusy) return;
     setSnapBusy(true);
     try {
       const photo = await cam.current.takePictureAsync({ quality: 0.9, skipProcessing: true });
@@ -331,9 +345,16 @@ export function Scanner({
         } catch { /* fall through with the uncropped photo */ }
       }
 
+      const wanted = types ?? DEFAULT_TYPES;
       const tryScan = async (imgUri: string) => {
-        const results = await kit.scan(imgUri);
-        return results?.find((r) => r?.value?.trim())?.value?.trim() ?? null;
+        try {
+          const results = await scanFromURLAsync(imgUri, wanted);
+          return results?.find((r) => r?.data?.trim())?.data?.trim() ?? null;
+        } catch {
+          // One pass failing is not the operation failing — a later pass on a
+          // different rendering of the same photo may still resolve.
+          return null;
+        }
       };
 
       let code = await tryScan(uri);
@@ -358,9 +379,32 @@ export function Scanner({
         code = await tryScan(photo.uri);
       }
 
+      /**
+       * LAST PASS: the same frame, twice the size.
+       *
+       * A code printed small, or photographed from far enough back that each
+       * bar lands on roughly one pixel, gives a decoder nothing to work with —
+       * the edges it needs are averaged away by the sensor. Upscaling does not
+       * add information, but it does give the decoder's edge detection room to
+       * find the transitions that are there, and in practice it is the single
+       * cheapest thing that turns a stubborn label into a read. Paid only when
+       * both earlier passes have already failed.
+       */
+      if (!code && photo.width && photo.height) {
+        try {
+          const big = await ImageManipulator.manipulateAsync(
+            photo.uri,
+            [{ resize: { width: Math.round(photo.width * 2) } }],
+            { compress: 1 },
+          );
+          code = await tryScan(big.uri);
+        } catch { /* the two passes above were the real attempts */ }
+      }
+
       if (code) {
         // A still frame read deliberately bypasses the double-read confirm —
-        // ML Kit on a full-resolution photo does not produce partial reads.
+        // a full-resolution photo does not produce the partial reads that a
+        // motion-blurred video frame does.
         code = code.toUpperCase();
         if (!accept || accept(code)) {
           lastAccepted.current[code] = Date.now();
@@ -376,7 +420,7 @@ export function Scanner({
     } finally {
       if (alive.current) setSnapBusy(false);
     }
-  }, [accept, onCode, snapBusy, reticle]);
+  }, [accept, onCode, snapBusy, reticle, types]);
 
   /**
    * READ TEXT — the OCR still-frame fallback, one tier below Snap.
@@ -398,7 +442,7 @@ export function Scanner({
   const readText = useCallback(async () => {
     if (!cam.current || aiBusy) return;
     setAiBusy(true);
-    setAiMiss(false);
+    setAiMiss(null);
     try {
       const photo = await cam.current.takePictureAsync({ quality: 0.9, skipProcessing: true });
       if (!photo?.uri) return;
@@ -476,10 +520,19 @@ export function Scanner({
         onCode(code);
         return;
       }
-      setAiMiss(true);
+      // Read something, matched nothing. Said precisely, because "no match"
+      // and "not working" are different problems and a driver reporting the
+      // wrong one costs a day.
+      setAiMiss(known.size
+        ? 'read it, but nothing on this phone matched'
+        : 'this phone has not synced yet — nothing to match against');
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-    } catch {
-      setAiMiss(true);
+    } catch (e) {
+      // The one failure worth naming on screen: the module is not in the
+      // build. Everything else is an ordinary bad frame.
+      setAiMiss(e instanceof OcrUnavailable
+        ? 'text reading is not in this build'
+        : 'could not read that frame');
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     } finally {
       if (alive.current) setAiBusy(false);
@@ -512,8 +565,6 @@ export function Scanner({
       </View>
     );
   }
-
-  const hasMlkit = loadMlkit() !== null;
 
   return (
     <View style={[FILL, { overflow: 'hidden' }, style]}>
@@ -582,7 +633,17 @@ export function Scanner({
           surface that never went through it, because a full-screen Modal has
           no navigator chrome to make the omission obvious in a simulator. */}
       <View style={{ position: 'absolute', right: 10, bottom: 10 + insets.bottom, gap: 8, alignItems: 'flex-end' }}>
-        {hasMlkit && struggling && (
+        {/*
+          SNAP IS ALWAYS OFFERED NOW, AND THAT IS THE FIX.
+          It used to be gated on a native module that was never in the build,
+          so it was invisible on every device it ever shipped to — a feature
+          discussed for two sessions that no driver could have tapped. Its
+          decoder is expo-camera's own, which is always present, so there is
+          nothing left to gate on. Still hidden until `struggling`, because a
+          button that appears the instant the camera opens is noise for the
+          99% of labels that just read.
+        */}
+        {struggling && (
           <Ctl
             label={snapBusy ? 'Reading…' : 'Snap'}
             hint="photo read for damaged labels"
@@ -591,19 +652,18 @@ export function Scanner({
           />
         )}
         {/*
-          "Read text" shows up on the same struggling signal as Snap, and only
-          where the OCR module is actually in the build — it is native code,
-          absent in Expo Go, so `hasOcr()` gates it exactly as `hasMlkit` gates
-          Snap. The label says what it does rather than how: this reads the
-          number printed on the label, which is a thing a driver can look at
-          and judge for themselves. A miss says nothing MATCHED, not that
-          nothing was read — because the OCR usually did read something and
-          the reason it was thrown away is that it is not on this phone.
+          "Read text" is the tier below Snap and the one still standing on a
+          third-party native module. `hasOcr()` cannot be trusted to answer
+          whether it is really there — the package hands back a plain object
+          whose method throws only when called — so the button is shown and
+          the failure is REPORTED rather than swallowed. A driver who taps it
+          and sees "text reading is not in this build" has told us more in one
+          tap than another round of guessing would.
         */}
-        {struggling && hasOcr() && (
+        {struggling && (
           <Ctl
             label={aiBusy ? 'Reading…' : 'Read text'}
-            hint={aiMiss ? 'nothing on file matched — try again' : 'reads the printed number on the label'}
+            hint={aiMiss ?? 'reads the printed number on the label'}
             active={aiBusy}
             onPress={readText}
           />

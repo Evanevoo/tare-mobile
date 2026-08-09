@@ -106,9 +106,11 @@ export function hasOcr(): boolean {
  * "the recogniser fell over" is identical, so there is nothing for a `catch`
  * at the call site to usefully do differently.
  */
+export class OcrUnavailable extends Error {}
+
 export async function recognizeText(uri: string): Promise<string[]> {
   const api = loadRecognizer();
-  if (!api) return [];
+  if (!api) throw new OcrUnavailable('Text reading is not in this build.');
   try {
     const result = await api.recognize(uri);
     const lines: string[] = [];
@@ -122,7 +124,27 @@ export async function recognizeText(uri: string): Promise<string[]> {
     }
     if (!lines.length && result?.text) lines.push(result.text);
     return lines;
-  } catch {
+  } catch (e) {
+    /**
+     * THIS USED TO RETURN [] AND THAT HID THE BUG FOR A WHOLE RELEASE.
+     *
+     * `loadRecognizer` cannot tell whether the native side is really there:
+     * the package exports a plain object whose `recognize` closes over a Proxy
+     * that throws only when CALLED, so the probe passes on a build where the
+     * module was never linked. Swallowing the call-time throw therefore turned
+     * "this feature does not exist in your app" into "no match on file" —
+     * indistinguishable, on a phone, from working correctly and finding
+     * nothing. It shipped twice like that.
+     *
+     * So the linking failure is rethrown, distinguishable by type, and the
+     * button reports it. Any other error — a corrupt JPEG, an unreadable
+     * frame — is still just "nothing readable here", which is what an empty
+     * array means.
+     */
+    const message = e instanceof Error ? e.message : String(e);
+    if (/doesn't seem to be linked|not in this build|null is not an object|undefined is not an object/i.test(message)) {
+      throw new OcrUnavailable('Text reading is not in this build.');
+    }
     return [];
   }
 }
