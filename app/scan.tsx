@@ -87,7 +87,7 @@ export default function Scan() {
 
   const banner =
     last?.kind === 'duplicate' ? { text: 'Already scanned', tone: T.steel }
-    : last?.kind === 'unknown' ? { text: 'Unknown barcode — held for review', tone: T.amber }
+    : last?.kind === 'unknown' ? { text: 'New barcode — recorded; the office assigns its type', tone: T.amber }
     : last ? { text: mode === 'SHIP' ? 'Shipped out' : 'Returned in', tone: T.bottle }
     : null;
 
