@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 import { CameraView, useCameraPermissions, type BarcodeType } from 'expo-camera';
+import * as ImageManipulator from 'expo-image-manipulator';
 import * as Haptics from 'expo-haptics';
 import { T, Icon, ICON, wash } from '@/ui';
 
@@ -57,6 +58,14 @@ import { T, Icon, ICON, wash } from '@/ui';
  * So one default serves both shapes and neither call site has to know.
  */
 const FILL = { flexGrow: 1, flexShrink: 1, flexBasis: 'auto', backgroundColor: '#000' } as const;
+
+/**
+ * The reticle band, as fractions of the frame — read by both the on-screen
+ * outline and the Snap crop below, so the two can never drift apart. Left/top
+ * are the near edge; width/height are the box's own size, which is the shape
+ * expo-image-manipulator's crop wants (an origin + a size, not two edges).
+ */
+const RETICLE = { left: 0.11, width: 0.78, top: 0.33, height: 0.20 } as const;
 
 // Lowercase names are REQUIRED on iOS — uppercase silently matches nothing.
 const DEFAULT_TYPES: BarcodeType[] = [
@@ -273,7 +282,43 @@ export function Scanner({
     try {
       const photo = await cam.current.takePictureAsync({ quality: 0.9, skipProcessing: true });
       if (!photo?.uri) return;
-      const results = await kit.scan(photo.uri);
+
+      /**
+       * CROP TO THE RETICLE BEFORE ML KIT EVER SEES THE FRAME.
+       *
+       * `takePictureAsync` captures the WHOLE scene, not just what the
+       * reticle is drawn over — a competitor's shipping label, a second
+       * barcode on the same document, anything else in frame reads exactly
+       * as cleanly as the one the driver aimed at. `kit.scan` below used to
+       * take `results.find(r => r?.value?.trim())` — the first barcode ML
+       * Kit found ANYWHERE in the photo, in whatever order its own internal
+       * scan returns them — which is how a driver photographing a Sales
+       * Receipt with a courier sticker in the corner of frame got that
+       * sticker's barcode back as "a completely random number." The reticle
+       * is the only signal of intent this component has; cropping to it
+       * (the exact box drawn on screen — see RETICLE above) is what makes
+       * Snap read what the driver was actually pointing at.
+       *
+       * Falls back to the uncropped photo if the manipulator throws or the
+       * photo reports no dimensions — a wrong-but-honest full-frame Snap
+       * beats losing the fallback path entirely.
+       */
+      let uri = photo.uri;
+      if (reticle && photo.width && photo.height) {
+        try {
+          const cropped = await ImageManipulator.manipulateAsync(photo.uri, [{
+            crop: {
+              originX: Math.round(photo.width * RETICLE.left),
+              originY: Math.round(photo.height * RETICLE.top),
+              width: Math.round(photo.width * RETICLE.width),
+              height: Math.round(photo.height * RETICLE.height),
+            },
+          }], { compress: 1 });
+          uri = cropped.uri;
+        } catch { /* fall through with the uncropped photo */ }
+      }
+
+      const results = await kit.scan(uri);
       const hit = results?.find((r) => r?.value?.trim());
       if (hit?.value) {
         // A still frame read deliberately bypasses the double-read confirm —
@@ -293,7 +338,7 @@ export function Scanner({
     } finally {
       if (alive.current) setSnapBusy(false);
     }
-  }, [accept, onCode, snapBusy]);
+  }, [accept, onCode, snapBusy, reticle]);
 
   /** iOS focus pulse: on for a beat, back to off. Continuous-on locks focus. */
   const refocus = useCallback(() => {
@@ -368,7 +413,11 @@ export function Scanner({
           what is actually being read, and a code landing just outside it still
           scans rather than mysteriously not working. */}
       {reticle && (
-        <View pointerEvents="none" style={{ position: 'absolute', left: '11%', right: '11%', top: '33%', bottom: '47%' }}>
+        <View pointerEvents="none" style={{
+          position: 'absolute',
+          left: `${RETICLE.left * 100}%`, width: `${RETICLE.width * 100}%`,
+          top: `${RETICLE.top * 100}%`, height: `${RETICLE.height * 100}%`,
+        }}>
           <View style={{
             flex: 1, borderRadius: 12, borderWidth: 2,
             borderColor: struggling ? T.amber : T.brandLit, opacity: 0.85,
