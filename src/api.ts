@@ -245,6 +245,24 @@ export function updateAsset(barcode: string, draft: Partial<AssetDraft> & { conf
   }>;
 }
 
+/**
+ * The same correction, applied to a stack at once.
+ *
+ * Narrower on purpose — see api/mobile/assets/bulk on the server for why
+ * status, isFull and custody are not here. Only what is genuinely the same
+ * across a whole pallet: what kind, where, who owns them.
+ */
+export interface BulkAssetPatch {
+  productCode?: string;
+  location?: string | null;
+  customerOwned?: boolean;
+}
+export function bulkUpdateAssets(barcodes: string[], patch: BulkAssetPatch) {
+  return send('/api/mobile/assets/bulk', 'PATCH', { barcodes, ...patch }) as Promise<{
+    matched: number; updated: number; missing: string[];
+  }>;
+}
+
 export async function signIn(email: string, password: string) {
   const { error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) throw new Error(error.message);

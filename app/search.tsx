@@ -5,7 +5,7 @@ import * as Haptics from 'expo-haptics';
 import { useStore } from '@/store';
 import { Scanner } from '@/scanner';
 import { useScanRoute, explainMiss } from '@/scan-route';
-import { T, Screen, Surface, Eyebrow, Tag, Icon, ICON, mono, tint, wash } from '@/ui';
+import { T, Screen, Surface, Eyebrow, Tag, Icon, ICON, mono, tint, wash, useBottomInset } from '@/ui';
 import type { AssetRec, CustomerRec } from '@/api';
 
 /**
@@ -35,9 +35,35 @@ export default function Search() {
   const router = useRouter();
   const { boot } = useStore();
   const route = useScanRoute();
+  const bottom = useBottomInset(24);
   const [q, setQ] = useState('');
   const [cam, setCam] = useState(false);
   const [miss, setMiss] = useState<string | null>(null);
+
+  /**
+   * SELECT MODE — the entry point for bulk edit.
+   *
+   * A `Set` of barcodes, not asset objects: it is the same identity the bulk
+   * edit screen and the server both key on, so there is nothing to translate
+   * at the boundary. Customers are never selectable here — bulk edit changes
+   * what a thing IS (type, location, owner), which is not a question a
+   * customer row has an answer to.
+   */
+  const [selecting, setSelecting] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  function toggleSelected(bc: string) {
+    setSelected((s) => {
+      const next = new Set(s);
+      if (next.has(bc)) next.delete(bc); else next.add(bc);
+      return next;
+    });
+  }
+
+  function exitSelect() {
+    setSelecting(false);
+    setSelected(new Set());
+  }
 
   const term = q.trim().toLowerCase();
 
@@ -130,6 +156,23 @@ export default function Search() {
           >
             <Icon name={cam ? 'x' : 'camera'} size={ICON.md} color={cam ? T.brandLit : T.steel} />
           </Pressable>
+          {/* Select mode — a second way to say "these, together" beyond
+              tapping one thing into an edit screen. Its own toggle rather
+              than a long-press, because a long-press has no visible
+              affordance and this way the option is always in view. */}
+          <Pressable
+            onPress={() => (selecting ? exitSelect() : setSelecting(true))}
+            accessibilityRole="button"
+            accessibilityLabel={selecting ? 'Cancel selecting' : `Select multiple ${boot?.org.assetPlural ?? 'assets'} to edit`}
+            style={{
+              width: 54, height: 54, borderRadius: T.radiusSm,
+              alignItems: 'center', justifyContent: 'center',
+              backgroundColor: selecting ? wash(0.16) : tint(0.05),
+              borderWidth: 1, borderColor: selecting ? wash(0.45) : T.rule,
+            }}
+          >
+            <Icon name={selecting ? 'x' : 'check-square'} size={ICON.md} color={selecting ? T.brandLit : T.steel} />
+          </Pressable>
         </View>
 
         {cam && (
@@ -148,7 +191,10 @@ export default function Search() {
         sections={sections}
         keyExtractor={(item) => item.key}
         keyboardShouldPersistTaps="handled"
-        contentContainerStyle={{ paddingHorizontal: 18, paddingBottom: 40 }}
+        contentContainerStyle={{
+          paddingHorizontal: 18,
+          paddingBottom: selecting && selected.size > 0 ? bottom + 70 : 40,
+        }}
         stickySectionHeadersEnabled={false}
         ListEmptyComponent={
           <Text
@@ -184,11 +230,32 @@ export default function Search() {
             </Pressable>
           ) : (
             <Pressable
-              onPress={() => router.push(`/asset/${encodeURIComponent(item.bc)}` as never)}
+              onPress={() =>
+                selecting
+                  ? toggleSelected(item.bc)
+                  : router.push(`/asset/${encodeURIComponent(item.bc)}` as never)
+              }
               style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1, marginBottom: 8 })}
             >
               <Surface>
                 <View style={{ padding: 15, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  {/* Selecting swaps the destination-affordance (chevron) for a
+                      participation-affordance (checkbox) — the row still says
+                      what it is, it just answers a different question while
+                      this mode is on. */}
+                  {selecting && (
+                    <View
+                      style={{
+                        width: 22, height: 22, borderRadius: 6,
+                        alignItems: 'center', justifyContent: 'center',
+                        backgroundColor: selected.has(item.bc) ? T.brandLit : 'transparent',
+                        borderWidth: selected.has(item.bc) ? 0 : 1.5,
+                        borderColor: selected.has(item.bc) ? T.brandLit : T.rule,
+                      }}
+                    >
+                      {selected.has(item.bc) && <Icon name="check" size={14} color={T.onBrand} />}
+                    </View>
+                  )}
                   <View style={{ flex: 1 }}>
                     <Text style={[mono(15, '600'), { color: T.ink }]}>{item.bc}</Text>
                     <Text style={{ color: T.faint, fontSize: 12, marginTop: 2 }}>
@@ -196,19 +263,62 @@ export default function Search() {
                       {item.a.c ? ` \u00B7 out at ${item.a.c}` : ' \u00B7 in house'}
                     </Text>
                   </View>
-                  {/* Full/empty is a shelf state; the line above already says
-                      "out at <account>" for anything rented, so the tag only
-                      adds a fill-state claim for what's actually in house. */}
-                  {item.a.c
-                    ? <Tag label="OUT" tone={T.amber} />
-                    : <Tag label={item.a.f ? 'FULL' : 'EMPTY'} tone={item.a.f ? T.bottle : T.faint} />}
-                  <Icon name="chevron-right" size={ICON.sm} color={T.faint} />
+                  {!selecting && (
+                    <>
+                      {/* Full/empty is a shelf state; the line above already says
+                          "out at <account>" for anything rented, so the tag only
+                          adds a fill-state claim for what's actually in house. */}
+                      {item.a.c
+                        ? <Tag label="OUT" tone={T.amber} />
+                        : <Tag label={item.a.f ? 'FULL' : 'EMPTY'} tone={item.a.f ? T.bottle : T.faint} />}
+                      <Icon name="chevron-right" size={ICON.sm} color={T.faint} />
+                    </>
+                  )}
                 </View>
               </Surface>
             </Pressable>
           )
         }
       />
+
+      {/* Selection bar — appears once there's something to act on, not the
+          instant select mode turns on, so an empty "Edit 0" is never on
+          screen to tap. */}
+      {selecting && selected.size > 0 && (
+        <View
+          style={{
+            position: 'absolute', left: 0, right: 0, bottom: 0,
+            paddingHorizontal: 18, paddingTop: 14, paddingBottom: bottom,
+            flexDirection: 'row', alignItems: 'center', gap: 12,
+            backgroundColor: 'rgba(7,9,10,0.94)', borderTopWidth: 1, borderTopColor: T.rule,
+          }}
+        >
+          <Text style={{ color: T.ink, fontSize: 14, fontWeight: '600', flex: 1 }}>
+            {selected.size} selected
+          </Text>
+          <Pressable onPress={exitSelect} style={{ paddingVertical: 10, paddingHorizontal: 14 }}>
+            <Text style={{ color: T.faint, fontSize: 14.5, fontWeight: '600' }}>Clear</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => {
+              const barcodes = [...selected];
+              exitSelect();
+              router.push({
+                pathname: '/asset/bulk-edit' as never,
+                params: { barcodes: JSON.stringify(barcodes) },
+              } as never);
+            }}
+            style={{
+              paddingVertical: 12, paddingHorizontal: 20, borderRadius: T.radiusSm,
+              backgroundColor: T.brandLit,
+            }}
+          >
+            <Text style={{ color: T.onBrand, fontSize: 14.5, fontWeight: '700' }}>
+              Edit {selected.size}
+            </Text>
+          </Pressable>
+        </View>
+      )}
     </Screen>
   );
 }
