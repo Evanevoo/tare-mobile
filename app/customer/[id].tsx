@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { View, Text, ScrollView, Pressable, Linking } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useStore } from '@/store';
-import { T, Screen, Surface, Btn, Eyebrow, Tag, Rise, Hairline, mono, tint } from '@/ui';
+import { T, Screen, Surface, Btn, Eyebrow, Rise, Hairline, mono, tint } from '@/ui';
 
 /**
  * A customer and what they are holding.
@@ -169,7 +169,12 @@ export default function CustomerDetail() {
                       {a.p ?? 'unknown type'}
                     </Text>
                   </View>
-                  <Tag label={a.f ? 'FULL' : 'EMPTY'} tone={a.f ? T.bottle : T.faint} />
+                  {/* This whole list IS this customer's held assets — every
+                      row on it is out, rented, full stop. A FULL/EMPTY tag
+                      here used to show the shelf-state flag regardless, which
+                      reads as the app claiming something in the customer's
+                      hands is "empty and available." Rented is not a fill
+                      state; it doesn't need a tag at all. */}
                 </Pressable>
               ))}
             </Surface>

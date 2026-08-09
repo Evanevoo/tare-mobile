@@ -50,7 +50,11 @@ export default function AssetDetail() {
             {code}
           </Text>
           <View style={{ flexDirection: 'row', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
-            <Tag label={a.f ? 'FULL' : 'EMPTY'} tone={a.f ? T.bottle : T.faint} />
+            {/* Full/empty is a shelf state. Rented, it doesn't apply — OUT
+                already says everything that matters about it right now, and
+                a FULL/EMPTY tag next to OUT used to claim a shelf state for
+                something that isn't on a shelf. */}
+            {!a.c && <Tag label={a.f ? 'FULL' : 'EMPTY'} tone={a.f ? T.bottle : T.faint} />}
             <Tag label={a.c ? 'OUT' : 'IN HOUSE'} tone={a.c ? T.amber : T.steel} />
             {a.own === 1 && <Tag label="CUSTOMER OWNED" tone={T.steel} />}
             {requal && <Tag label={requal.label} tone={requal.tone} />}
@@ -102,7 +106,7 @@ export default function AssetDetail() {
             <Hairline />
             <Row label="Status" value={cap(a.s)} />
             <Hairline />
-            <Row label="Contents" value={a.f ? 'Full' : 'Empty'} />
+            <Row label="Contents" value={a.c ? 'Rented — n/a' : a.f ? 'Full' : 'Empty'} />
             {a.l ? (
               <>
                 <Hairline />

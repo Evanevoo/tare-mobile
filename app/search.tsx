@@ -196,7 +196,12 @@ export default function Search() {
                       {item.a.c ? ` \u00B7 out at ${item.a.c}` : ' \u00B7 in house'}
                     </Text>
                   </View>
-                  <Tag label={item.a.f ? 'FULL' : 'EMPTY'} tone={item.a.f ? T.bottle : T.faint} />
+                  {/* Full/empty is a shelf state; the line above already says
+                      "out at <account>" for anything rented, so the tag only
+                      adds a fill-state claim for what's actually in house. */}
+                  {item.a.c
+                    ? <Tag label="OUT" tone={T.amber} />
+                    : <Tag label={item.a.f ? 'FULL' : 'EMPTY'} tone={item.a.f ? T.bottle : T.faint} />}
                   <Icon name="chevron-right" size={ICON.sm} color={T.faint} />
                 </View>
               </Surface>
