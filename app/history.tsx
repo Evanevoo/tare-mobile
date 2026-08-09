@@ -2,6 +2,7 @@ import { View, Text, FlatList, Pressable } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useStore } from '@/store';
 import { T, Screen, Rise, Icon, ICON, mono, tint } from '@/ui';
+import { whenLabel } from '@/when';
 
 /**
  * Every scan this phone has made — BY ORDER, because that is the unit of work.
@@ -121,8 +122,10 @@ export default function History() {
                 </View>
 
                 <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                  {/* Local time. Slicing the ISO string printed UTC, which in
+                      Saskatchewan is six hours off every day of the year. */}
                   <Text style={[mono(12), { color: T.steel }]}>
-                    {dayLabel(g.last.slice(0, 10))} {g.last.slice(11, 16)}
+                    {whenLabel(g.last)}
                   </Text>
                   <Text style={{
                     fontSize: 10.5, fontWeight: '700', letterSpacing: 0.4,
@@ -141,11 +144,4 @@ export default function History() {
   );
 }
 
-function dayLabel(day: string): string {
-  const today = new Date().toISOString().slice(0, 10);
-  const yest = new Date(Date.now() - 864e5).toISOString().slice(0, 10);
-  if (day === today) return 'Today';
-  if (day === yest) return 'Yesterday';
-  const d = new Date(`${day}T12:00:00Z`);
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
+

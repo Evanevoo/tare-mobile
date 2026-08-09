@@ -5,6 +5,7 @@ import {
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { useStore } from '@/store';
+import { retagBlockedBy } from '@/outbox';
 import { editSentScan } from '@/api';
 import {
   T, Screen, Surface, Btn, Eyebrow, Tag, Rise, Icon, ICON, mono, useBottomInset, tint,
@@ -86,18 +87,49 @@ export default function OrderEdit() {
     return null;
   }
 
-  async function onServer(body: Parameters<typeof editSentScan>[0]) {
+  /** Returns whether the server took it, so callers can stop on failure. */
+  async function onServer(body: Parameters<typeof editSentScan>[0]): Promise<boolean> {
     setBusy(true);
     try {
       const r = await editSentScan(body);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      /**
+       * MIRROR THE CHANGE ONTO THE LOCAL COPY.
+       *
+       * `refresh()` only refetches the bootstrap — it does not touch the
+       * outbox, and History is built entirely from the outbox. Without this
+       * the server has the new value and the phone shows the old one for
+       * ever: flip a sent bottle to RETURN, get "Saved", and watch the row
+       * still read "out" after a restart, because the outbox is persisted to
+       * SQLite. The phone is not the source of truth here, but it is the
+       * screen the driver is looking at.
+       */
+      dispatch({ type: 'APPLY_SERVER_EDIT', ...serverEditToLocal(body) });
       await refresh().catch(() => {});
       Alert.alert('Saved', r.message);
+      return true;
     } catch (e: any) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       Alert.alert('Could not change it', e?.message ?? 'Try again when you have signal.');
+      return false;
     } finally {
       setBusy(false);
+    }
+  }
+
+  /** The server call, expressed as what it means to this phone's own copy. */
+  function serverEditToLocal(body: Parameters<typeof editSentScan>[0]) {
+    switch (body.action) {
+      case 'mode':
+        return { orderNumber: body.orderNumber, barcode: body.barcode, mode: body.value as 'SHIP' | 'RETURN' };
+      case 'void':
+        return { orderNumber: body.orderNumber, barcode: body.barcode, drop: true };
+      case 'order':
+        return { orderNumber: body.orderNumber, toOrderNumber: body.value };
+      case 'customer':
+        return { orderNumber: body.orderNumber, toCustomerListId: body.value };
+      default:
+        return { orderNumber: body.orderNumber };
     }
   }
 
@@ -140,18 +172,24 @@ export default function OrderEdit() {
     const to = orderDraft.trim().toUpperCase();
     if (!to || to === orderNumber) return;
 
+    // ASKED BEFORE, NOT INFERRED AFTER. The previous version dispatched and
+    // then guessed from the resulting state whether the move had been
+    // refused — a guess that was true in every case including the refusal,
+    // so the refusal path was dead code and forty bottles could stay on the
+    // wrong order behind a success haptic.
+    const blocker = retagBlockedBy(outbox, orderNumber, to);
+    if (blocker) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Alert.alert(
+        'Cannot move it there',
+        `${blocker} is already on ${to} on this phone. Sort that order out first.`,
+      );
+      return;
+    }
+
     const queued = rows.filter((s) => s.state === 'QUEUED');
     if (queued.length && !anySent) {
-      const before = outbox.scans.length;
       dispatch({ type: 'RETAG', orderNumber, toOrderNumber: to });
-      // RETAG refuses silently when the move would collide, so the only honest
-      // way to report it is to check whether anything actually moved.
-      const moved = useStore.getState().outbox.scans.some((s) => s.orderNumber === to);
-      if (!moved && before) {
-        Alert.alert('Cannot move it there',
-          `This phone already has one of these barcodes on ${to}. Sort that order out first.`);
-        return;
-      }
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.replace(`/order/${encodeURIComponent(to)}` as never);
       return;
@@ -159,8 +197,17 @@ export default function OrderEdit() {
 
     const why = needReason();
     if (!why) return;
-    onServer({ action: 'order', orderNumber, value: to, reason: why })
-      .then(() => router.replace(`/order/${encodeURIComponent(to)}` as never));
+    // Only navigate if the server actually took it. `onServer` swallows its
+    // error to show an alert, so a bare .then() used to march the driver to an
+    // empty new-order screen straight after "Could not change it".
+    onServer({ action: 'order', orderNumber, value: to, reason: why }).then((ok) => {
+      if (!ok) return;
+      // The scans that had not gone up yet are still local and still carry the
+      // old number — the server only moved its own rows. Without this the
+      // order ends up split across two numbers.
+      if (queued.length) dispatch({ type: 'RETAG', orderNumber, toOrderNumber: to });
+      router.replace(`/order/${encodeURIComponent(to)}` as never);
+    });
   }
 
   const field = {

@@ -10,6 +10,7 @@ import { Scanner } from '@/scanner';
 import {
   T, Screen, Surface, Edge, Dot, Eyebrow, Rise, Icon, ICON, mono, tint, wash,
 } from '@/ui';
+import { localDay, today } from '@/when';
 
 /**
  * HOME IS A LAUNCHER AGAIN — AND IT HAS AN OPINION.
@@ -87,8 +88,11 @@ export default function Home() {
 
   // Today, from the outbox rather than the server, so it is still true in a
   // yard with no signal — which is where this screen is usually read.
-  const today = new Date().toISOString().slice(0, 10);
-  const mine = outbox.scans.filter((x) => x.scannedAt.slice(0, 10) === today);
+  // LOCAL day, not the UTC one. `.slice(0, 10)` on an ISO string is the UTC
+  // date, so from 6pm onwards in Saskatchewan everything scanned counted as
+  // tomorrow and "today's scans" silently dropped the busiest end of the run.
+  const todayLocal = today();
+  const mine = outbox.scans.filter((x) => localDay(x.scannedAt) === todayLocal);
   const orders = new Set(mine.map((x) => x.orderNumber)).size;
   const todayLine = mine.length
     ? `${mine.length} scanned today · ${orders} order${orders === 1 ? '' : 's'}`
