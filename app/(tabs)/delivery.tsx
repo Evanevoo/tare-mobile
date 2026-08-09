@@ -29,13 +29,22 @@ export default function Delivery() {
 
   const customers = useMemo(() => {
     const all = boot?.customers ?? [];
-    if (!q.trim()) return all.slice(0, 60);
-    const n = q.toLowerCase();
-    return all.filter(
-      (c) => c.name.toLowerCase().includes(n) ||
-             c.customerListId.toLowerCase().includes(n) ||
-             (c.city ?? '').toLowerCase().includes(n),
-    ).slice(0, 60);
+    // The holding account is always a legitimate pick — a walk-in has no
+    // account number to search by — so it stays pinned above whatever the
+    // search narrows down to, rather than getting filtered out by a query
+    // that was never about them.
+    const holding = all.filter((c) => c.tmp);
+    const rest = q.trim()
+      ? all.filter((c) => {
+          const n = q.toLowerCase();
+          return !c.tmp && (
+            c.name.toLowerCase().includes(n) ||
+            c.customerListId.toLowerCase().includes(n) ||
+            (c.city ?? '').toLowerCase().includes(n)
+          );
+        })
+      : all.filter((c) => !c.tmp).slice(0, 60 - holding.length);
+    return [...holding, ...rest];
   }, [boot, q]);
 
   /**
@@ -271,10 +280,13 @@ export default function Delivery() {
             <View style={{ flex: 1 }}>
               <Text style={{ color: T.ink, fontSize: 15.5, fontWeight: '600' }}>{item.name}</Text>
               <Text style={[mono(12, '500'), { color: T.faint, marginTop: 2 }]}>
-                {item.customerListId}{item.city ? ` · ${item.city}` : ''}
+                {item.tmp ? 'no account number yet' : item.customerListId}
+                {item.city ? ` · ${item.city}` : ''}
               </Text>
             </View>
-            {item.held > 0 && <Tag label={`${item.held} out`} tone={T.bottle} />}
+            {item.tmp
+              ? <Tag label="HOLDING" tone={T.amber} />
+              : item.held > 0 && <Tag label={`${item.held} out`} tone={T.bottle} />}
           </Pressable>
         )}
       />

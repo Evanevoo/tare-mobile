@@ -77,6 +77,8 @@ export interface CustomerRec {
   phone: string | null;
   email: string | null;
   held: number;
+  /** The one holding account for walk-ins with no account number yet. Never bills. */
+  tmp?: number;
 }
 
 /** One product code and how many of them the fleet has. */
