@@ -6,12 +6,24 @@
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "test": "node --experimental-strip-types __tests__/outbox.test.mts",
+    "test": "node --experimental-strip-types __tests__/outbox.test.mts && node --experimental-strip-types __tests__/scan-match.test.mts && node --experimental-strip-types __tests__/formats.test.mts",
     "typecheck": "tsc --noEmit",
     "build:ios": "eas build --platform ios --profile production",
     "build:android": "eas build --platform android --profile production",
     "submit:ios": "eas submit --platform ios --latest",
     "submit:android": "eas submit --platform android --latest"
+  },
+  "//overrides": [
+    "@expo/vector-icons drifted to 15.1.1 under its caret and pulled expo-font@57,",
+    "a version from a much later SDK. It calls getDirectConverter, which does not",
+    "exist in expo-modules-core@3.0.30 — the core expo@54 links. The app died at",
+    "module registration with NoSuchMethodError before a line of JS ran, and",
+    "`expo install --check` reported clean because it validates direct deps against",
+    "SDK 54 ranges and never sees a transitive hoist. Pinned to the version expo@54",
+    "itself resolves. Remove this when the whole project moves to a newer SDK."
+  ],
+  "overrides": {
+    "expo-font": "14.0.12"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
@@ -23,6 +35,7 @@
     "expo-blur": "~15.0.8",
     "expo-camera": "~17.0.7",
     "expo-constants": "~18.0.8",
+    "expo-dev-client": "~6.0.21",
     "expo-haptics": "~15.0.7",
     "expo-linear-gradient": "~15.0.8",
     "expo-linking": "~8.0.8",
