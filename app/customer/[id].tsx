@@ -16,7 +16,33 @@ export default function CustomerDetail() {
   const router = useRouter();
   const { boot } = useStore();
 
-  const customer = boot?.customers.find((c) => c.id === id);
+  /**
+   * BOTH NAMES FOR A CUSTOMER OPEN THIS SCREEN — and the fact that only one of
+   * them did is the whole of the "scanning finds nobody" bug.
+   *
+   * A customer row carries two unique identifiers, and this route was already
+   * reachable with either. Search hands over `c.id`, the database uuid, because
+   * that is what it is holding. A SCAN hands over the ACCOUNT NUMBER: nothing
+   * on a printed card knows a uuid, so `classify` resolves a card to
+   * `customerListId` — which is also what gets billed, what the outbox stores
+   * and what every other screen on the handset joins on.
+   *
+   * Looking only at the uuid meant every scanned customer card arrived here and
+   * was told "That customer is not on this phone", while typing the same
+   * customer's name and tapping the result worked perfectly. Same customer,
+   * same cached list, one dead path — and the message blamed the download,
+   * which is the one thing that was never wrong.
+   *
+   * The uuid is tried first so an exact match can never be shadowed; the
+   * account number is compared case-insensitively because a scan arrives
+   * uppercased and a tenant's numbers may not be.
+   */
+  const customer = useMemo(() => {
+    if (!boot || !id) return undefined;
+    const up = id.toUpperCase();
+    return boot.customers.find((c) => c.id === id)
+      ?? boot.customers.find((c) => c.customerListId.toUpperCase() === up);
+  }, [boot, id]);
 
   const held = useMemo(() => {
     if (!boot || !customer) return [];

@@ -3,7 +3,7 @@ import { View, Text, TextInput, Pressable, FlatList, Modal } from 'react-native'
 import { useRouter } from 'expo-router';
 import { useStore } from '@/store';
 import { Scanner } from '@/scanner';
-import { useScanRoute } from '@/scan-route';
+import { useScanRoute, explainMiss } from '@/scan-route';
 import { formatExample, formatNudge } from '@/formats';
 import { T, Screen, Surface, Btn, Eyebrow, Rise, Tag, mono, tint, wash } from '@/ui';
 
@@ -17,7 +17,9 @@ import { T, Screen, Surface, Btn, Eyebrow, Rise, Tag, mono, tint, wash } from '@
  */
 export default function Delivery() {
   const router = useRouter();
-  const route = useScanRoute();
+  // A customer code read HERE fills the field below; it does not send the
+  // driver off to that customer's screen in the middle of setting a job up.
+  const route = useScanRoute({ customerScreen: false });
   const { boot, startDelivery } = useStore();
   const [q, setQ] = useState('');
   const [picked, setPicked] = useState<{ id: string; name: string } | null>(null);
@@ -68,11 +70,26 @@ export default function Delivery() {
       return;
     }
 
+    /**
+     * A CODE THAT MATCHED NOTHING SAYS SO, AND SAYS WHY.
+     *
+     * This branch used to read "Read X as the order number", which is true and
+     * useless: it is also exactly what the screen says when a customer card is
+     * scanned and silently fails to resolve. A driver holding a card that the
+     * app has quietly demoted to an order number has no way to tell that from
+     * the app working as intended, so nobody reports it — and when somebody
+     * finally does, there is nothing on the screen to report.
+     *
+     * `explainMiss` costs one line of text and separates the three cases that
+     * were rendered identically: an unknown code, a customer list downloaded
+     * without card codes on it, and a code that matched several customers and
+     * was therefore refused.
+     */
     setOrder(t.code);
     setNote(
       picked
         ? `Order number set from scan — ${t.code}`
-        : `Read ${t.code} as the order number. Pick the customer first if that is wrong.`,
+        : `${explainMiss(t.code, boot)} Put in the order-number field — pick the customer first if that is wrong.`,
     );
   }
 
@@ -92,6 +109,25 @@ export default function Delivery() {
   const orderPattern = boot?.formats?.orderNumber;
   const orderNudge = formatNudge(order, orderPattern, 'order numbers');
   const orderHint = formatExample(orderPattern);
+
+  /**
+   * "NO RULE" AND "NO DOWNLOAD" ARE NOT THE SAME THING, and rendering them the
+   * same way is why a missing nudge could not be explained from the field.
+   *
+   * An org that has never written its number rules down must see nothing —
+   * `matchesFormat` accepts everything against an empty pattern on purpose,
+   * because a warning under every field on day one teaches people to ignore
+   * warnings. But a handset whose bootstrap carries no `formats` KEY AT ALL is
+   * a different animal: that phone is holding a download from before the rules
+   * shipped, and the silence is a stale cache rather than a policy. The two
+   * were indistinguishable on screen and identical in behaviour, so "the nudge
+   * never appears" had no diagnosis and no fix.
+   *
+   * `formats` present but empty → still silent, exactly as designed. `formats`
+   * absent while a bootstrap is otherwise loaded → one quiet grey line saying
+   * so. It is never amber and it never touches Start scanning.
+   */
+  const rulesMissing = !!boot && !boot.formats;
 
   const field = {
     height: 52, borderRadius: T.radiusSm, paddingHorizontal: 15,
@@ -178,11 +214,16 @@ export default function Delivery() {
                   />
                   <ScanBtn />
                 </View>
-                {orderNudge && (
+                {orderNudge ? (
                   <Text style={{ color: T.amber, fontSize: 12.5, lineHeight: 18, marginTop: 7 }}>
                     {orderNudge}
                   </Text>
-                )}
+                ) : rulesMissing ? (
+                  <Text style={{ color: T.faint, fontSize: 12, lineHeight: 18, marginTop: 7 }}>
+                    No number rules on this phone yet — pull down on Home to refresh, and
+                    order numbers will be checked against your own.
+                  </Text>
+                ) : null}
                 <Btn
                   label="Start scanning"
                   style={{ marginTop: 20 }}

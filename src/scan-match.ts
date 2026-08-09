@@ -88,3 +88,63 @@ export function classify(raw: string, boot: Bootstrap | null): ScanTarget | null
 
   return { kind: 'text', code: up };
 }
+
+/**
+ * WHY A SCAN FOUND NOBODY — in words, on the phone, in production.
+ *
+ * This function exists because the bug it was written for cost days. A card
+ * was scanned, nothing was found, and the screen said the same thing it says
+ * for an order number: nothing at all. "No match" and "this phone is holding a
+ * customer list downloaded before card codes existed" and "that code describes
+ * two customers so I refused to choose" are three completely different
+ * situations with three completely different fixes, and they were rendered
+ * identically — so the only way to tell them apart was to attach a debugger to
+ * a handset in a yard.
+ *
+ * So a miss now says which one it was. Not a log line, which nobody in a truck
+ * can read: the sentence the driver is already looking at. It costs one line of
+ * text and it turns "scanning is broken" into a report somebody can act on.
+ *
+ * Pure, like everything else here — it is a function of the same two arguments
+ * `classify` gets, so the table of cases can be run off a phone.
+ */
+export function explainMiss(raw: string, boot: Bootstrap | null): string {
+  const up = raw.trim().toUpperCase();
+  const thing = boot?.org?.assetLabel ?? 'asset';
+
+  if (!boot) {
+    return `Read ${up} — nothing is downloaded to this phone yet. ` +
+      `Pull down on Home to fetch the customer list.`;
+  }
+
+  const customers = boot.customers ?? [];
+  if (!customers.length) {
+    return `Read ${up} — no customers are on this phone. ` +
+      `Pull down on Home to download the list.`;
+  }
+
+  // Refused rather than missed: the code describes more than one customer, and
+  // picking one of them is how a cylinder lands on the wrong account.
+  const k = key(up);
+  const collisions = k
+    ? customers.filter((c) => (c.bc && key(c.bc) === k) || key(c.customerListId) === k)
+    : [];
+  if (collisions.length > 1) {
+    return `Read ${up} — that code matches ${collisions.length} customers ` +
+      `(${collisions.slice(0, 2).map((c) => c.name).join(', ')}…), so none was chosen. ` +
+      `Pick the customer from the list.`;
+  }
+
+  // The symptom that started this: a customer list downloaded before customer
+  // barcodes shipped, or an import that never mapped the barcode column. Name
+  // search still works, so nothing else on the phone looks wrong.
+  const withCard = customers.filter((c) => c.bc).length;
+  if (!withCard) {
+    return `Read ${up} — no customer or ${thing} matches. None of the ` +
+      `${customers.length} customers on this phone carry a card code, so this ` +
+      `list is out of date or was imported without one. Pull down on Home to refresh.`;
+  }
+
+  return `Read ${up} — no customer or ${thing} matches on this phone ` +
+    `(${customers.length} customers, ${withCard} with a card code).`;
+}

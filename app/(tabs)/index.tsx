@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { useRouter } from 'expo-router';
 import { useStore } from '@/store';
 import { pending, counts } from '@/outbox';
-import { useScanRoute } from '@/scan-route';
+import { useScanRoute, explainMiss } from '@/scan-route';
 import { Scanner } from '@/scanner';
 import {
   T, Screen, Surface, Edge, Dot, Eyebrow, Rise, Icon, ICON, mono, tint, wash,
@@ -385,7 +385,21 @@ export default function Home() {
       >
         <View style={{ flex: 1, backgroundColor: '#000' }}>
           <Scanner
-            onCode={(code) => { setScanning(false); route(code); }}
+            /**
+             * A scan that resolves navigates and this closes behind it. A scan
+             * that resolves to NOTHING used to close and leave the driver back
+             * on Home with no statement at all — indistinguishable from the
+             * camera never having read the label, which is why a customer card
+             * that silently failed to match was never reported as a bug. Now a
+             * miss says which kind of miss it was.
+             */
+            onCode={(code) => {
+              setScanning(false);
+              const t = route(code);
+              if (t && t.kind === 'text') {
+                Alert.alert('Nothing matched that code', explainMiss(code, boot));
+              }
+            }}
             onClose={() => setScanning(false)}
             cooldownMs={1200}
             style={{ flex: 1 }}

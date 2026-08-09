@@ -4,6 +4,7 @@ import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { useStore } from '@/store';
 import { Scanner } from '@/scanner';
+import { useScanRoute, explainMiss } from '@/scan-route';
 import { T, Screen, Surface, Eyebrow, Tag, Icon, ICON, mono, tint, wash } from '@/ui';
 import type { AssetRec, CustomerRec } from '@/api';
 
@@ -33,8 +34,10 @@ type Hit =
 export default function Search() {
   const router = useRouter();
   const { boot } = useStore();
+  const route = useScanRoute();
   const [q, setQ] = useState('');
   const [cam, setCam] = useState(false);
+  const [miss, setMiss] = useState<string | null>(null);
 
   const term = q.trim().toLowerCase();
 
@@ -61,17 +64,35 @@ export default function Search() {
     ];
   }, [term, boot]);
 
+  /**
+   * A SCAN HERE GOES THROUGH THE SAME DECISION AS EVERY OTHER CAMERA.
+   *
+   * This used to look up `boot.assets[bc]` itself and drop anything that was
+   * not an asset into the search box as literal text — which is the entire
+   * customer half of the scan path missing. A customer card read on this
+   * screen could never open an account, because the code never reached
+   * `classify`: it went straight into a NAME search, which a card code cannot
+   * possibly satisfy, and the screen answered "Nothing matches". "One box,
+   * both kinds of thing" was the promise on this screen and only assets ever
+   * kept it.
+   *
+   * And when nothing does match, the box now says which kind of nothing.
+   */
   function onScan(raw: string) {
-    const bc = raw.trim().toUpperCase();
-    if (!bc || !boot) return;
     setCam(false);
-    if (boot.assets[bc]) {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      router.push(`/asset/${encodeURIComponent(bc)}` as never);
-    } else {
+    const t = route(raw);
+    if (!t) return;
+
+    if (t.kind === 'text') {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-      setQ(bc);
+      setQ(t.code);
+      setMiss(explainMiss(raw, boot));
+      return;
     }
+
+    // route() has already opened the cylinder or the account.
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setMiss(null);
   }
 
   return (
@@ -79,7 +100,7 @@ export default function Search() {
       <View style={{ paddingHorizontal: 18, paddingTop: 10, paddingBottom: 6 }}>
         <View style={{ flexDirection: 'row', gap: 10 }}>
           <TextInput
-            value={q} onChangeText={setQ}
+            value={q} onChangeText={(v) => { setQ(v); setMiss(null); }}
             placeholder={`Customer, barcode or serial…`}
             placeholderTextColor={T.faint}
             autoCorrect={false} autoCapitalize="none" autoFocus
@@ -136,7 +157,7 @@ export default function Search() {
               paddingTop: 40, paddingHorizontal: 40, lineHeight: 20,
             }}
           >
-            {term ? `Nothing matches \u201C${q.trim()}\u201D.` : 'Type a name, an account number or a barcode.'}
+            {miss ? miss : term ? `Nothing matches \u201C${q.trim()}\u201D.` : 'Type a name, an account number or a barcode.'}
           </Text>
         }
         renderSectionHeader={({ section }) => (
