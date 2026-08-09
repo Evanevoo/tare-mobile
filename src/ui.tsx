@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useRef, useState } from 'react';
 import {
   View, Text, Image, Pressable, Animated, Platform, StyleSheet, AccessibilityInfo,
   type ViewStyle, type TextStyle, type StyleProp,
@@ -6,6 +6,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Feather } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { HeaderHeightContext } from '@react-navigation/elements';
 import * as Haptics from 'expo-haptics';
 import { DARK, LIGHT } from '@/theme';
 
@@ -213,10 +214,12 @@ export function Btn({
 
   const body = (
     <>
-      {isPrimary && <Edge inset={16} opacity={0.9} />}
+      {isPrimary && !disabled && !busy && <Edge inset={16} opacity={0.9} />}
       <Text
         style={{
-          color: isPrimary ? T.onBrand : variant === 'ghost' ? T.ink : T.steel,
+          color: isPrimary && (disabled || busy)
+            ? T.faint
+            : isPrimary ? T.onBrand : variant === 'ghost' ? T.ink : T.steel,
           fontSize: 16,
           fontWeight: '700',
           letterSpacing: -0.2,
@@ -253,19 +256,49 @@ export function Btn({
         accessibilityState={{ disabled: !!disabled || !!busy, busy: !!busy }}
         // 56pt: comfortably past the 44pt floor, because this gets pressed
         // with a glove on.
-        style={{ opacity: disabled ? 0.38 : 1, minHeight: 56 }}
+        //
+        // NOT opacity. A disabled button used to render at 0.38, and this
+        // screen sits on the Aurora — so the glow behind it showed straight
+        // through the button and read as a translucent panel laid over the
+        // top, not as a control that is off. Disabled is now a flatter, darker
+        // gradient at full opacity: still obviously inactive, but solid, so
+        // nothing behind it can bleed through and look like a rendering fault.
+        style={{ minHeight: 56 }}
       >
         {isPrimary ? (
           <LinearGradient
-            colors={[lit, brand, T.brandDark]}
+            colors={
+              // OPAQUE HEXES, and that is the whole point.
+              //
+              // This was tint(0.10) — which reads as "a subtle lift" but is
+              // literally rgba(255,255,255,0.10), i.e. 90% see-through. Every
+              // disabled button on this app therefore had the Aurora glowing
+              // through it, which is exactly the translucent panel that looked
+              // like it had been laid over Sign in and over Nothing to sync.
+              // The first attempt at this bug swapped an opacity prop for a
+              // translucent colour and fixed nothing.
+              //
+              // panelTop/panelBot are the same solid surface colours every card
+              // uses, so a dead button reads as part of the furniture instead
+              // of as a rendering fault.
+              disabled || busy
+                ? [T.panelTop, T.panelBot, T.panelBot]
+                : [lit, brand, T.brandDark]
+            }
             locations={[0, 0.55, 1]}
             start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }}
             style={[
               {
                 minHeight: 56, borderRadius: T.radiusSm,
                 alignItems: 'center', justifyContent: 'center',
+                // A hairline so the dead button still has an edge once its
+                // gradient matches the cards around it.
+                borderWidth: disabled || busy ? 1 : 0,
+                borderColor: T.rule,
               },
-              shadow(2, brand),
+              // A control that does nothing should not be throwing brand-
+              // coloured light onto the page.
+              disabled || busy ? shadow(1) : shadow(2, brand),
             ]}
           >
             {body}
@@ -313,18 +346,34 @@ export function Icon({
 /**
  * Every screen starts here.
  *
- * Carries the light, and — more importantly — the safe area. Hard-coded top
+ * Carries the light, and — more importantly — the top inset. Hard-coded top
  * padding is right on exactly one phone; on anything with a Dynamic Island the
  * first line of the header ends up underneath it.
+ *
+ * THE HEADER PAYS FOR ITSELF, SO THIS ONLY PAYS WHEN THERE ISN'T ONE.
+ *
+ * The stack draws an opaque header, which means the navigator has already
+ * placed the screen below it and below the status bar — adding an inset here
+ * as well leaves a band of dead space at the top of every pushed screen. But
+ * the tabs, login and the scan modal have no header at all, and there the
+ * status bar would sit on top of the first line of text.
+ *
+ * So: if a header exists, it has done the job; if not, do it here. Reading
+ * through the context rather than `useHeaderHeight()` because that hook throws
+ * outside a navigator, and erring toward a little extra padding rather than a
+ * little too little, since one is a gap and the other is unreadable.
  */
 export function Screen({
   children, intensity = 1, pad = 0,
 }: { children: React.ReactNode; intensity?: number; pad?: number }) {
   const insets = useSafeAreaInsets();
+  const header = useContext(HeaderHeightContext) ?? 0;
   return (
     <View style={{ flex: 1, backgroundColor: T.zinc }}>
       <Aurora intensity={intensity} />
-      <View style={{ flex: 1, paddingTop: insets.top + pad }}>{children}</View>
+      <View style={{ flex: 1, paddingTop: (header > 0 ? 0 : insets.top) + pad }}>
+        {children}
+      </View>
     </View>
   );
 }

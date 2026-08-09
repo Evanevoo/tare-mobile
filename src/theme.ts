@@ -109,9 +109,22 @@ type S = {
   /** What the OS currently reports. The root keeps this in sync. */
   system: 'light' | 'dark';
   mode: 'light' | 'dark';
+  /**
+   * False until the saved preference has been read back.
+   *
+   * The root will not mount a screen before this is true, and that gate is the
+   * whole fix for the launch flash. Reading AsyncStorage takes a few frames, so
+   * the store necessarily starts on a guess — and with `key={mode}` remounting
+   * the navigator, correcting that guess one frame later meant every cold start
+   * on a light phone rendered dark, tore the entire tree down, and rebuilt it
+   * in light. Two visible flashes and a remount, before the driver had touched
+   * anything.
+   */
+  ready: boolean;
   setPref: (p: Pref) => void;
   setSystem: (s: 'light' | 'dark') => void;
-  hydrate: () => Promise<void>;
+  /** Pass what the OS reports, so pref and system resolve in one write. */
+  hydrate: (system: 'light' | 'dark') => Promise<void>;
 };
 
 const resolve = (pref: Pref, system: 'light' | 'dark') =>
@@ -121,16 +134,29 @@ export const useTheme = create<S>((set, get) => ({
   pref: 'system',
   system: 'dark',
   mode: 'dark',
+  ready: false,
   setPref: (pref) => {
     set({ pref, mode: resolve(pref, get().system) });
     AsyncStorage.setItem(KEY, pref).catch(() => {});
   },
-  setSystem: (system) => set({ system, mode: resolve(get().pref, system) }),
-  hydrate: async () => {
+  setSystem: (system) => {
+    // No write, and so no remount, when the OS reports what we already had.
+    // Zustand compares by reference, and `set` with an unchanged primitive
+    // still notifies — which with `key={mode}` upstream is a full teardown of
+    // the navigator for nothing.
+    const s = get();
+    const mode = resolve(s.pref, system);
+    if (s.system === system && s.mode === mode) return;
+    set({ system, mode });
+  },
+  hydrate: async (system) => {
+    let pref: Pref = 'system';
     try {
       const v = await AsyncStorage.getItem(KEY);
-      const pref: Pref = v === 'light' || v === 'dark' ? v : 'system';
-      set({ pref, mode: resolve(pref, get().system) });
+      if (v === 'light' || v === 'dark' || v === 'system') pref = v;
     } catch { /* first run, or storage unavailable — system it is */ }
+    // One write, carrying the OS value with it. Resolving these separately is
+    // what produced two mode changes, and therefore two remounts, on launch.
+    set({ pref, system, mode: resolve(pref, system), ready: true });
   },
 }));

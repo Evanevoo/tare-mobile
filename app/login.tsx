@@ -1,10 +1,21 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
-  View, Text, TextInput, KeyboardAvoidingView, Platform, ScrollView, Pressable,
+  View, Text, TextInput, KeyboardAvoidingView, Platform, ScrollView, Pressable, Image,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
+import * as SecureStore from 'expo-secure-store';
 import { signIn, requestPasswordReset } from '@/api';
-import { T, Aurora, Surface, Btn, Edge, Rise, shadow, tint, wash } from '@/ui';
+import { T, Aurora, Surface, Btn, Rise, tint, wash } from '@/ui';
+
+/**
+ * The email is remembered, the password never is.
+ *
+ * A driver signs into the same phone every morning and should not retype their
+ * address with cold hands. Storing the password would be a different trade
+ * entirely — a stolen phone would be a stolen account — so it is not offered.
+ * SecureStore rather than AsyncStorage because it is already a dependency and
+ * an email address is still personal data.
+ */
+const REMEMBERED = 'tare.lastEmail';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -13,11 +24,27 @@ export default function Login() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
+  const [remember, setRemember] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    SecureStore.getItemAsync(REMEMBERED)
+      .then((v) => { if (alive && v) { setEmail(v); setRemember(true); } })
+      .catch(() => { /* a missing keychain entry is the normal first run */ });
+    return () => { alive = false; };
+  }, []);
 
   async function submit() {
     if (!email || !password || busy) return;
     setBusy(true); setError(null); setSent(false);
-    try { await signIn(email.trim(), password); }
+    try {
+      const addr = email.trim();
+      await signIn(addr, password);
+      // Only after the credential is known good — otherwise a typo gets
+      // remembered and refilled every morning.
+      if (remember) SecureStore.setItemAsync(REMEMBERED, addr).catch(() => {});
+      else SecureStore.deleteItemAsync(REMEMBERED).catch(() => {});
+    }
     catch (e: any) { setError(e?.message ?? 'Could not sign in'); }
     finally { setBusy(false); }
   }
@@ -56,20 +83,13 @@ export default function Login() {
           keyboardShouldPersistTaps="handled"
         >
           <Rise>
-            <LinearGradient
-              colors={[T.brandLit, T.brandDark]}
-              start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }}
-              style={[
-                {
-                  width: 56, height: 56, borderRadius: 17,
-                  alignItems: 'center', justifyContent: 'center', marginBottom: 22,
-                },
-                shadow(2, T.bottle),
-              ]}
-            >
-              <Edge inset={12} />
-              <Text style={{ color: T.onBrand, fontSize: 25, fontWeight: '800' }}>S</Text>
-            </LinearGradient>
+            {/* The real mark, not a letter in a box. A driver opening this at
+                6am should see the same logo that is on the invoice. */}
+            <Image
+              source={require('../assets/logo.png')}
+              style={{ width: 68, height: 68, marginBottom: 20 }}
+              resizeMode="contain"
+            />
 
             <Text style={{ color: T.ink, fontSize: 34, fontWeight: '700', letterSpacing: -1.1 }}>
               Scanified
@@ -117,10 +137,45 @@ export default function Login() {
                   </Pressable>
                 </View>
 
+                {/* An actual control, because a setting nobody can see is a
+                    setting nobody believes in. The box is the email only — the
+                    password is never kept, and saying so here is better than
+                    letting somebody assume it is. */}
+                <Pressable
+                  onPress={() => setRemember((v) => !v)}
+                  hitSlop={8}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: remember }}
+                  accessibilityLabel="Remember my email on this phone"
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 11, marginTop: 18 }}
+                >
+                  <View
+                    style={{
+                      width: 24, height: 24, borderRadius: 7,
+                      alignItems: 'center', justifyContent: 'center',
+                      backgroundColor: remember ? T.bottle : 'transparent',
+                      borderWidth: remember ? 0 : 1.5,
+                      borderColor: T.faint,
+                    }}
+                  >
+                    {remember && (
+                      <Text style={{ color: T.onBrand, fontSize: 14, fontWeight: '900' }}>✓</Text>
+                    )}
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: T.ink, fontSize: 14, fontWeight: '600' }}>
+                      Remember my email
+                    </Text>
+                    <Text style={{ color: T.faint, fontSize: 11.5, marginTop: 1 }}>
+                      Password is never saved on the phone.
+                    </Text>
+                  </View>
+                </Pressable>
+
                 <Pressable
                   onPress={forgot}
                   hitSlop={10}
-                  style={{ alignSelf: 'flex-end', marginTop: 12 }}
+                  style={{ alignSelf: 'flex-end', marginTop: 16 }}
                 >
                   <Text style={{ color: T.steel, fontSize: 13, fontWeight: '600' }}>
                     Forgot your password?

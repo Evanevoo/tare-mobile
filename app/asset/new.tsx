@@ -4,7 +4,6 @@ import {
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
-import { useHeaderHeight } from '@react-navigation/elements';
 import { useStore } from '@/store';
 import { createAsset, ApiError, type AssetDraft } from '@/api';
 import { T, Screen, Surface, Btn, Rise, Icon, ICON, mono, useBottomInset, wash } from '@/ui';
@@ -12,6 +11,7 @@ import {
   Field, TextField, Chips, Choice, DateField, Note, isRealDate,
 } from '@/form';
 import { Scanner } from '@/scanner';
+import { formatNudge } from '@/formats';
 
 /**
  * Adding something to the fleet.
@@ -35,7 +35,6 @@ import { Scanner } from '@/scanner';
 export default function NewAsset() {
   const router = useRouter();
   const { boot, refresh } = useStore();
-  const header = useHeaderHeight();
   const bottom = useBottomInset(24);
 
   const [barcode, setBarcode] = useState('');
@@ -59,6 +58,21 @@ export default function NewAsset() {
   );
 
   const existing = barcode ? boot?.assets[barcode] : undefined;
+
+  /**
+   * A barcode that does not look like the fleet's other barcodes.
+   *
+   * This catches the one that matters most: a driver adding a bottle and
+   * reading a digit wrong off a worn label, or scanning the wrong symbol on a
+   * receipt entirely. It stays a warning rather than a block because the
+   * moment a fleet buys a batch from a supplier who prints differently, a gate
+   * here would stop the yard working and nobody in the yard can change the
+   * setting — but the odd one out is still worth pointing at.
+   */
+  const barcodeNudge = existing
+    ? null
+    : formatNudge(barcode, boot?.formats?.barcode, `${label.toLowerCase()} barcodes`);
+
   const dateOk = !requal || isRealDate(requal);
   const ready = !!barcode && !existing && !!product.trim() && full !== null && dateOk;
 
@@ -129,9 +143,10 @@ export default function NewAsset() {
         <ScrollView
           contentContainerStyle={{
             paddingHorizontal: 18,
-            // Clear of the transparent header, or the first field lands
-            // behind the back button.
-            paddingTop: header + 10,
+            // Clearing the transparent header is now Screen's job, and doing
+            // it here as well pushed the first field a header's height too far
+            // down. This is just breathing room under it.
+            paddingTop: 10,
             paddingBottom: bottom + (ready ? 108 : 40),
           }}
           keyboardShouldPersistTaps="handled"
@@ -211,6 +226,12 @@ export default function NewAsset() {
               action="Open the record"
               onAction={() => router.push(`/asset/${encodeURIComponent(barcode)}` as never)}
             />
+          )}
+
+          {/* Not while the viewfinder is open — the camera fills this space and
+              the note would sit under a live preview the driver is aiming. */}
+          {!scanning && !!barcodeNudge && (
+            <Note icon="alert-triangle" tone={T.amber} text={`${barcodeNudge} Check the label — it will still save.`} />
           )}
 
           {/* ── the rest only matters once the barcode is new ── */}

@@ -8,11 +8,20 @@
     "preview": {
       "distribution": "internal",
       "android": { "buildType": "apk" },
-      "env": { "EXPO_PUBLIC_API_URL": "https://REPLACE-ME.vercel.app" }
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://www.scanified.com",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://eltushtaxdwhdfpxlytx.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_VXPuQS2_foJIiJM4zHroYQ_hKAONWjX"
+      }
     },
     "production": {
       "autoIncrement": true,
-      "env": { "EXPO_PUBLIC_API_URL": "https://REPLACE-ME.vercel.app" }
+      "android": { "buildType": "app-bundle" },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://www.scanified.com",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://eltushtaxdwhdfpxlytx.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_VXPuQS2_foJIiJM4zHroYQ_hKAONWjX"
+      }
     }
   },
   "submit": {

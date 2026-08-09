@@ -17,9 +17,14 @@ import { T, Screen, Surface, Eyebrow, Rise, Hairline, Icon, ICON, tint } from '@
  */
 export default function More() {
   const router = useRouter();
-  const { boot, outbox } = useStore();
+  const { boot, email, outbox } = useStore();
   const unsent = pending(outbox).length;
   const isAdmin = boot?.user.role === 'admin' || boot?.user.role === 'owner';
+
+  // Same fallback as Settings: the session on the phone knows the address even
+  // when the console is unreachable, so this card is never empty.
+  const who = boot?.user.name || email || '—';
+  const sub = [boot?.user.email || email, boot?.user.role].filter(Boolean).join(' · ');
 
   return (
     <Screen intensity={0.7}>
@@ -35,14 +40,16 @@ export default function More() {
             <View style={{ padding: 18 }}>
               <Eyebrow>Signed in as</Eyebrow>
               <Text style={{ color: T.ink, fontSize: 18, fontWeight: '700', marginTop: 8 }}>
-                {boot?.user.name ?? '—'}
+                {who}
               </Text>
-              <Text style={{ color: T.faint, fontSize: 13, marginTop: 3 }}>
-                {boot?.user.email ?? ''} · {boot?.user.role ?? ''}
-              </Text>
-              <Text style={{ color: T.faint, fontSize: 13, marginTop: 9 }}>
-                {boot?.org.name ?? ''}
-              </Text>
+              {!!sub && (
+                <Text style={{ color: T.faint, fontSize: 13, marginTop: 3 }}>{sub}</Text>
+              )}
+              {!!boot?.org.name && (
+                <Text style={{ color: T.faint, fontSize: 13, marginTop: 9 }}>
+                  {boot.org.name}
+                </Text>
+              )}
             </View>
           </Surface>
         </Rise>

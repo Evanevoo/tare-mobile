@@ -31,10 +31,21 @@ export default function RootLayout() {
      alternative is a theme prop threaded through forty screens. */
   const os = useColorScheme();
   const mode = useTheme((s) => s.mode);
+  const themeReady = useTheme((s) => s.ready);
   const setSystem = useTheme((s) => s.setSystem);
   const hydrateTheme = useTheme((s) => s.hydrate);
-  useEffect(() => { hydrateTheme(); }, []);
-  useEffect(() => { setSystem(os === 'light' ? 'light' : 'dark'); }, [os]);
+
+  /* Read the saved preference once, handing it what the OS reports so the two
+     resolve together. Nothing below mounts until it lands — see `ready`. */
+  useEffect(() => { hydrateTheme(os === 'light' ? 'light' : 'dark'); }, []);
+
+  /* Afterwards, follow the OS. Skipped until ready, or this races the hydrate
+     above and applies the system value before the saved preference has been
+     read — which is the flash it is meant to prevent. */
+  useEffect(() => {
+    if (themeReady) setSystem(os === 'light' ? 'light' : 'dark');
+  }, [os, themeReady]);
+
   applyPalette(mode);
 
   useEffect(() => {
@@ -52,7 +63,16 @@ export default function RootLayout() {
     if (session === 'in' && onLogin) router.replace('/');
   }, [session, segments]);
 
-  if (session === 'loading') {
+  /**
+   * Nothing mounts until BOTH the session and the theme are known.
+   *
+   * The theme half is what stops the launch flash. `key={mode}` below tears the
+   * whole navigator down and rebuilds it whenever the mode changes — correct
+   * for a deliberate switch, ruinous one frame into a cold start. Waiting the
+   * few frames AsyncStorage takes costs nothing visible and means the first
+   * screen a driver sees is already the right colour.
+   */
+  if (session === 'loading' || !themeReady) {
     return (
       <View style={{ flex: 1, backgroundColor: T.zinc, justifyContent: 'center' }}>
         <Aurora />
@@ -67,8 +87,22 @@ export default function RootLayout() {
       <Stack
         key={mode}
         screenOptions={{
-          headerTransparent: true,
-          headerStyle: { backgroundColor: 'transparent' },
+          /**
+           * NOT transparent, deliberately, after two goes at the bug it caused.
+           *
+           * A transparent header makes the screen start at y=0, underneath the
+           * back button, and every screen then has to remember to push its own
+           * content clear. Two did; the rest did not, which is why tapping the
+           * search field slid it up under the back arrow — on Android the
+           * keyboard resizes the window and content that begins under the
+           * header simply stays there.
+           *
+           * An opaque bar costs the aurora running behind the back arrow, which
+           * nobody has ever noticed, and buys a header that content physically
+           * cannot get behind. The aurora still fills the rest of the screen.
+           */
+          headerTransparent: false,
+          headerStyle: { backgroundColor: T.zinc },
           headerTintColor: T.ink,
           headerShadowVisible: false,
           headerTitleStyle: { fontWeight: '700', fontSize: 16.5, color: T.ink },

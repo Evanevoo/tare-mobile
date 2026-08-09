@@ -43,7 +43,7 @@ export default function AssetDetail() {
 
   return (
     <Screen intensity={0.75}>
-      <ScrollView contentContainerStyle={{ paddingTop: 44, paddingHorizontal: 18, paddingBottom: 44 }}>
+      <ScrollView contentContainerStyle={{ paddingTop: 14, paddingHorizontal: 18, paddingBottom: 44 }}>
         <Rise>
           <Eyebrow>{boot?.org.assetLabel ?? 'Asset'}</Eyebrow>
           <Text style={[mono(30, '800'), { color: T.ink, marginTop: 8, letterSpacing: -1 }]}>

@@ -44,7 +44,7 @@ export default function CustomerDetail() {
 
   return (
     <Screen intensity={0.75}>
-      <ScrollView contentContainerStyle={{ paddingTop: 44, paddingHorizontal: 18, paddingBottom: 44 }}>
+      <ScrollView contentContainerStyle={{ paddingTop: 14, paddingHorizontal: 18, paddingBottom: 44 }}>
         <Rise>
           <Eyebrow>Customer</Eyebrow>
           <Text

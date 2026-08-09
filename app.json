@@ -13,7 +13,9 @@
       "resizeMode": "contain",
       "backgroundColor": "#07090A"
     },
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.scanified.app",
@@ -42,13 +44,30 @@
     "plugins": [
       "expo-router",
       "expo-secure-store",
-      ["expo-camera", { "cameraPermission": "Scanified uses the camera to scan asset barcodes." }],
-      ["expo-location", { "locationAlwaysAndWhenInUsePermission": "Scanified records where a scan happened." }]
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Scanified uses the camera to scan asset barcodes.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Scanified records where a scan happened."
+        }
+      ]
     ],
-    "experiments": { "typedRoutes": true },
+    "experiments": {
+      "typedRoutes": true
+    },
     "extra": {
       "router": {},
-      "eas": { "projectId": "REPLACE_AFTER_EAS_INIT" }
-    }
+      "eas": {
+        "projectId": "fad89b31-ae33-4bff-9011-af88c8268844"
+      }
+    },
+    "owner": "evanevoo"
   }
 }

@@ -1,41 +1,16 @@
 import { useCallback } from 'react';
 import { useRouter } from 'expo-router';
 import { useStore } from '@/store';
-import type { Bootstrap } from '@/api';
+import { classify, type ScanTarget } from './scan-match';
 
 /**
- * WHAT A SCANNED CODE TURNED OUT TO BE.
+ * The navigation half of "what did I just scan".
  *
- * Two screens now point a camera at a label without knowing in advance what
- * kind of label it is — the Delivery setup and the search bar on Home — and
- * both have to answer the same question in the same order. That order is the
- * whole point of this file, and it is not alphabetical:
- *
- *   1. an asset the fleet already knows about
- *   2. a code matching a customer account
- *   3. anything else: it is just a string
- *
- * Asset first, because a mis-scanned cylinder landing silently in an
- * order-number field is precisely the error that makes an invoice
- * unexplainable three weeks later. Held in one place because two copies of a
- * disambiguation rule drift, and the drift is silent.
+ * The decision itself lives in scan-match.ts, which imports nothing from React
+ * or expo-router so it can be run and tested off a phone. This file is only the
+ * wiring: classify, then go somewhere if there is somewhere honest to go.
  */
-export type ScanTarget =
-  | { kind: 'asset'; barcode: string }
-  | { kind: 'customer'; id: string; name: string }
-  | { kind: 'text'; code: string };
-
-export function classify(raw: string, boot: Bootstrap | null): ScanTarget | null {
-  const up = raw.trim().toUpperCase();
-  if (!up) return null;
-
-  if (boot?.assets?.[up]) return { kind: 'asset', barcode: up };
-
-  const hit = (boot?.customers ?? []).find((c) => c.customerListId.toUpperCase() === up);
-  if (hit) return { kind: 'customer', id: hit.customerListId, name: hit.name };
-
-  return { kind: 'text', code: up };
-}
+export { classify, type ScanTarget } from './scan-match';
 
 /**
  * Classify, and for the two cases that have a screen of their own, go there.

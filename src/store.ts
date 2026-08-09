@@ -3,12 +3,18 @@ import { reduce, empty, pending, queued, type Action, type Outbox, type Mode, ty
   from './outbox';
 import { ulid } from './ulid';
 import { loadOutbox, saveOutbox, cacheGet, cacheSet } from './db';
-import { fetchBootstrap, postScans, BOOTSTRAP_VERSION, type Bootstrap } from './api';
+import { fetchBootstrap, postScans, sessionIdentity, BOOTSTRAP_VERSION, type Bootstrap }
+  from './api';
 
 interface State {
   ready: boolean;
   outbox: Outbox;
   boot: Bootstrap | null;
+  /**
+   * The signed-in address, read off the device's own session rather than the
+   * download. Survives a dead server; `boot` does not.
+   */
+  email: string | null;
   online: boolean;
   syncing: boolean;
   lastError: string | null;
@@ -34,6 +40,7 @@ export const useStore = create<State>((set, get) => ({
   ready: false,
   outbox: empty,
   boot: null,
+  email: null,
   online: true,
   syncing: false,
   lastError: null,
@@ -44,13 +51,14 @@ export const useStore = create<State>((set, get) => ({
   mode: 'SHIP',
 
   async hydrate() {
-    const [outbox, cached, lastSync, job] = await Promise.all([
+    const [outbox, cached, lastSync, job, who] = await Promise.all([
       loadOutbox(),
       cacheGet<Bootstrap>('bootstrap'),
       cacheGet<string>('lastSync'),
       cacheGet<{
         customerListId: string; customerName: string; orderNumber: string; mode: Mode;
       }>('delivery'),
+      sessionIdentity().catch(() => null),
     ]);
 
     // A cache written by an older build has a different shape: `assets` used to
@@ -65,6 +73,7 @@ export const useStore = create<State>((set, get) => ({
     // bottle thirty comes back to bottle thirty.
     set({
       outbox, boot, lastSync, ready: true,
+      email: who?.email ?? null,
       customerListId: job?.customerListId ?? null,
       customerName: job?.customerName ?? null,
       orderNumber: job?.orderNumber ?? null,

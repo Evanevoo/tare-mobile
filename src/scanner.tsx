@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 import { CameraView, useCameraPermissions, type BarcodeType } from 'expo-camera';
 import * as Haptics from 'expo-haptics';
@@ -64,6 +64,36 @@ const DEFAULT_TYPES: BarcodeType[] = [
   'ean13', 'ean8', 'upc_a', 'upc_e', 'qr', 'pdf417', 'datamatrix', 'aztec',
 ];
 
+/**
+ * THERE IS NO REGION OF INTEREST, AND THERE NEVER WAS.
+ *
+ * Both this file and the legacy Android app it was ported from used to pass
+ * `regionOfInterest` inside `barcodeScannerSettings`, with a comment explaining
+ * that it stopped the decoder "catching" an order-number barcode an inch away
+ * from the one being aimed at. It never did anything. expo-camera's
+ * `BarcodeSettings` is `{ barcodeTypes }` and nothing else — grep the installed
+ * package, JS and native both, and `regionOfInterest` does not appear. The key
+ * was silently dropped and the decoder always read the whole frame.
+ *
+ * It survived review in two codebases because it was spread in conditionally —
+ * `...(reticle ? { regionOfInterest } : {})` — and TypeScript exempts a
+ * conditional spread from excess-property checking. Written as a plain property
+ * it would not have compiled.
+ *
+ * That matters beyond a dead line: the legacy app scanned well in the field for
+ * years WITH this doing nothing, which means the things that actually earned
+ * that reputation are the focus handling and the deferred mount below, not a
+ * decode-area constraint. Keeping the dead key would have told the next person
+ * a real safeguard was in place while the reticle quietly shrank to a band far
+ * smaller than what is actually being decoded.
+ *
+ * The reticle is now honestly what it always was: an aiming guide for the
+ * driver, not a constraint on the decoder. If the decode area ever genuinely
+ * needs narrowing, it has to happen by cropping a still frame before handing it
+ * to ML Kit — the Snap path below — because that is the only place in this
+ * stack where the pixels are ours to cut.
+ */
+
 /** Loaded once, lazily. Null where the native module is not in the build. */
 let mlkit: { scan: (uri: string) => Promise<{ value?: string | null }[]> } | null | undefined;
 function loadMlkit() {
@@ -95,10 +125,23 @@ export interface ScannerProps {
   onClose?: () => void;
   /** Same code accepted again after this many ms. Default 2500. */
   cooldownMs?: number;
+  /**
+   * Focus once and then leave the lens alone (Android).
+   *
+   * The legacy app carried the same flag and the same one-line reason: it
+   * "avoids blur when pointing at barcode — use for customer barcode scanning".
+   * The periodic refocus below is right for a driver sweeping a pallet at
+   * changing distances; it is wrong for somebody holding a phone still over a
+   * printed receipt, because a lens told to re-acquire every second spends a
+   * good part of every second hunting, and the frames it delivers mid-hunt are
+   * exactly the soft ones a long Code 39 label cannot survive.
+   */
+  steadyFocus?: boolean;
 }
 
 export function Scanner({
   onCode, accept, types, style, children, reticle = true, onClose, cooldownMs = 2500,
+  steadyFocus = false,
 }: ScannerProps) {
   const [perm, requestPerm] = useCameraPermissions();
   const [ready, setReady] = useState(false);
@@ -108,6 +151,8 @@ export function Scanner({
   const [focusPulse, setFocusPulse] = useState(false);
   const [struggling, setStruggling] = useState(false);
   const [snapBusy, setSnapBusy] = useState(false);
+  const [androidFocusOff, setAndroidFocusOff] = useState(false);
+  const [mounted, setMounted] = useState(Platform.OS !== 'android');
 
   const cam = useRef<CameraView | null>(null);
   const lastAccepted = useRef<Record<string, number>>({});
@@ -125,6 +170,76 @@ export function Scanner({
     }, 1000);
     return () => { alive.current = false; clearInterval(t); };
   }, [perm?.granted]);
+
+  /**
+   * DEFERRED MOUNT (Android only).
+   *
+   * Ported from the legacy Android app, which mounted `CameraView` a beat after
+   * permission was granted rather than on the same tick, specifically to avoid a
+   * crash on some Android devices opening the camera immediately after layout.
+   * iOS never needed the delay, so it stays mounted immediately there.
+   */
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    if (!perm?.granted) { setMounted(false); return; }
+    const t = setTimeout(() => { if (alive.current) setMounted(true); }, 150);
+    return () => clearTimeout(t);
+  }, [perm?.granted]);
+
+  /**
+   * ANDROID PERIODIC REFOCUS.
+   *
+   * The doc block at the top of this file says continuous autofocus "locks at
+   * the wrong distance on some phones" and describes a pulse-to-refocus trick —
+   * but until now that trick was wired for iOS only; Android ran plain
+   * `autofocus="on"` with no refocus path at all. That is backwards: it is
+   * Android's autofocus that tends to lock on the first thing it settles on and
+   * never re-evaluate, which is exactly what the legacy Android app
+   * (gas-cylinder-android/components/ScanArea.tsx) built a fix for and proved out
+   * in the field — a driver holding a cylinder closer or farther after the first
+   * lock got a soft, unreadable frame until they backed out and reopened the
+   * scanner. The fix is a periodic toggle: autofocus off for a beat, then back
+   * on, which most Android camera stacks treat as "focus again now" rather than
+   * "stop focusing." Kept as a separate flag from `focusPulse` because the two
+   * platforms' defaults are opposite — iOS defaults off and pulses on; Android
+   * defaults on and pulses off — and collapsing them into one flag would make
+   * one of the two platforms wrong.
+   */
+  useEffect(() => {
+    if (Platform.OS !== 'android' || !ready) return;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    const cycle = () => {
+      setAndroidFocusOff(true);
+      // Tracked, not fire-and-forget: without this the inner timer outlives the
+      // component, and on a fast close/reopen the stale one lands in the new
+      // session and knocks focus off at random.
+      timers.push(setTimeout(() => { if (alive.current) setAndroidFocusOff(false); }, 180));
+    };
+
+    // Let the preview settle before touching focus at all, or the first second
+    // of every scan is a visible glitch.
+    timers.push(setTimeout(cycle, 600));
+    if (steadyFocus) return () => timers.forEach(clearTimeout);
+
+    // Sweeping a pallet: keep re-acquiring. The later kicks are offset off the
+    // interval's own ticks (600+1400, 600+2500 against a 1000ms period) so two
+    // cycles never fire together — overlapping cycles cancel each other's
+    // off-window early and the refocus silently does not happen.
+    timers.push(setTimeout(cycle, 2000), setTimeout(cycle, 3100));
+    const iv = setInterval(cycle, 1000);
+    return () => { timers.forEach(clearTimeout); clearInterval(iv); };
+  }, [ready, steadyFocus]);
+
+  /**
+   * Stable identity, because this is a prop on a native view.
+   *
+   * Built inline, a fresh object literal every render re-configured the native
+   * barcode scanner on each of the twice-a-second focus re-renders above.
+   */
+  const BARCODE_SETTINGS = useMemo(
+    () => ({ barcodeTypes: types ?? DEFAULT_TYPES }),
+    [types],
+  );
 
   const deliver = useCallback((raw: string) => {
     const code = raw.trim().toUpperCase();
@@ -211,6 +326,12 @@ export function Scanner({
 
   return (
     <View style={[FILL, { overflow: 'hidden' }, style]}>
+      {!mounted ? (
+        // Deferred-mount window (Android only, ~150ms) — see the effect above.
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <Text style={{ color: T.faint, fontSize: 13 }}>Starting camera…</Text>
+        </View>
+      ) : (
       <Pressable style={{ flex: 1 }} onPress={refocus}>
         <CameraView
           ref={cam}
@@ -219,33 +340,39 @@ export function Scanner({
           facing="back"
           enableTorch={torch}
           zoom={zoom}
-          autofocus={Platform.OS === 'ios' ? (focusPulse ? 'on' : 'off') : 'on'}
+          autofocus={
+            Platform.OS === 'ios' ? (focusPulse ? 'on' : 'off') : (androidFocusOff ? 'off' : 'on')
+          }
           onCameraReady={() => setReady(true)}
-          barcodeScannerSettings={{ barcodeTypes: types ?? DEFAULT_TYPES }}
+          barcodeScannerSettings={BARCODE_SETTINGS}
           onBarcodeScanned={ready && !closing ? ({ data }) => deliver(data) : undefined}
         />
       </Pressable>
+      )}
 
-      {/* ── reticle: four corners, nothing covering the label ── */}
-      {/* Narrower than the old 16% inset. A wide reticle invites the driver to
-          stand back and frame the whole label, which is the worst way to read a
-          small code; a tighter box brings them closer, and the decoder gets
-          more pixels per bar. */}
+      {/* ── reticle: one rectangle, wide and short, a little above centre ── */}
+      {/* A full outline reads unambiguously as "put the barcode in here" — the
+          corner-bracket version this replaced looked more like a camera focus
+          reticle, which is the wrong metaphor for a driver glancing at it for
+          half a second with gloves on. Wide rather than tall (78%/20%, not
+          48%/38%) because every code this app reads is a linear barcode — a
+          tall box just left dead space on either side and read as a vertical
+          slot, the wrong shape for what's being aimed at. Positioned above
+          true centre (33%/53%) because a phone held up at an object at chest
+          height gets tilted down to aim, and that puts the object in the upper
+          half of the frame, not dead centre.
+
+          IT GUIDES, IT DOES NOT CONSTRAIN. The decoder reads the whole frame —
+          see the note where the region of interest used to be. So this box has
+          to be generous enough that a driver who fills it is comfortably inside
+          what is actually being read, and a code landing just outside it still
+          scans rather than mysteriously not working. */}
       {reticle && (
-        <View pointerEvents="none" style={{ position: 'absolute', left: '26%', right: '26%', top: '32%', bottom: '30%' }}>
-          {([
-            { pos: { top: 0, left: 0 }, n: 2, s: 0, w: 2, e: 0, r: { borderTopLeftRadius: 10 } },
-            { pos: { top: 0, right: 0 }, n: 2, s: 0, w: 0, e: 2, r: { borderTopRightRadius: 10 } },
-            { pos: { bottom: 0, left: 0 }, n: 0, s: 2, w: 2, e: 0, r: { borderBottomLeftRadius: 10 } },
-            { pos: { bottom: 0, right: 0 }, n: 0, s: 2, w: 0, e: 2, r: { borderBottomRightRadius: 10 } },
-          ] as const).map((k, i) => (
-            <View key={i} style={{
-              position: 'absolute', width: 26, height: 26, ...k.pos, ...k.r,
-              borderColor: struggling ? T.amber : T.brandLit,
-              borderTopWidth: k.n, borderBottomWidth: k.s,
-              borderLeftWidth: k.w, borderRightWidth: k.e, opacity: 0.85,
-            }} />
-          ))}
+        <View pointerEvents="none" style={{ position: 'absolute', left: '11%', right: '11%', top: '33%', bottom: '47%' }}>
+          <View style={{
+            flex: 1, borderRadius: 12, borderWidth: 2,
+            borderColor: struggling ? T.amber : T.brandLit, opacity: 0.85,
+          }} />
         </View>
       )}
 

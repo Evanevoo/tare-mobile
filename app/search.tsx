@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react';
 import { View, Text, TextInput, Pressable, SectionList } from 'react-native';
 import { useRouter } from 'expo-router';
-import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Haptics from 'expo-haptics';
 import { useStore } from '@/store';
+import { Scanner } from '@/scanner';
 import { T, Screen, Surface, Eyebrow, Tag, Icon, ICON, mono, tint, wash } from '@/ui';
 import type { AssetRec, CustomerRec } from '@/api';
 
@@ -35,7 +35,6 @@ export default function Search() {
   const { boot } = useStore();
   const [q, setQ] = useState('');
   const [cam, setCam] = useState(false);
-  const [perm, requestPerm] = useCameraPermissions();
 
   const term = q.trim().toLowerCase();
 
@@ -91,11 +90,14 @@ export default function Search() {
               borderWidth: 1, borderColor: term ? wash(0.4) : T.rule,
             }}
           />
+          {/* Just a toggle. It used to request the camera permission itself and
+              only then flip, and it silently did nothing whenever that request
+              resolved without a decision — which on a second tap, after the OS
+              has stopped showing the dialog, is every time. Scanner asks for
+              the permission and explains itself if it is refused, the same way
+              it does on the other three scan surfaces. */}
           <Pressable
-            onPress={async () => {
-              if (!perm?.granted) { const r = await requestPerm(); if (!r.granted) return; }
-              setCam((v) => !v);
-            }}
+            onPress={() => setCam((v) => !v)}
             accessibilityRole="button"
             accessibilityLabel={cam ? 'Close the camera' : 'Scan a barcode to search'}
             style={{
@@ -109,22 +111,15 @@ export default function Search() {
           </Pressable>
         </View>
 
-        {cam && perm?.granted && (
-          <View
+        {cam && (
+          <Scanner
+            onCode={onScan}
+            onClose={() => setCam(false)}
             style={{
-              height: 200, borderRadius: T.radius, overflow: 'hidden', marginTop: 12,
+              height: 260, borderRadius: T.radius, overflow: 'hidden', marginTop: 12,
               borderWidth: 1, borderColor: T.rule,
             }}
-          >
-            <CameraView
-              style={{ flex: 1 }}
-              facing="back"
-              barcodeScannerSettings={{
-                barcodeTypes: ['code128', 'code39', 'ean13', 'ean8', 'upc_a', 'qr', 'datamatrix'],
-              }}
-              onBarcodeScanned={({ data }) => onScan(data)}
-            />
-          </View>
+          />
         )}
       </View>
 

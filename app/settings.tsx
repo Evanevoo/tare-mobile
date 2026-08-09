@@ -15,12 +15,18 @@ import { useTheme, type Pref } from '@/theme';
  */
 export default function Settings() {
   const router = useRouter();
-  const { boot, outbox, lastSync, online, refresh, dispatch } = useStore();
+  const { boot, email, outbox, lastSync, online, refresh, dispatch } = useStore();
   const unsent = pending(outbox).length;
+
+  // Who you are should never be a blank card. `boot` needs the server; `email`
+  // is on the phone. Falling back through both means the worst case is an
+  // address with no display name rather than nothing at all.
+  const who = boot?.user.name || email || '—';
+  const sub = [boot?.user.email || email, boot?.user.role].filter(Boolean).join(' · ');
 
   return (
     <Screen intensity={0.7}>
-      <ScrollView contentContainerStyle={{ paddingHorizontal: 18, paddingTop: 44, paddingBottom: 44 }}>
+      <ScrollView contentContainerStyle={{ paddingHorizontal: 18, paddingTop: 14, paddingBottom: 44 }}>
         <Rise>
           <Text style={{ color: T.ink, fontSize: 29, fontWeight: '700', letterSpacing: -1 }}>
             Settings
@@ -32,13 +38,13 @@ export default function Settings() {
             <View style={{ padding: 18 }}>
               <Eyebrow>Signed in as</Eyebrow>
               <Text style={{ color: T.ink, fontSize: 18, fontWeight: '700', marginTop: 8 }}>
-                {boot?.user.name ?? '—'}
+                {who}
               </Text>
-              <Text style={{ color: T.faint, fontSize: 13, marginTop: 3 }}>
-                {boot?.user.email ?? ''} · {boot?.user.role ?? ''}
-              </Text>
+              {!!sub && (
+                <Text style={{ color: T.faint, fontSize: 13, marginTop: 3 }}>{sub}</Text>
+              )}
               <Text style={{ color: T.faint, fontSize: 13, marginTop: 10 }}>
-                {boot?.org.name ?? ''}
+                {boot?.org.name ?? (online ? 'Loading your company…' : 'Offline — company details will load when you have signal')}
               </Text>
             </View>
           </Surface>

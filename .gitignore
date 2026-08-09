@@ -13,3 +13,5 @@ expo-env.d.ts
 _*.ps1
 
 _msg.txt
+.claude-flow/  
+.claude/  

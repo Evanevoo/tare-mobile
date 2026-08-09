@@ -4,6 +4,7 @@ import { useRouter } from 'expo-router';
 import { useStore } from '@/store';
 import { Scanner } from '@/scanner';
 import { useScanRoute } from '@/scan-route';
+import { formatExample, formatNudge } from '@/formats';
 import { T, Screen, Surface, Btn, Eyebrow, Rise, Tag, mono, tint, wash } from '@/ui';
 
 /**
@@ -76,6 +77,21 @@ export default function Delivery() {
   }
 
   const canStart = !!picked && order.trim().length >= 3;
+
+  /**
+   * "That does not look like one of yours."
+   *
+   * The console has had a place to write down what an order number looks like
+   * since the beginning, and the bootstrap has always shipped it — the handset
+   * simply never read it, so a driver could type anything and find out it was
+   * wrong when the invoice would not reconcile. This is the whole of the
+   * enforcement: a line of text. It never blocks Start scanning, because a
+   * real order number the office has not written a rule for yet is far more
+   * common than a typo, and a driver in a yard cannot edit the org's settings.
+   */
+  const orderPattern = boot?.formats?.orderNumber;
+  const orderNudge = formatNudge(order, orderPattern, 'order numbers');
+  const orderHint = formatExample(orderPattern);
 
   const field = {
     height: 52, borderRadius: T.radiusSm, paddingHorizontal: 15,
@@ -152,12 +168,21 @@ export default function Delivery() {
                 <View>
                   <TextInput
                     value={order} onChangeText={(v) => setOrder(v.toUpperCase())}
-                    placeholder="INV-9001" placeholderTextColor={T.faint}
+                    placeholder={orderHint || 'INV-9001'} placeholderTextColor={T.faint}
                     autoCapitalize="characters" autoCorrect={false} autoFocus
-                    style={[field, mono(17, '600'), { color: T.ink, paddingRight: 62 }]}
+                    style={[
+                      field, mono(17, '600'),
+                      { color: T.ink, paddingRight: 62 },
+                      orderNudge ? { borderColor: T.amber } : null,
+                    ]}
                   />
                   <ScanBtn />
                 </View>
+                {orderNudge && (
+                  <Text style={{ color: T.amber, fontSize: 12.5, lineHeight: 18, marginTop: 7 }}>
+                    {orderNudge}
+                  </Text>
+                )}
                 <Btn
                   label="Start scanning"
                   style={{ marginTop: 20 }}
@@ -227,6 +252,10 @@ export default function Delivery() {
             onCode={handleCode}
             onClose={() => setScanning(false)}
             cooldownMs={1200}
+            // Reading a printed receipt held still, not sweeping a pallet. The
+            // periodic Android refocus makes this case worse, not better — the
+            // legacy app disabled it here for exactly this reason.
+            steadyFocus
             style={{ flex: 1 }}
           >
             <View style={{ position: 'absolute', left: 0, right: 0, bottom: 44, paddingHorizontal: 26 }}>

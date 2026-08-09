@@ -32,6 +32,24 @@ async function authHeader(): Promise<Record<string, string>> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+/**
+ * Who is signed into this phone, known without the server.
+ *
+ * "Signed in as" used to read the bootstrap payload, so the moment the handset
+ * could not reach the console — a dead tunnel, a yard with no bars, a first run
+ * before the download finishes — the one line on the screen whose entire job is
+ * to say who you are went blank. The session itself is on the device; asking it
+ * costs nothing and cannot fail offline.
+ *
+ * Name and role still come from the bootstrap when it is there, because
+ * Supabase only knows the address that signed in.
+ */
+export async function sessionIdentity(): Promise<{ email: string } | null> {
+  const { data } = await supabase.auth.getSession();
+  const email = data.session?.user?.email;
+  return email ? { email } : null;
+}
+
 /** One asset, as it arrives. Keys are short because there are forty thousand. */
 export interface AssetRec {
   p: string | null;        // product code
@@ -49,6 +67,8 @@ export interface CustomerRec {
   id: string;
   customerListId: string;
   name: string;
+  /** The code printed on their card, as printed — asterisks included. */
+  bc: string | null;
   city: string | null;
   region: string | null;
   address: string | null;
@@ -65,7 +85,10 @@ export interface ProductRec {
   n: number;
 }
 
-export const BOOTSTRAP_VERSION = 3;
+// 4: customers carry `bc`, the code printed on their card. A v3 cache has no
+// barcode on any customer, so a card scanned at the counter would find nothing
+// and look identical to an unknown customer. The bump discards that cache.
+export const BOOTSTRAP_VERSION = 4;
 
 export interface Bootstrap {
   /** Shape version. A cache without this is from an older app and is discarded. */
@@ -75,6 +98,12 @@ export interface Bootstrap {
   customers: CustomerRec[];
   assets: Record<string, AssetRec>;
   locations: string[];
+  /**
+   * What this org's numbers look like, set in Settings. Empty means "no rule",
+   * which must read as "anything is allowed" and never as "everything is wrong".
+   * The server has always sent these; the handset just never typed them.
+   */
+  formats?: { barcode?: string; customerNumber?: string; orderNumber?: string };
   /** Commonest first. Drives the product picker when adding something new. */
   products: ProductRec[];
   stats: {
