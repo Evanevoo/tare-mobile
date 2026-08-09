@@ -15,3 +15,4 @@ _*.ps1
 _msg.txt
 .claude-flow/  
 .claude/  
+.env  
