@@ -2,7 +2,14 @@
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
     "strict": true,
-    "paths": { "@/*": ["./src/*"] }
+    "paths": { "@/*": ["./src/*"] },
+    // src/ocr.ts imports key() from './scan-match.ts' WITH the extension,
+    // because __tests__/ocr.test.mts loads that module in node, where a file
+    // containing `import` is ESM and an extensionless relative specifier does
+    // not resolve at all. Metro and tsc accept either spelling; node accepts
+    // only this one. tsc emits nothing here (Metro bundles the app), so this
+    // affects type checking only.
+    "allowImportingTsExtensions": true
   },
   "include": ["**/*.ts", "**/*.tsx", ".expo/types/**/*.ts", "expo-env.d.ts"]
 }

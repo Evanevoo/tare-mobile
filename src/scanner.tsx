@@ -5,7 +5,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as Haptics from 'expo-haptics';
 import { T, Icon, ICON, wash } from '@/ui';
-import { aiReadBarcode } from './api';
+import { useStore } from './store';
+import { candidatesFrom, hasOcr, matchKnown, recognizeText } from './ocr';
+import { key } from './scan-match';
 
 /**
  * The one camera surface.
@@ -43,6 +45,12 @@ import { aiReadBarcode } from './api';
  * struggling: it takes a photo and hands it to ML Kit, which reads damaged
  * labels the live pipeline misses. The module is loaded lazily and the
  * feature simply does not appear where it is not installed.
+ *
+ * READ TEXT. One tier below Snap, for a label whose bars are destroyed but
+ * whose printed number is still legible. On-device OCR (ML Kit again), and a
+ * result is only accepted if it matches something already in this org's
+ * downloaded data. See src/ocr.ts — that file carries the reasoning, and the
+ * reasoning is the point.
  */
 
 /**
@@ -371,19 +379,23 @@ export function Scanner({
   }, [accept, onCode, snapBusy, reticle]);
 
   /**
-   * The AI still-frame fallback, one tier below Snap.
+   * READ TEXT — the OCR still-frame fallback, one tier below Snap.
    *
-   * Reached only by hand, after Snap has already been tried on this label and
-   * failed — this calls out to a paid vision API, so it should never fire on
-   * its own the way the live decoder and Snap do. It reads the printed
-   * number under the barcode (OCR, not bar-decoding — see lib/ai-barcode.ts
-   * on the server for why that distinction is load-bearing) and the server
-   * only ever hands back a code it already confirmed exists in this org's own
-   * assets or customers. A miss here is therefore never "AI guessed wrong and
-   * we believed it" — it is "nothing on this label matched anything on file,"
-   * exactly like Snap finding no barcode at all.
+   * Reached only by hand, after Snap has already failed on this label: the
+   * bars are gone, but the number printed underneath them is still legible.
+   * ML Kit reads that number on the device — no API key, no network, no cost
+   * per tap, works in a yard with no signal. It replaced a version that sent
+   * the photo to a paid vision API through the server, which is deleted; that
+   * design failed on all three counts at once, and the yard-with-no-bars case
+   * is exactly when a driver needs this.
+   *
+   * WHAT MAKES THIS SAFE IS THE LOOKUP, NOT THE OCR. Whatever text comes
+   * back, only a candidate that is already in this org's downloaded data is
+   * accepted. Everything else is discarded as if the camera had read nothing.
+   * A misread therefore costs a second tap, never a wrong cylinder on
+   * somebody's invoice. src/ocr.ts explains why that boundary is where it is.
    */
-  const aiRead = useCallback(async () => {
+  const readText = useCallback(async () => {
     if (!cam.current || aiBusy) return;
     setAiBusy(true);
     setAiMiss(false);
@@ -391,10 +403,49 @@ export function Scanner({
       const photo = await cam.current.takePictureAsync({ quality: 0.9, skipProcessing: true });
       if (!photo?.uri) return;
 
+      /**
+       * THE ORG'S OWN DATA, WHICH IS THE ONLY THING AN OCR RESULT IS WEIGHED
+       * AGAINST. Asset barcodes and, for every customer, the code printed on
+       * their card and their account number — the two spellings a customer can
+       * legitimately arrive as (see scan-match.ts). Uppercased, because
+       * everything in this app compares uppercased.
+       *
+       * ONE ENTRY PER SPELLING THAT IS ACTUALLY DIFFERENT. `matchKnown` refuses
+       * any reduced key that two entries in this set share, because that is
+       * normally two different customers and choosing between them is how a
+       * cylinder lands on the wrong account. But a card is usually nothing more
+       * than the account number wrapped in printer decoration —
+       * `*%800006D2-1614971550A*` against `800006D2-1614971550A` — and those
+       * reduce to one key. Adding both unconditionally would make every
+       * ordinary customer look like a collision with themselves and refuse the
+       * match it was about to make. So the account number only goes in when it
+       * is genuinely a second code, which is the same precedence `classify`
+       * uses: the card is what the counter scans, the account number is the
+       * fallback.
+       *
+       * A phone that has never synced has no `boot`, so the set is empty and
+       * nothing is ever accepted. That is deliberate and it is the correct
+       * conservative behaviour: with no data to check a read against, there
+       * is no way to tell a correct read from an invented one, and the safe
+       * answer to that is no.
+       */
+      const boot = useStore.getState().boot;
+      const known = new Set<string>();
+      if (boot) {
+        for (const bc of Object.keys(boot.assets)) known.add(bc.toUpperCase());
+        for (const c of boot.customers) {
+          const card = c.bc ? c.bc.toUpperCase() : null;
+          if (card) known.add(card);
+          const account = c.customerListId ? c.customerListId.toUpperCase() : null;
+          if (account && (!card || key(account) !== key(card))) known.add(account);
+        }
+      }
+
       // Same reticle crop Snap uses, and the same reasoning: without it, any
-      // other barcode or printed number elsewhere on the document is just as
-      // readable as the one the driver aimed the camera at.
-      let base64: string | undefined;
+      // other printed number elsewhere on the document is just as readable as
+      // the one the driver aimed the camera at. ML Kit takes a file URI, so
+      // unlike the deleted API version there is no base64 round trip at all.
+      let uri = photo.uri;
       if (reticle && photo.width && photo.height) {
         try {
           const cropped = await ImageManipulator.manipulateAsync(photo.uri, [{
@@ -404,17 +455,20 @@ export function Scanner({
               width: Math.round(photo.width * RETICLE.width),
               height: Math.round(photo.height * RETICLE.height),
             },
-          }], { compress: 0.85, base64: true });
-          base64 = cropped.base64 ?? undefined;
-        } catch { /* fall through to the uncropped photo below */ }
+          }], { compress: 1 });
+          uri = cropped.uri;
+        } catch { /* fall through with the uncropped photo */ }
       }
-      if (!base64) {
-        const full = await ImageManipulator.manipulateAsync(photo.uri, [], { compress: 0.85, base64: true });
-        base64 = full.base64 ?? undefined;
-      }
-      if (!base64) { setAiMiss(true); return; }
 
-      const { code } = await aiReadBarcode(base64);
+      // Same two-pass shape as Snap: a fixed reticle can cut a long number off
+      // a document it was never sized for, and the full frame is already in
+      // hand. The known-set check applies identically to both passes, so the
+      // wider net cannot widen what is accepted.
+      let code = matchKnown(candidatesFrom(await recognizeText(uri)), known);
+      if (!code && uri !== photo.uri) {
+        code = matchKnown(candidatesFrom(await recognizeText(photo.uri)), known);
+      }
+
       if (code && (!accept || accept(code))) {
         lastAccepted.current[code] = Date.now();
         lastReadAt.current = Date.now();
@@ -537,19 +591,21 @@ export function Scanner({
           />
         )}
         {/*
-          AI Read only shows up once struggling for a while, same signal as
-          Snap — and stays offered even without ML Kit in the build, since
-          this path never touches the native module. It calls out to a paid
-          API, so unlike Snap it never appears until the driver has already
-          been stuck for a few seconds, and it is a deliberate tap, not
-          something that fires on its own.
+          "Read text" shows up on the same struggling signal as Snap, and only
+          where the OCR module is actually in the build — it is native code,
+          absent in Expo Go, so `hasOcr()` gates it exactly as `hasMlkit` gates
+          Snap. The label says what it does rather than how: this reads the
+          number printed on the label, which is a thing a driver can look at
+          and judge for themselves. A miss says nothing MATCHED, not that
+          nothing was read — because the OCR usually did read something and
+          the reason it was thrown away is that it is not on this phone.
         */}
-        {struggling && (
+        {struggling && hasOcr() && (
           <Ctl
-            label={aiBusy ? 'Reading…' : 'AI Read'}
-            hint={aiMiss ? 'no match on file — try again' : "reads the printed number, checks it's on file"}
+            label={aiBusy ? 'Reading…' : 'Read text'}
+            hint={aiMiss ? 'nothing on file matched — try again' : 'reads the printed number on the label'}
             active={aiBusy}
-            onPress={aiRead}
+            onPress={readText}
           />
         )}
         <Ctl
