@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View, Text, TextInput, Pressable, ScrollView, Alert } from 'react-native';
+import { View, Text, TextInput, Pressable, ScrollView, Alert, Modal } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { useStore } from '@/store';
@@ -205,23 +205,20 @@ export default function Locate() {
               </Text>
             </View>
 
-            {scanning ? (
-              <Scanner
-                onCode={add}
-                onClose={() => setScanning(false)}
-                style={{
-                  height: 230, borderRadius: T.radius, marginBottom: 12,
-                  borderWidth: 1, borderColor: T.rule,
-                }}
-              />
-            ) : (
-              <Btn
-                label="Scan with the camera"
-                variant="ghost"
-                style={{ marginBottom: 12 }}
-                onPress={() => setScanning(true)}
-              />
-            )}
+            {/* The camera opens FULL SCREEN, the same way Delivery's does.
+                It used to render inline at 230px inside this ScrollView, which
+                made Locate the one screen in the app where scanning happened
+                in a letterbox: a smaller target to aim, the reticle squeezed
+                into a band a couple of centimetres tall, and the whole thing
+                able to scroll out from under the driver's thumb mid-scan.
+                Same component, same props, same modal — there is one way to
+                scan in this app now, and this is it. */}
+            <Btn
+              label="Scan with the camera"
+              variant="ghost"
+              style={{ marginBottom: 12 }}
+              onPress={() => setScanning(true)}
+            />
 
             <View style={{ flexDirection: 'row', gap: 10 }}>
               <TextInput
@@ -292,6 +289,40 @@ export default function Locate() {
           />
         </View>
       )}
+
+      {/* Byte-for-byte the same shell Delivery uses — full-screen modal, black
+          floor behind it (a Modal's own backdrop is white, and it shows for
+          the whole slide-in: a white flash in a dark yard at 06:10).
+          `steadyFocus` is deliberately NOT set here: Delivery photographs a
+          receipt held still, while this is somebody working along a rack at
+          changing distances, which is exactly the case the periodic Android
+          refocus exists for. Consistent does not mean identical where the job
+          genuinely differs — it means the same component and the same shell. */}
+      <Modal
+        visible={scanning}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        onRequestClose={() => setScanning(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: '#000' }}>
+          <Scanner
+            onCode={add}
+            onClose={() => setScanning(false)}
+            style={{ flex: 1 }}
+          >
+            <View style={{ position: 'absolute', left: 0, right: 0, bottom: 44, paddingHorizontal: 26 }}>
+              <Text style={{ color: '#FFFFFF', fontSize: 14, textAlign: 'center', lineHeight: 20, opacity: 0.9 }}>
+                {codes.length
+                  ? `${codes.length} added · keep scanning`
+                  : `Scan everything going ${state ?? ''} at ${location}.`}
+              </Text>
+              <Text style={{ color: '#FFFFFF', fontSize: 12.5, textAlign: 'center', lineHeight: 18, opacity: 0.6, marginTop: 6 }}>
+                Tap Stop when the shelf is done.
+              </Text>
+            </View>
+          </Scanner>
+        </View>
+      </Modal>
     </Screen>
   );
 }

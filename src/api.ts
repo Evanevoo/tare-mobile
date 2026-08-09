@@ -176,6 +176,37 @@ export async function postFill(
   return res.json();
 }
 
+/**
+ * Change a scan the phone has already uploaded.
+ *
+ * The outbox can fix anything still on the device without a network — that is
+ * local state and `outbox.ts` owns it. Once a scan syncs, the ledger owns it,
+ * and this is the only way back in. Needs signal, needs a reason, and needs
+ * the manager role; every one of those is enforced by the server, not here.
+ *
+ * Identified by (order, barcode, direction) rather than a server id, because
+ * that triple is the server's own unique key and the phone already knows it —
+ * no extra round trip to learn an id it would then have to keep in sync.
+ */
+export async function editSentScan(body: {
+  action: 'mode' | 'void' | 'restore' | 'order' | 'customer';
+  orderNumber: string;
+  barcode?: string;
+  mode?: 'SHIP' | 'RETURN';
+  value?: string;
+  reason: string;
+}): Promise<{ ok: true; message: string }> {
+  const res = await fetch(`${API_URL}/api/mobile/scan-edit`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+    body: JSON.stringify(body),
+  });
+  const json = await res.json().catch(() => null);
+  if (res.status === 401) throw new Error('Your session expired. Sign in again.');
+  if (!res.ok) throw new Error(json?.error ?? `Could not save (${res.status})`);
+  return json;
+}
+
 /** The editable half of an asset. Everything here is what the thing IS. */
 export interface AssetDraft {
   productCode: string;

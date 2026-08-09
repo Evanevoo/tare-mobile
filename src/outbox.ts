@@ -33,6 +33,18 @@ export type Action =
   | { type: 'ENQUEUE'; scan: QueuedScan }
   | { type: 'TOGGLE'; orderNumber: string; barcode: string; mode: Mode }
   | { type: 'REMOVE'; clientId: string }
+  /**
+   * Retag a whole order that has not gone up yet.
+   *
+   * The mistake this exists for is the common one and the expensive one: the
+   * driver picks the wrong customer or fat-fingers the order number, then
+   * scans forty bottles against it. Fixing that a bottle at a time is not
+   * fixing it. QUEUED rows only — once a row is UPLOADING or SENT it is the
+   * server's to change (api/mobile/scan-edit), and quietly rewriting a row
+   * that is mid-flight would put the phone and the ledger into two different
+   * stories about the same scan.
+   */
+  | { type: 'RETAG'; orderNumber: string; toOrderNumber?: string; toCustomerListId?: string }
   | { type: 'BEGIN_UPLOAD'; clientIds: string[] }
   | { type: 'UPLOAD_OK'; clientIds: string[] }
   | { type: 'UPLOAD_FAILED'; clientIds: string[] }
@@ -80,6 +92,35 @@ export function reduce(state: Outbox, action: Action): Outbox {
         scans: state.scans.filter(
           (s) => !(s.clientId === action.clientId && s.state === 'QUEUED')),
       };
+
+    case 'RETAG': {
+      const to = action.toOrderNumber?.trim();
+      const cust = action.toCustomerListId?.trim();
+      if (!to && !cust) return state;
+
+      // Moving onto an order this phone ALREADY has rows for would let the
+      // same (order, barcode, mode) exist twice in one outbox — which the
+      // server would dedupe on upload, silently dropping one of them. Refused
+      // here instead, where it can still be explained.
+      if (to && to !== action.orderNumber) {
+        const moving = state.scans.filter(
+          (s) => s.orderNumber === action.orderNumber && s.state === 'QUEUED');
+        const collides = moving.some((m) =>
+          state.scans.some((s) => s.orderNumber === to && s.barcode === m.barcode));
+        if (collides) return state;
+      }
+
+      return {
+        scans: state.scans.map((s) =>
+          s.orderNumber === action.orderNumber && s.state === 'QUEUED'
+            ? {
+                ...s,
+                ...(to ? { orderNumber: to } : {}),
+                ...(cust ? { customerListId: cust } : {}),
+              }
+            : s),
+      };
+    }
 
     case 'BEGIN_UPLOAD': {
       const ids = new Set(action.clientIds);

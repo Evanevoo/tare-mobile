@@ -158,5 +158,56 @@ section('The wire shape matches the API contract');
     !('clientId' in w));
 }
 
+section('RETAG — fixing a whole order that has not gone up yet');
+{
+  const base = run([
+    { type: 'ENQUEUE', scan: scan('B1', 'SHIP', 'WRONG-1') },
+    { type: 'ENQUEUE', scan: scan('B2', 'SHIP', 'WRONG-1') },
+    { type: 'ENQUEUE', scan: scan('B3', 'SHIP', 'OTHER-9') },
+  ]);
+
+  const moved = reduce(base, { type: 'RETAG', orderNumber: 'WRONG-1', toOrderNumber: 'RIGHT-2' });
+  ok('every scan on the order moves, not just the first',
+    moved.scans.filter((s) => s.orderNumber === 'RIGHT-2').length === 2);
+  ok('and an unrelated order is left alone',
+    moved.scans.find((s) => s.barcode === 'B3')?.orderNumber === 'OTHER-9');
+
+  const recust = reduce(base, { type: 'RETAG', orderNumber: 'WRONG-1', toCustomerListId: 'ACME-7' });
+  ok('the customer can be corrected the same way',
+    recust.scans.filter((s) => s.customerListId === 'ACME-7').length === 2);
+  ok('and correcting the customer does not touch the order number',
+    recust.scans.every((s) => s.orderNumber !== 'RIGHT-2'));
+
+  // The guard that matters: the server dedupes on (org, order, barcode, mode),
+  // so moving a barcode onto an order that already has it would silently lose
+  // one of the two at upload. Refused here, where it can still be explained.
+  const wouldCollide = run([
+    { type: 'ENQUEUE', scan: scan('B1', 'SHIP', 'WRONG-1') },
+    { type: 'ENQUEUE', scan: scan('B1', 'SHIP', 'RIGHT-2') },
+  ]);
+  const refused = reduce(wouldCollide, {
+    type: 'RETAG', orderNumber: 'WRONG-1', toOrderNumber: 'RIGHT-2',
+  });
+  ok('a move that would duplicate a barcode on the target order is refused whole',
+    refused.scans.filter((s) => s.orderNumber === 'WRONG-1').length === 1);
+
+  // Once a scan is the server's, the phone must not quietly rewrite it.
+  const sent = run([
+    { type: 'ENQUEUE', scan: scan('B9', 'SHIP', 'SENT-1') },
+    { type: 'BEGIN_UPLOAD', clientIds: [] },
+  ]);
+  const sentIds = sent.scans.map((s) => s.clientId);
+  const afterSent = reduce(
+    reduce(sent, { type: 'BEGIN_UPLOAD', clientIds: sentIds }),
+    { type: 'UPLOAD_OK', clientIds: sentIds },
+  );
+  const tried = reduce(afterSent, { type: 'RETAG', orderNumber: 'SENT-1', toOrderNumber: 'NOPE-3' });
+  ok('a SENT scan is never retagged locally — that is the server’s to change',
+    tried.scans[0].orderNumber === 'SENT-1');
+
+  ok('a retag with nothing to change is a no-op',
+    reduce(base, { type: 'RETAG', orderNumber: 'WRONG-1' }) === base);
+}
+
 console.log(`\n\x1b[1m${passed} passed, ${failed} failed\x1b[0m\n`);
 if (failed > 0) process.exit(1);
