@@ -176,6 +176,37 @@ export async function postFill(
   return res.json();
 }
 
+export interface AiReadResult {
+  /** null when nothing was read, or what was read matches nothing on file. */
+  code: string | null;
+  kind?: 'asset' | 'customer';
+}
+
+/**
+ * The AI still-frame fallback, one tier below Snap (see scanner.tsx).
+ *
+ * A candidate the server could not verify against this org's own assets or
+ * customers comes back exactly as `{ code: null }` — indistinguishable from
+ * "found nothing." That is deliberate: this function never hands the screen
+ * an unverified guess to weigh, only a code already confirmed to mean
+ * something real.
+ *
+ * A 501 (feature not configured — no server API key yet) or any other
+ * non-2xx response is folded into the same `{ code: null }` shape, since
+ * there is nothing more useful to tell a driver in a yard than "nothing
+ * found" either way.
+ */
+export async function aiReadBarcode(base64Jpeg: string): Promise<AiReadResult> {
+  const res = await fetch(`${API_URL}/api/mobile/read-barcode`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+    body: JSON.stringify({ image: base64Jpeg }),
+  });
+  if (!res.ok) return { code: null };
+  const json = await res.json().catch(() => null);
+  return { code: typeof json?.code === 'string' ? json.code : null, kind: json?.kind };
+}
+
 /** The editable half of an asset. Everything here is what the thing IS. */
 export interface AssetDraft {
   productCode: string;

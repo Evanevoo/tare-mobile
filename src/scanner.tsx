@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as Haptics from 'expo-haptics';
 import { T, Icon, ICON, wash } from '@/ui';
+import { aiReadBarcode } from './api';
 
 /**
  * The one camera surface.
@@ -162,6 +163,8 @@ export function Scanner({
   const [focusPulse, setFocusPulse] = useState(false);
   const [struggling, setStruggling] = useState(false);
   const [snapBusy, setSnapBusy] = useState(false);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiMiss, setAiMiss] = useState(false);
   const [androidFocusOff, setAndroidFocusOff] = useState(false);
   const [mounted, setMounted] = useState(Platform.OS !== 'android');
 
@@ -367,6 +370,68 @@ export function Scanner({
     }
   }, [accept, onCode, snapBusy, reticle]);
 
+  /**
+   * The AI still-frame fallback, one tier below Snap.
+   *
+   * Reached only by hand, after Snap has already been tried on this label and
+   * failed — this calls out to a paid vision API, so it should never fire on
+   * its own the way the live decoder and Snap do. It reads the printed
+   * number under the barcode (OCR, not bar-decoding — see lib/ai-barcode.ts
+   * on the server for why that distinction is load-bearing) and the server
+   * only ever hands back a code it already confirmed exists in this org's own
+   * assets or customers. A miss here is therefore never "AI guessed wrong and
+   * we believed it" — it is "nothing on this label matched anything on file,"
+   * exactly like Snap finding no barcode at all.
+   */
+  const aiRead = useCallback(async () => {
+    if (!cam.current || aiBusy) return;
+    setAiBusy(true);
+    setAiMiss(false);
+    try {
+      const photo = await cam.current.takePictureAsync({ quality: 0.9, skipProcessing: true });
+      if (!photo?.uri) return;
+
+      // Same reticle crop Snap uses, and the same reasoning: without it, any
+      // other barcode or printed number elsewhere on the document is just as
+      // readable as the one the driver aimed the camera at.
+      let base64: string | undefined;
+      if (reticle && photo.width && photo.height) {
+        try {
+          const cropped = await ImageManipulator.manipulateAsync(photo.uri, [{
+            crop: {
+              originX: Math.round(photo.width * RETICLE.left),
+              originY: Math.round(photo.height * RETICLE.top),
+              width: Math.round(photo.width * RETICLE.width),
+              height: Math.round(photo.height * RETICLE.height),
+            },
+          }], { compress: 0.85, base64: true });
+          base64 = cropped.base64 ?? undefined;
+        } catch { /* fall through to the uncropped photo below */ }
+      }
+      if (!base64) {
+        const full = await ImageManipulator.manipulateAsync(photo.uri, [], { compress: 0.85, base64: true });
+        base64 = full.base64 ?? undefined;
+      }
+      if (!base64) { setAiMiss(true); return; }
+
+      const { code } = await aiReadBarcode(base64);
+      if (code && (!accept || accept(code))) {
+        lastAccepted.current[code] = Date.now();
+        lastReadAt.current = Date.now();
+        setStruggling(false);
+        onCode(code);
+        return;
+      }
+      setAiMiss(true);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    } catch {
+      setAiMiss(true);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    } finally {
+      if (alive.current) setAiBusy(false);
+    }
+  }, [accept, onCode, aiBusy, reticle]);
+
   /** iOS focus pulse: on for a beat, back to off. Continuous-on locks focus. */
   const refocus = useCallback(() => {
     if (Platform.OS !== 'ios') return;
@@ -469,6 +534,22 @@ export function Scanner({
             hint="photo read for damaged labels"
             active={snapBusy}
             onPress={snap}
+          />
+        )}
+        {/*
+          AI Read only shows up once struggling for a while, same signal as
+          Snap — and stays offered even without ML Kit in the build, since
+          this path never touches the native module. It calls out to a paid
+          API, so unlike Snap it never appears until the driver has already
+          been stuck for a few seconds, and it is a deliberate tap, not
+          something that fires on its own.
+        */}
+        {struggling && (
+          <Ctl
+            label={aiBusy ? 'Reading…' : 'AI Read'}
+            hint={aiMiss ? 'no match on file — try again' : "reads the printed number, checks it's on file"}
+            active={aiBusy}
+            onPress={aiRead}
           />
         )}
         <Ctl
