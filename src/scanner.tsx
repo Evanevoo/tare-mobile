@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 import { CameraView, useCameraPermissions, type BarcodeType } from 'expo-camera';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as Haptics from 'expo-haptics';
 import { T, Icon, ICON, wash } from '@/ui';
@@ -152,6 +153,7 @@ export function Scanner({
   onCode, accept, types, style, children, reticle = true, onClose, cooldownMs = 2500,
   steadyFocus = false,
 }: ScannerProps) {
+  const insets = useSafeAreaInsets();
   const [perm, requestPerm] = useCameraPermissions();
   const [ready, setReady] = useState(false);
   const [closing, setClosing] = useState(false);
@@ -318,12 +320,37 @@ export function Scanner({
         } catch { /* fall through with the uncropped photo */ }
       }
 
-      const results = await kit.scan(uri);
-      const hit = results?.find((r) => r?.value?.trim());
-      if (hit?.value) {
+      const tryScan = async (imgUri: string) => {
+        const results = await kit.scan(imgUri);
+        return results?.find((r) => r?.value?.trim())?.value?.trim() ?? null;
+      };
+
+      let code = await tryScan(uri);
+
+      /**
+       * A CROP THAT MISSES IS NOT THE SAME FAILURE AS A BAD PHOTO.
+       *
+       * The crop above exists to keep Snap from reading a stray barcode
+       * elsewhere in frame, but the reticle is a fixed band sized for a
+       * cylinder label, not for every document a driver photographs. A long
+       * order-number barcode running close to the edges of a Sales Receipt —
+       * exactly the shape that sent this fix in — can extend past the
+       * reticle's width and get cut mid-bar by the crop, which ML Kit then
+       * correctly reports as "no barcode here" rather than a misread. That
+       * is a real, previously silent failure mode: the crop succeeded, so the
+       * old code never fell through to the uncropped photo it already had in
+       * hand. One more ML Kit pass, only paid in this failure case, and a
+       * barcode found in the full frame is still exactly what was in the
+       * photo, never a guess.
+       */
+      if (!code && uri !== photo.uri) {
+        code = await tryScan(photo.uri);
+      }
+
+      if (code) {
         // A still frame read deliberately bypasses the double-read confirm —
         // ML Kit on a full-resolution photo does not produce partial reads.
-        const code = hit.value.trim().toUpperCase();
+        code = code.toUpperCase();
         if (!accept || accept(code)) {
           lastAccepted.current[code] = Date.now();
           lastReadAt.current = Date.now();
@@ -425,8 +452,17 @@ export function Scanner({
         </View>
       )}
 
-      {/* ── controls: torch, zoom, snap, close ── */}
-      <View style={{ position: 'absolute', right: 10, bottom: 10, gap: 8, alignItems: 'flex-end' }}>
+      {/* ── controls: torch, zoom, snap, close ──
+          Fixed `bottom: 10` used to mean "10px above whatever is physically at
+          the bottom of the screen" — which on a phone with three-button nav or
+          a gesture pill is the nav bar, not the bottom of the glass. The zoom
+          and torch buttons sat exactly where a thumb going for the system back
+          button landed, on every Android phone with on-screen nav. insets.bottom
+          is that bar's own height; adding it is the same trick useBottomInset
+          does for every other floating footer in this app — this is the one
+          surface that never went through it, because a full-screen Modal has
+          no navigator chrome to make the omission obvious in a simulator. */}
+      <View style={{ position: 'absolute', right: 10, bottom: 10 + insets.bottom, gap: 8, alignItems: 'flex-end' }}>
         {hasMlkit && struggling && (
           <Ctl
             label={snapBusy ? 'Reading…' : 'Snap'}
@@ -448,12 +484,17 @@ export function Scanner({
       </View>
 
       {onClose && (
+        // Same fix as the control stack, at the other edge: `top: 10` sat under
+        // the status bar / notification shade's swipe-down target on a
+        // full-screen camera, where nothing else pushes content below it the
+        // way a navigator header would. insets.top is the status bar's own
+        // height.
         <Pressable
           onPress={close}
           accessibilityRole="button"
           accessibilityLabel="Stop scanning"
           style={{
-            position: 'absolute', right: 10, top: 10,
+            position: 'absolute', right: 10, top: 10 + insets.top,
             paddingHorizontal: 14, minHeight: 36, borderRadius: 10,
             backgroundColor: 'rgba(0,0,0,0.62)', justifyContent: 'center',
           }}
