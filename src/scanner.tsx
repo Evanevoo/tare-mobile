@@ -77,6 +77,44 @@ import { RETICLE, withinReticle } from './reticle';
  */
 const FILL = { flexGrow: 1, flexShrink: 1, flexBasis: 'auto', backgroundColor: '#000' } as const;
 
+/**
+ * THE POSITION FILTER IS ON FOR iOS ONLY, AND THAT IS A STATEMENT ABOUT WHAT
+ * HAS BEEN TESTED, NOT ABOUT WHAT WORKS.
+ *
+ * `withinReticle` fails open on every uncertainty it can SEE — no bounds, a
+ * zero-sized box, an unmeasured view, a centre outside the frame. Android has
+ * one it cannot see, and it is the dangerous kind, because the numbers look
+ * perfectly reasonable.
+ *
+ * expo-camera's Android path builds its bounding box from ML Kit corner points
+ * and, in one of its rotation branches, swaps x and y on the corners while
+ * leaving the box that was derived from them alone. A read that came back
+ * transposed still lands inside 0..1 and still has a plausible size, so every
+ * guard in reticle.ts passes it through to the comparison — and then the
+ * comparison is asked the wrong question.
+ *
+ * Work out what that costs and it is not evenly spread. The box is 78% of the
+ * frame wide and 28% tall, so the horizontal test accepts almost everything
+ * and the vertical test is the one with teeth. Transposed, a label sitting
+ * legitimately off to one side — cx 0.8, comfortably inside the outline — is
+ * judged as cy 0.8 and refused. A label in the middle survives, so this would
+ * not show up as "the scanner is broken". It would show up as a driver who
+ * has to re-aim more than they used to and never says anything about it.
+ *
+ * That is the exact failure this filter was written to be worth avoiding, and
+ * on the platform most of the fleet carries. There is no Android device on
+ * this desk to check it against, and the honest thing to do with an untested
+ * guess about somebody's working day is not to ship it. iOS gets the filter
+ * now, because that is what is in hand and being tested on.
+ *
+ * TO TURN IT ON FOR ANDROID: open the scanner on an Android phone, put a
+ * label near the left or right edge of the outline, and confirm it still
+ * reads. If it does, this becomes `true`. Nothing else has to change —
+ * `withinReticle` is already platform-neutral and its tests already cover the
+ * Android shapes.
+ */
+const POSITION_FILTER = Platform.OS === 'ios';
+
 // Lowercase names are REQUIRED on iOS — uppercase silently matches nothing.
 const DEFAULT_TYPES: BarcodeType[] = [
   'code128', 'code39', 'code93', 'codabar', 'itf14',
@@ -618,11 +656,12 @@ export function Scanner({
           // Gated on `reticle` for the same reason the Snap crop is: with no
           // outline drawn there is no box the driver was asked to aim at, and
           // rejecting a read against an invisible one is indistinguishable from
-          // the camera being broken.
+          // the camera being broken. And gated on POSITION_FILTER — see below.
           onBarcodeScanned={
             ready && !closing
               ? ({ data, bounds }) => {
-                  if (reticle && !withinReticle(bounds, viewSize.current)) return;
+                  if (POSITION_FILTER && reticle
+                      && !withinReticle(bounds, viewSize.current)) return;
                   deliver(data);
                 }
               : undefined

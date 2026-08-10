@@ -247,19 +247,46 @@ export default function Scan() {
             <View style={{ width: 3, alignSelf: 'stretch', borderRadius: 2, backgroundColor: banner.tone }} />
             <View style={{ flex: 1 }}>
               {/* The barcode is the answer to "which one did I just scan?", so
-                  it is the biggest thing on the screen. Shrink-to-fit rather
-                  than wrap or truncate: an account-length code has to stay
-                  readable and the card has to stay the same height. */}
+                  it is the biggest thing on the screen. It has to stay on one
+                  line and the card has to stay the same height, so long codes
+                  are stepped down instead of wrapping.
+
+                  SIZED IN JS, NOT BY adjustsFontSizeToFit, BECAUSE OF ANDROID.
+                  That prop looks cross-platform and is not, under the New
+                  Architecture this app runs: RN serialises `adjustsFontSizeToFit`,
+                  `minimumFontSize` and `maximumFontSize` across to Android and
+                  drops `minimumFontScale` on the way (conversions.h,
+                  toMapBuffer(ParagraphAttributes)). TextLayoutManager then finds
+                  no minimum, and falls back to a floor of FOUR dp. So the same
+                  long code that iOS shrinks politely to ~16pt, Android is free
+                  to shrink until it is unreadable — and it fails silently, on
+                  the platform the drivers actually carry, in the one piece of
+                  text on this screen that exists to be read at arm's length.
+
+                  Three steps off the code's own length is duller and it is the
+                  same on both phones. 30 carries the 8-to-12 character cylinder
+                  codes that are almost all of them; the smaller steps are for
+                  the account-length outliers. */}
               <Text
                 numberOfLines={1}
-                adjustsFontSizeToFit
-                minimumFontScale={0.55}
-                style={[mono(30, '800'), { color: T.ink, letterSpacing: -1 }]}
+                style={[
+                  mono(last.barcode.length > 16 ? 21 : last.barcode.length > 12 ? 25 : 30, '800'),
+                  { color: T.ink, letterSpacing: -1 },
+                ]}
               >
                 {last.barcode}
               </Text>
+              {/* The chip row wraps, because it can hold three at once — FULL,
+                  OUT and an odd-state one like MAINTENANCE — and every label in
+                  the app scales with the phone's font setting. Android exposes
+                  both a font size and a display size slider and drivers do turn
+                  them up, at which point a row that cannot wrap runs off the
+                  card instead of moving down a line. */}
               {rec && (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 8 }}>
+                <View style={{
+                  flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 8,
+                  flexWrap: 'wrap', rowGap: 6,
+                }}>
                   <StateChips a={rec} />
                   {rec.p ? (
                     <Text
