@@ -6,7 +6,7 @@
       "distribution": "internal",
       "channel": "development",
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://newscan.netlify.app",
+        "EXPO_PUBLIC_API_URL": "https://newscanified.netlify.app",
         "EXPO_PUBLIC_SUPABASE_URL": "https://eltushtaxdwhdfpxlytx.supabase.co",
         "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_VXPuQS2_foJIiJM4zHroYQ_hKAONWjX"
       }
@@ -16,7 +16,7 @@
       "android": { "buildType": "apk" },
       "channel": "preview",
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://newscan.netlify.app",
+        "EXPO_PUBLIC_API_URL": "https://newscanified.netlify.app",
         "EXPO_PUBLIC_SUPABASE_URL": "https://eltushtaxdwhdfpxlytx.supabase.co",
         "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_VXPuQS2_foJIiJM4zHroYQ_hKAONWjX"
       }
@@ -26,7 +26,7 @@
       "android": { "buildType": "app-bundle" },
       "channel": "production",
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://newscan.netlify.app",
+        "EXPO_PUBLIC_API_URL": "https://newscanified.netlify.app",
         "EXPO_PUBLIC_SUPABASE_URL": "https://eltushtaxdwhdfpxlytx.supabase.co",
         "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_VXPuQS2_foJIiJM4zHroYQ_hKAONWjX"
       }
