@@ -3,6 +3,13 @@
     "name": "Scanified",
     "slug": "scanified",
     "version": "1.0.0",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/fad89b31-ae33-4bff-9011-af88c8268844",
+      "fallbackToCacheTimeout": 0
+    },
     "orientation": "portrait",
     "scheme": "scanified",
     "userInterfaceStyle": "automatic",
@@ -23,7 +30,6 @@
       "infoPlist": {
         "NSCameraUsageDescription": "Scanified uses the camera to scan asset barcodes when you ship and receive them.",
         "NSLocationWhenInUseUsageDescription": "Scanified records where a scan happened so a delivery can be proven later.",
-        "NSFaceIDUsageDescription": "Unlock Scanified with Face ID instead of typing your password.",
         "ITSAppUsesNonExemptEncryption": false
       }
     },
@@ -55,7 +61,7 @@
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "Scanified records where a scan happened."
+          "locationWhenInUsePermission": "Scanified records where a scan happened so a delivery can be proven later."
         }
       ]
     ],

@@ -23,7 +23,7 @@
       "autoIncrement": true,
       "android": { "buildType": "app-bundle" },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://newscan.netlify.app",
+        "EXPO_PUBLIC_API_URL": "https://scanified.com",
         "EXPO_PUBLIC_SUPABASE_URL": "https://eltushtaxdwhdfpxlytx.supabase.co",
         "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_VXPuQS2_foJIiJM4zHroYQ_hKAONWjX"
       }

@@ -158,6 +158,71 @@ Keys are one and two characters (`p`, `sn`, `f`, `c`). Across forty thousand row
 the key names are most of the bytes: ~700 KB for 7,600 assets, ~3.5 MB for
 40,000.
 
+## Shipping
+
+### Updates go over the air
+
+`expo-updates` is configured, pointed at the EAS update server, and the runtime
+version follows `appVersion`.
+
+The reason is the yard. Thirteen people use this daily, most of them out of
+signal for most of a shift, and a build that scans wrong is a day of work that
+does not get recorded. Store review is measured in days; a fix that has to go
+through it is a fix that lands after the damage. An over-the-air update lands on
+the next launch, which for a driver is tomorrow morning.
+
+`fallbackToCacheTimeout` is `0`, deliberately. Any other value makes the splash
+screen wait on a network fetch before the app will open — which is fine on an
+office wifi and ruinous at 06:10 in a yard with one bar, where the app would sit
+on a logo for the length of the timeout before falling back to the bundle it
+already had. Zero means the app always opens immediately on the cached bundle
+and the new one is fetched behind it, ready for next launch. Nobody waits.
+
+`runtimeVersion` is `{ "policy": "appVersion" }`, so an update only reaches
+handsets whose binary declares the same `version`. That is the safety catch: JS
+shipped over the air runs against whatever native code is already on the phone,
+so **bump `version` in app.json whenever native changes** — a new native module,
+an SDK upgrade, a permission. Skipping the bump pushes JS that calls native code
+the installed binary does not contain, and it crashes on launch, on every phone
+at once, with no way to take it back.
+
+What OTA cannot do is ship native code. New modules, permissions and SDK bumps
+are still a store build.
+
+### Permission strings describe only what the app does
+
+Two Info.plist strings were declared for behaviour that was never built, and
+both are removed.
+
+`NSFaceIDUsageDescription` promised biometric unlock. Nothing imports
+`expo-local-authentication` — biometric unlock is on the Not built yet list
+below, where it remains.
+
+The expo-location plugin was configured with
+`locationAlwaysAndWhenInUsePermission`, which emits
+`NSLocationAlwaysAndWhenInUseUsageDescription` and asks Apple for background
+location. The only call site is `app/scan.tsx`, which calls
+`requestForegroundPermissionsAsync` once while the scanner is open. It is now
+`locationWhenInUsePermission`, matching what the code actually asks for.
+
+Declaring a permission the binary never exercises is a recurring App Store
+rejection — background location and Face ID are two of the ones review looks for
+specifically, and the reviewer's question is not "is this harmful" but "show me
+the feature". There was no feature to show. Both strings would have cost a
+rejection cycle to learn that.
+
+### Crashes come back
+
+`@sentry/react-native` is initialised in `app/_layout.tsx`, and only when
+`EXPO_PUBLIC_SENTRY_DSN` is set. A handset in a yard cannot be attached to a
+debugger, so without this a crash report is whatever the driver remembers.
+
+The guard is not decoration. With no DSN the SDK is never initialised and the
+root layout is never wrapped, so a checkout with no `.env` behaves exactly as it
+did before Sentry existed — no client, no warnings on every mount. Set the DSN
+in `eas.json` for the profiles that should report, not in local `.env`, or your
+own typos land in the same feed as a real crash at a customer site.
+
 ## Accessibility floor
 
 Not aspirational — these are met.

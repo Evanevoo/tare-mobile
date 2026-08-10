@@ -3,10 +3,37 @@ import { Stack, useRouter, useSegments } from 'expo-router';
 import { View, ActivityIndicator, useColorScheme } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
+import * as Sentry from '@sentry/react-native';
 import { supabase } from '@/api';
 import { useStore } from '@/store';
 import { T, Aurora, applyPalette } from '@/ui';
 import { useTheme } from '@/theme';
+
+/**
+ * Crash reporting, and only when it has somewhere to report to.
+ *
+ * A handset in a yard cannot be attached to a debugger, so a crash that nobody
+ * captures is a bug report that reads "it closed" and nothing more. Sentry is
+ * how that stops being the whole story.
+ *
+ * The DSN is read once here rather than at the call site because everything
+ * below keys off whether it exists. A checkout with no `.env` — a new machine,
+ * CI, anyone running the app for the first time — must behave exactly as it did
+ * before Sentry was added: no init, no wrapper, no console noise about a client
+ * that was never configured. Monitoring that punishes you for not having set it
+ * up yet is monitoring people rip back out.
+ */
+const SENTRY_DSN = process.env.EXPO_PUBLIC_SENTRY_DSN;
+
+if (SENTRY_DSN) {
+  Sentry.init({
+    dsn: SENTRY_DSN,
+    // Scans carry customer names and order numbers. Breadcrumbs and request
+    // bodies are where that leaks into a third party, so default PII stays off
+    // and anything we want on a crash gets attached deliberately.
+    sendDefaultPii: false,
+  });
+}
 
 /**
  * The root is a stack that holds one tab navigator and the things that sit on
@@ -19,7 +46,7 @@ import { useTheme } from '@/theme';
  * Nothing is registered here that does not exist. A route that opens a blank
  * screen costs more trust than a missing feature.
  */
-export default function RootLayout() {
+function RootLayout() {
   const [session, setSession] = useState<'loading' | 'in' | 'out'>('loading');
   const hydrate = useStore((s) => s.hydrate);
   const router = useRouter();
@@ -128,3 +155,14 @@ export default function RootLayout() {
     </SafeAreaProvider>
   );
 }
+
+/**
+ * `Sentry.wrap` is what catches a render that throws and attaches navigation
+ * breadcrumbs to it, so a crash arrives naming the screen the driver was on.
+ *
+ * It is applied conditionally rather than always, for the same reason the init
+ * above is guarded: with no client configured the wrapper's profiler warns on
+ * every mount that Sentry was not initialised, which is exactly the noise a
+ * developer without a DSN should never have to read past.
+ */
+export default SENTRY_DSN ? Sentry.wrap(RootLayout) : RootLayout;
