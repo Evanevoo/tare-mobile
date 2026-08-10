@@ -170,6 +170,7 @@ function RootLayout() {
         <Stack.Screen name="history" options={{ title: 'History' }} />
         <Stack.Screen name="analytics" options={{ title: 'Analytics' }} />
         <Stack.Screen name="asset/new" options={{ title: 'Add' }} />
+        <Stack.Screen name="asset/batch" options={{ title: 'Add a pallet' }} />
         <Stack.Screen name="asset/edit/[barcode]" options={{ title: 'Correct' }} />
         <Stack.Screen name="asset/[barcode]" options={{ title: '' }} />
         <Stack.Screen name="customer/[id]" options={{ title: '' }} />

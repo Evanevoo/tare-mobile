@@ -328,12 +328,21 @@ export default function NewAsset() {
             </Rise>
           )}
 
+          {/* The way through to the batch screen, offered where the pallet is
+              already being talked about. This screen keeps the shared fields
+              between saves, which is enough for a pallet with no serials on
+              it; the moment each cylinder needs its own serial typed, one save
+              per bottle is the wrong shape and the other screen is the right
+              one. Everything here still works exactly as it did. */}
           {!barcode && (
             <Note
               text={
                 `Scanning the same pallet over and over? What kind, where, and full or ` +
-                `empty all stay put between saves — only the barcode clears.`
+                `empty all stay put between saves — only the barcode clears. If every one ` +
+                `of them needs its own serial number, do the whole pallet in one go instead.`
               }
+              action="Add a whole pallet"
+              onAction={() => router.push('/asset/batch')}
             />
           )}
         </ScrollView>

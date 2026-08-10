@@ -4,6 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 import type { QueuedScan } from './outbox';
 import { toWire } from './outbox';
+import type { BatchItem, BulkCreateResult } from './batch';
 
 /**
  * One base URL, set at build time per EAS profile. Nothing else in the app
@@ -263,6 +264,38 @@ export function createAsset(barcode: string, draft: AssetDraft) {
   return send('/api/mobile/assets', 'POST', { barcode, ...draft }) as Promise<{
     asset: AssetRec & { id: string; barcode: string };
   }>;
+}
+
+/**
+ * What a whole pallet has in common. Everything that differs bottle to bottle
+ * — the barcode, the serial — is in the items; everything else is asked once.
+ */
+export interface BulkAssetCreate {
+  productCode: string;
+  location?: string | null;
+  isFull: boolean;
+  nextRequalOn?: string | null;
+  status?: 'available';
+}
+
+/**
+ * Add a pallet of them in one go.
+ *
+ * Needs signal, for the same reason `createAsset` does and more so: forty
+ * barcodes invented offline are forty chances for two phones in the same yard
+ * to invent the same one.
+ *
+ * A PARTIAL SUCCESS COMES BACK 200 AND IS NOT A FAILURE. Half a pallet booked
+ * in yesterday means half the barcodes come back in `skipped` with the rest
+ * created, and the screen reports that honestly rather than throwing the whole
+ * save away — see app/asset/batch.tsx. The only refusals that arrive as thrown
+ * ApiErrors are the ones that stopped the request cold, of which 402 is the
+ * one worth naming: the organisation is read-only, nothing was created, and
+ * the batch is still sitting on the phone.
+ */
+export function createAssets(items: BatchItem[], details: BulkAssetCreate) {
+  return send('/api/mobile/assets/bulk', 'POST', { items, ...details }) as
+    Promise<BulkCreateResult>;
 }
 
 /**
