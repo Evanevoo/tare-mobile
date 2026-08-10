@@ -132,7 +132,29 @@ function RootLayout() {
           headerStyle: { backgroundColor: T.zinc },
           headerTintColor: T.ink,
           headerShadowVisible: false,
-          headerTitleStyle: { fontWeight: '700', fontSize: 16.5, color: T.ink },
+          /**
+           * 17, NOT 16.5, AND IT HAS TO BE A WHOLE NUMBER.
+           *
+           * This is the only font size in the app that crosses into a native
+           * view's props rather than being laid out by JavaScript.
+           * `headerTitleStyle` is handed to react-native-screens'
+           * `RNSScreenStackHeaderConfig`, whose Fabric codegen types the title
+           * size as an integer, and the New Architecture refuses a lossy
+           * conversion rather than rounding it quietly:
+           *
+           *   Exception in HostFunction: Loss of precision during arithmetic
+           *   conversion: (long long) 16.5
+           *
+           * which arrives as a full-screen red render error at startup, before
+           * any screen paints — not as a warning about a header. The stack
+           * names ReactFabric and ScreenStackHeaderConfig and nothing about
+           * this line, which is why it is worth the paragraph.
+           *
+           * Half-point sizes are used freely everywhere else in this app and
+           * are fine there; JS layout takes floats. The rule is only: a size
+           * that reaches a native prop must be whole.
+           */
+          headerTitleStyle: { fontWeight: '700', fontSize: 17, color: T.ink },
           headerBackTitle: 'Back',
           contentStyle: { backgroundColor: T.zinc },
         }}
