@@ -63,10 +63,15 @@ export default function OrderEdit() {
     return (
       <Screen>
         <View style={{ flex: 1, padding: 22, justifyContent: 'center' }}>
-          <Text style={{ color: T.ink, fontSize: 17, fontWeight: '700' }}>Order not on this phone</Text>
-          <Text style={{ color: T.faint, fontSize: 13.5, marginTop: 8, lineHeight: 20 }}>
-            {orderNumber} has no scans in this phone&apos;s history. It may have been
-            scanned on another handset — the console shows every order the company has.
+          <Text style={{ color: T.ink, fontSize: 17, fontWeight: '700' }}>Nothing here to change</Text>
+          {/* History lists the whole company now, so most of what it shows was
+              scanned somewhere else. This screen edits the outbox and the
+              scans this handset sent, and it has neither for this order —
+              which is a fact about this phone, not about the order. */}
+          <Text style={{ color: T.faint, fontSize: 14, marginTop: 8, lineHeight: 20 }}>
+            {orderNumber} was scanned on another handset, so none of it is on this one.
+            What went out and what came back are on the console, and so is the way to
+            correct them.
           </Text>
           <Btn label="Back to history" variant="ghost" style={{ marginTop: 22 }}
                onPress={() => router.back()} />

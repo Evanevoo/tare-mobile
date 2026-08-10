@@ -89,7 +89,7 @@ export default function More() {
             <Hairline />
             <Item
               icon="clock" label="History"
-              hint="Every scan this phone has made"
+              hint="Every order the company has scanned"
               onPress={() => router.push('/history' as never)}
             />
           </Surface>

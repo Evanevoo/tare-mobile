@@ -47,15 +47,30 @@ export interface BatchRow {
  */
 export interface Fleet {
   has(barcode: string): boolean;
+  /**
+   * Which barcode already carries this serial, if any. Optional because a
+   * plain Set is still a legal Fleet — a caller that cannot answer this simply
+   * does not, and the serial is then caught by the server instead.
+   */
+  serialHeldBy?(serial: string): string | null;
 }
 
-export type RefusalReason = 'blank' | 'full' | 'in-batch' | 'on-fleet';
+export type RefusalReason =
+  | 'blank' | 'full' | 'in-batch' | 'on-fleet'
+  | 'serial-in-batch' | 'serial-on-fleet';
 
 export interface Refusal {
   reason: RefusalReason;
+  /** The one in the driver's hand. For a serial clash this is NOT the offender. */
   barcode: string;
   /** 1-based position of the row it collided with; 0 when it collided with no row. */
   at: number;
+  /**
+   * The barcode already holding what collided — the cylinder wearing that
+   * serial. Set on the serial refusals only, and it is what "Open the record"
+   * has to open: the barcode in hand is by definition not on the fleet yet.
+   */
+  heldBy?: string;
   /** What goes on the screen, in the words somebody holding that bottle needs. */
   says: string;
 }
@@ -88,6 +103,27 @@ export interface BulkCreateResult {
  */
 export function normalizeCode(raw: string): string {
   return raw.replace(/\s+/g, '').toUpperCase();
+}
+
+/**
+ * The form two serials are compared in: trimmed, uppercased, blank is null.
+ *
+ * TRIMMED AND CASE-INSENSITIVE BECAUSE THAT IS EXACTLY WHAT THE SERVER DOES.
+ * The rule is `upper(btrim(...))` in src/lib/asset-serial.ts on the console
+ * side, and if the two disagree by so much as a case fold the phone accepts a
+ * pallet the server then rejects — a driver who has put forty cylinders down
+ * and is told at the save that number twelve was never allowed. The two have
+ * to be one rule, so this is that rule, spelled the same way.
+ *
+ * A BLANK SERIAL NEVER COLLIDES. Most collars have one stamped on them and
+ * this screen exists to capture it, but plenty legitimately do not, and "none"
+ * has to stay a repeatable answer. Only a stated serial is a claim about which
+ * physical object this is.
+ */
+export function serialKey(raw: string | null | undefined): string | null {
+  if (raw == null) return null;
+  const key = raw.trim().toUpperCase();
+  return key || null;
 }
 
 /**
@@ -153,6 +189,64 @@ export function whyRefused(
 }
 
 /**
+ * Whether this serial may join the batch — the same treatment as the barcode.
+ *
+ * The owner, in these words: "WE CANT HAVE THE SAME SERIAL NUMBER TWICE, SAME
+ * AS BARCODES". A serial is stamped into the collar at the factory, so two
+ * records carrying one means either somebody keyed it onto the wrong cylinder
+ * or there are two records of one physical object. Both are cheap to stop here
+ * and expensive to unpick a year later, when one of the two has been out at a
+ * customer for months.
+ *
+ * The server enforces it on every write path now, which is what makes this
+ * worth doing rather than redundant: without it the refusal arrives at the end
+ * of the afternoon, in a `invalid` list, about a cylinder that was put down
+ * and forgotten thirty scans ago. Here it arrives while it is still in hand.
+ *
+ * ONLY AS GOOD AS WHAT THE PHONE KNOWS, AND THAT IS FINE. The downloaded fleet
+ * is every asset that is not retired, so the local check catches essentially
+ * everything; a serial held by a retired cylinder, or by one booked in from
+ * another phone since the last bootstrap, still comes back from the server as
+ * `invalid` and is named on the panel. This is the early warning, not the
+ * guarantee — the guarantee is the server's.
+ *
+ * `ignoreId` is the row being retyped, so a serial does not collide with the
+ * row it is already on. Correcting a barcode on number twelve and leaving its
+ * serial alone must not be refused on the grounds that number twelve has it.
+ */
+export function whySerialRefused(
+  entry: { barcode: string; serial: string },
+  rows: BatchRow[],
+  fleet: Fleet | null,
+  ignoreId?: string,
+): Refusal | null {
+  const key = serialKey(entry.serial);
+  if (!key) return null;
+
+  const barcode = normalizeCode(entry.barcode);
+
+  const at = rows.findIndex((r) => serialKey(r.serial) === key && r.id !== ignoreId);
+  if (at >= 0) {
+    return {
+      reason: 'serial-in-batch', barcode, at: at + 1, heldBy: rows[at].barcode,
+      says: `Serial ${key} is already on number ${at + 1} in this batch, ${rows[at].barcode}. `
+        + 'Serial numbers have to be unique, the same as barcodes.',
+    };
+  }
+
+  const heldBy = fleet?.serialHeldBy?.(key) ?? null;
+  if (heldBy) {
+    return {
+      reason: 'serial-on-fleet', barcode, at: 0, heldBy,
+      says: `Serial ${key} is already on ${heldBy}, which is on the fleet. `
+        + 'Serial numbers have to be unique, the same as barcodes.',
+    };
+  }
+
+  return null;
+}
+
+/**
  * One more cylinder, on the end.
  *
  * Appended rather than unshifted because the position in this list is the
@@ -168,10 +262,16 @@ export function addRow(
   const refused = whyRefused(entry.barcode, rows, fleet);
   if (refused) return { rows, row: null, refused };
 
+  // The barcode first, because a duplicate barcode is the commoner mistake and
+  // naming both at once helps nobody. Either way nothing joins the list.
+  const serial = (entry.serial ?? '').trim().toUpperCase();
+  const takenSerial = whySerialRefused({ barcode: entry.barcode, serial }, rows, fleet);
+  if (takenSerial) return { rows, row: null, refused: takenSerial };
+
   const row: BatchRow = {
     id: entry.id,
     barcode: normalizeCode(entry.barcode),
-    serial: (entry.serial ?? '').trim().toUpperCase(),
+    serial,
   };
   return { rows: [...rows, row], row, refused: null };
 }
@@ -207,10 +307,20 @@ export function editRow(
     if (refused) return { rows, row: null, refused };
   }
 
+  const serial = patch.serial === undefined ? current.serial : patch.serial.trim().toUpperCase();
+
+  // Same again for the serial, and `id` is what stops a row colliding with
+  // itself: reopening number twelve, changing nothing, and pressing Done must
+  // not be refused because number twelve already carries that serial.
+  if (serialKey(serial) !== serialKey(current.serial)) {
+    const taken = whySerialRefused({ barcode, serial }, rows, fleet, id);
+    if (taken) return { rows, row: null, refused: taken };
+  }
+
   const row: BatchRow = {
     ...current,
     barcode,
-    serial: patch.serial === undefined ? current.serial : patch.serial.trim().toUpperCase(),
+    serial,
   };
   const next = rows.slice();
   next[i] = row;

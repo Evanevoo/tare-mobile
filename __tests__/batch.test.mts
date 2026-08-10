@@ -16,9 +16,10 @@
  * comes back with something to say rather than silently dropping the scan.
  */
 import {
-  MAX_BATCH, normalizeCode, whyRefused, addRow, editRow, removeRow,
+  MAX_BATCH, normalizeCode, serialKey, whyRefused, whySerialRefused,
+  addRow, editRow, removeRow,
   whyNotReady, toItems, applyResult, describeResult,
-  type BatchRow, type BulkCreateResult,
+  type BatchRow, type BulkCreateResult, type Fleet,
 } from '../src/batch.ts';
 
 let passed = 0, failed = 0;
@@ -30,6 +31,23 @@ const section = (t: string) => console.log(`\n\x1b[1m${t}\x1b[0m`);
 
 /** The downloaded fleet. A Set is all `Fleet` asks for, which is the point of it. */
 const fleet = (...on: string[]) => new Set(on);
+
+/**
+ * The same, plus the serials. Keyed the way the server keys them, so a test
+ * that writes a serial in lower case is testing the comparison and not the
+ * fixture.
+ */
+const fleetWith = (serials: Record<string, string>, ...on: string[]): Fleet => ({
+  has: (bc) => on.includes(bc),
+  serialHeldBy: (sn) => {
+    const key = serialKey(sn);
+    if (!key) return null;
+    for (const [barcode, serial] of Object.entries(serials)) {
+      if (serialKey(serial) === key) return barcode;
+    }
+    return null;
+  },
+});
 
 /** A batch built the way the screen builds one: scan, serial, confirm, repeat. */
 function batch(...pairs: [string, string][]): BatchRow[] {
@@ -89,6 +107,80 @@ section('THE READS THAT ARE NOT CYLINDERS');
     addRow(full, { id: 'x', barcode: 'CYL-NEW' }, null).refused?.reason === 'full');
 }
 
+section('THE SAME SERIAL TWICE — "SAME AS BARCODES", in the owner’s words');
+{
+  const rows = batch(['CYL-001', 'SN1'], ['CYL-002', 'SN2'], ['CYL-003', 'SN3']);
+  const again = addRow(rows, { id: 'x', barcode: 'CYL-004', serial: 'SN2' }, null);
+  ok('it is refused', again.refused?.reason === 'serial-in-batch');
+  ok('the list did not change', again.rows.length === 3 && again.row === null);
+  ok('and it names which one already has it — the number AND the barcode',
+    again.refused!.says.includes('number 2') && again.refused!.says.includes('CYL-002'),
+    again.refused?.says);
+  ok('heldBy is the cylinder wearing it, not the one in hand',
+    again.refused?.heldBy === 'CYL-002' && again.refused?.barcode === 'CYL-004');
+  ok('case is not a difference — the server compares upper(btrim(…)) and so must this',
+    addRow(rows, { id: 'x', barcode: 'CYL-004', serial: 'sn2' }, null).refused?.reason
+      === 'serial-in-batch');
+  ok('nor is whitespace round it',
+    addRow(rows, { id: 'x', barcode: 'CYL-004', serial: '  SN2  ' }, null).refused?.reason
+      === 'serial-in-batch');
+  ok('a serial nobody else has goes in',
+    addRow(rows, { id: 'x', barcode: 'CYL-004', serial: 'SN4' }, null).refused === null);
+}
+
+section('NO SERIAL IS NOT A COLLISION — most collars have nothing stamped on them');
+{
+  const rows = batch(['CYL-001', ''], ['CYL-002', '']);
+  ok('two blanks live together', rows.length === 2);
+  ok('and a third joins them',
+    addRow(rows, { id: 'x', barcode: 'CYL-003' }, null).refused === null);
+  ok('whitespace is a blank, not a serial called space',
+    addRow(rows, { id: 'x', barcode: 'CYL-004', serial: '   ' }, null).refused === null);
+  ok('a blank never collides with the fleet either',
+    addRow(rows, { id: 'x', barcode: 'CYL-005', serial: '' },
+      fleetWith({ 'CYL-900': '' })).refused === null);
+  ok('serialKey says so on its own',
+    serialKey('') === null && serialKey('  ') === null && serialKey(null) === null);
+  ok('and it is the server’s own normal form', serialKey(' sn7 ') === 'SN7');
+}
+
+section('A SERIAL ALREADY ON THE FLEET — caught here, not at the save');
+{
+  const rows = batch(['CYL-001', 'SN1']);
+  const on = fleetWith({ 'CYL-900': 'SN900' }, 'CYL-900');
+  const r = addRow(rows, { id: 'x', barcode: 'CYL-002', serial: 'sn900' }, on);
+  ok('refused against the phone’s own downloaded copy', r.refused?.reason === 'serial-on-fleet');
+  ok('it names the cylinder already wearing it, because that is the one to go and look at',
+    r.refused?.heldBy === 'CYL-900' && r.refused!.says.includes('CYL-900'), r.refused?.says);
+  ok('and it says the rule in the words the owner used',
+    r.refused!.says.includes('unique, the same as barcodes'), r.refused?.says);
+  ok('nothing was added', r.rows.length === 1);
+  ok('an untaken serial still goes in',
+    addRow(rows, { id: 'x', barcode: 'CYL-002', serial: 'SN901' }, on).refused === null);
+  ok('a fleet that cannot answer the serial question is not treated as an empty one — '
+    + 'a plain Set is still a legal Fleet',
+    addRow(rows, { id: 'x', barcode: 'CYL-002', serial: 'SN900' }, fleet('CYL-900')).refused
+      === null);
+  ok('the barcode is refused before the serial, so one sentence names one problem',
+    addRow(rows, { id: 'x', barcode: 'CYL-900', serial: 'SN900' }, on).refused?.reason
+      === 'on-fleet');
+}
+
+section('THE SERIAL RULE ON ITS OWN');
+{
+  const rows = batch(['CYL-001', 'SN1'], ['CYL-002', 'SN2']);
+  ok('a clash in the batch',
+    whySerialRefused({ barcode: 'CYL-009', serial: 'SN1' }, rows, null)?.at === 1);
+  ok('a blank asks nothing of the fleet',
+    whySerialRefused({ barcode: 'CYL-009', serial: '' }, rows,
+      fleetWith({ 'CYL-900': 'SN900' })) === null);
+  ok('a row does not collide with itself',
+    whySerialRefused({ barcode: 'CYL-001', serial: 'SN1' }, rows, null, 'id1') === null);
+  ok('but it still collides with the others',
+    whySerialRefused({ barcode: 'CYL-001', serial: 'SN2' }, rows, null, 'id1')?.reason
+      === 'serial-in-batch');
+}
+
 section('FIXING ONE AT CYLINDER TWELVE — without starting again');
 {
   const rows = batch(['CYL-001', 'SN1'], ['CYL-002', 'SNZ'], ['CYL-003', 'SN3']);
@@ -106,6 +198,22 @@ section('FIXING ONE AT CYLINDER TWELVE — without starting again');
     editRow(rows, 'id2', { barcode: 'CYL-900' }, fleet('CYL-900')).refused?.reason === 'on-fleet');
   ok('clearing a barcode entirely is refused, not saved as a nameless row',
     editRow(rows, 'id2', { barcode: '' }, null).refused?.reason === 'blank');
+  ok('retyping a serial onto one already in the batch is refused',
+    editRow(rows, 'id2', { serial: 'SN3' }, null).refused?.reason === 'serial-in-batch');
+  ok('and onto one already stamped on the fleet',
+    editRow(rows, 'id2', { serial: 'SN900' }, fleetWith({ 'CYL-900': 'SN900' })).refused?.reason
+      === 'serial-on-fleet');
+  ok('a row may keep its own serial — it is not its own duplicate',
+    editRow(rows, 'id2', { serial: 'SNZ' }, null).refused === null);
+  ok('nor when it is retyped in another case, which is the same serial',
+    editRow(rows, 'id2', { serial: 'snz' }, null).refused === null);
+  ok('nor with a stray space, which is how a thumb in gloves types it',
+    editRow(rows, 'id2', { serial: ' SNZ ' }, null).refused === null);
+  ok('correcting only the barcode leaves the serial where it was, unrefused',
+    editRow(rows, 'id2', { barcode: 'CYL-012' }, null).rows[1].serial === 'SNZ');
+  ok('and a serial can be cleared, because having none is a real answer',
+    editRow(rows, 'id2', { serial: '' }, null).rows[1].serial === ''
+      && editRow(rows, 'id2', { serial: '' }, null).refused === null);
   ok('editing a row that is no longer there is a no-op, never a throw',
     editRow(rows, 'gone', { serial: 'X' }, null).rows === rows);
 }

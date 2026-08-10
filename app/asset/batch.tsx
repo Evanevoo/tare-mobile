@@ -17,8 +17,8 @@ import { Scanner } from '@/scanner';
 import { formatNudge } from '@/formats';
 import { ulid } from '@/ulid';
 import {
-  addRow, applyResult, describeResult, editRow, normalizeCode, removeRow, toItems,
-  whyNotReady, whyRefused,
+  addRow, applyResult, describeResult, editRow, normalizeCode, removeRow, serialKey,
+  toItems, whyNotReady, whyRefused,
   type BatchRow, type BulkCreateResult, type Refusal,
 } from '@/batch';
 
@@ -47,6 +47,12 @@ import {
  * holding that bottle, and a batch that quietly ignores the second scan looks
  * exactly like a batch that missed the read. Those two have opposite answers,
  * so the screen says which one happened and names the barcode.
+ *
+ * AND THE SAME FOR SERIALS, in the owner's words: "WE CANT HAVE THE SAME
+ * SERIAL NUMBER TWICE, SAME AS BARCODES". The barcode is checked at the read,
+ * the serial at the confirm, because that is when it exists — and a serial
+ * refusal keeps the cylinder on screen rather than sending the driver back to
+ * the viewfinder, since the barcode was never what was wrong.
  *
  * ANDROID IS THE PHONE THAT MATTERS HERE — the fleet's drivers carry Android
  * and the loop below is the part of the app they will spend the most time in.
@@ -78,12 +84,13 @@ export default function BatchAssets() {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<BulkCreateResult | null>(null);
   /**
-   * Barcodes this screen has already created. The downloaded fleet will not
-   * know about them until the next bootstrap lands, and a driver who saves
-   * thirty and carries on scanning must not be able to add one of those thirty
-   * again in the meantime.
+   * What this screen has already created, barcode AND serial. The downloaded
+   * fleet will not know about them until the next bootstrap lands, and a driver
+   * who saves thirty and carries on scanning must not be able to add one of
+   * those thirty again in the meantime — nor to stamp one of their serials onto
+   * a thirty-first.
    */
-  const [created, setCreated] = useState<string[]>([]);
+  const [created, setCreated] = useState<{ barcode: string; serial: string }[]>([]);
 
   const label = (boot?.org.assetLabel ?? 'asset').toLowerCase();
   const plural = (boot?.org.assetPlural ?? 'assets').toLowerCase();
@@ -97,9 +104,39 @@ export default function BatchAssets() {
     [boot?.locations],
   );
 
+  /**
+   * Serial → the barcode wearing it, over the whole downloaded fleet.
+   *
+   * Built once per bootstrap rather than searched per keystroke: `assets` is
+   * forty thousand records on the biggest org here, and answering "is this
+   * serial taken" by scanning that map on every confirm is a visible stall in
+   * the one loop that has to stay fast.
+   *
+   * First one wins where the fleet already contains a clash. There are 21 such
+   * groups in the live database, which is exactly why the rule was added — the
+   * useful answer is a barcode to go and look at, and any of them is a start.
+   */
+  const serialOwner = useMemo(() => {
+    const by = new Map<string, string>();
+    for (const [barcode, rec] of Object.entries(boot?.assets ?? {})) {
+      const key = serialKey(rec?.sn);
+      if (key && !by.has(key)) by.set(key, barcode);
+    }
+    return by;
+  }, [boot?.assets]);
+
   const fleet = useMemo(
-    () => ({ has: (bc: string) => !!boot?.assets[bc] || created.includes(bc) }),
-    [boot?.assets, created],
+    () => ({
+      has: (bc: string) => !!boot?.assets[bc] || created.some((c) => c.barcode === bc),
+      serialHeldBy: (sn: string) => {
+        const key = serialKey(sn);
+        if (!key) return null;
+        return serialOwner.get(key)
+          ?? created.find((c) => serialKey(c.serial) === key)?.barcode
+          ?? null;
+      },
+    }),
+    [boot?.assets, created, serialOwner],
   );
 
   const dateOk = !requal || isRealDate(requal);
@@ -168,16 +205,28 @@ export default function BatchAssets() {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   }
 
-  /** The row joins the list and the camera comes straight back up. */
+  /**
+   * The row joins the list and the camera comes straight back up.
+   *
+   * A SERIAL CLASH LEAVES THE CYLINDER IN HAND. The barcode was cleared for
+   * takeoff back at `take`; the serial is typed here, so this is the first and
+   * only moment it can be checked, and the thing to do about a serial that is
+   * already on another cylinder is read the collar again — which needs the
+   * bottle, the barcode and the half-typed serial all still on screen. Dropping
+   * back to the viewfinder would make the driver rescan a barcode that was
+   * never the problem.
+   */
   function confirm() {
     if (!pending) return;
     const change = addRow(rows, { id: ulid(), ...pending }, fleet);
     if (change.refused) {
-      // Only reachable if the same barcode landed in the list some other way
-      // while this one was being typed, but the answer is the same as any
-      // other refusal: say it, and do not add.
       setRefusal(change.refused);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      if (change.refused.reason === 'serial-in-batch'
+        || change.refused.reason === 'serial-on-fleet') return;
+      // A barcode refusal here is only reachable if the same one landed in the
+      // list some other way while this serial was being typed, but the answer
+      // is the same as any other: say it, and do not add.
       setPending(null);
       setScanning(true);
       return;
@@ -186,6 +235,8 @@ export default function BatchAssets() {
     setPending(null);
     setSerialScanning(false);
     setScanning(true);
+    // The row went in, so whatever was being complained about is settled.
+    setRefusal(null);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   }
 
@@ -248,7 +299,15 @@ export default function BatchAssets() {
         status: 'available',
       });
       setResult(r);
-      setCreated((c) => [...c, ...r.createdBarcodes]);
+      // Carry the serials across too, not just the barcodes — they are on the
+      // fleet the instant this returns, and the next thirty scans have to be
+      // checked against them even though the bootstrap has not caught up.
+      const made = new Set(r.createdBarcodes.map(normalizeCode));
+      setCreated((c) => [
+        ...c,
+        ...rows.filter((row) => made.has(row.barcode))
+          .map((row) => ({ barcode: row.barcode, serial: row.serial })),
+      ]);
       setRows((rs) => applyResult(rs, r));
       setEditing(null);
       Haptics.notificationAsync(
@@ -293,6 +352,21 @@ export default function BatchAssets() {
 
   const summary = [product.trim(), full === null ? '' : full ? 'full' : 'empty', location.trim()]
     .filter(Boolean).join(' · ');
+
+  /**
+   * The record worth opening when a refusal names one that already exists.
+   *
+   * For a duplicate barcode that is the barcode itself. For a duplicate serial
+   * it is emphatically NOT — the barcode in hand is new, and the record the
+   * driver needs to look at is the cylinder already wearing that serial. A
+   * clash inside the batch opens nothing: that row has not been created
+   * anywhere yet, and its number is already in the sentence.
+   */
+  const clashRecord = refusal?.reason === 'on-fleet'
+    ? refusal.barcode
+    : refusal?.reason === 'serial-on-fleet'
+      ? refusal.heldBy ?? null
+      : null;
 
   return (
     <Screen>
@@ -412,7 +486,7 @@ export default function BatchAssets() {
                           </Text>
                         </Pressable>
                         <Pressable
-                          onPress={() => { setPending(null); setScanning(true); }}
+                          onPress={() => { setPending(null); setRefusal(null); setScanning(true); }}
                           accessibilityRole="button"
                           accessibilityLabel="Drop this one and scan another"
                           style={{ minHeight: 46, paddingHorizontal: 8, justifyContent: 'center' }}
@@ -472,9 +546,9 @@ export default function BatchAssets() {
               icon="alert-triangle"
               tone={T.amber}
               text={refusal.says}
-              action={refusal.reason === 'on-fleet' ? 'Open the record' : undefined}
-              onAction={refusal.reason === 'on-fleet'
-                ? () => router.push(`/asset/${encodeURIComponent(refusal.barcode)}` as never)
+              action={clashRecord ? 'Open the record' : undefined}
+              onAction={clashRecord
+                ? () => router.push(`/asset/${encodeURIComponent(clashRecord)}` as never)
                 : undefined}
             />
           )}
