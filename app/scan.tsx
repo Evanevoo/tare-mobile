@@ -58,7 +58,32 @@ export default function Scan() {
     })().catch(() => {});
   }, []);
 
-  if (!orderNumber || !customerListId) { router.replace('/'); return null; }
+  /**
+   * LEAVING IS A SIDE EFFECT, SO IT CANNOT HAPPEN DURING RENDER.
+   *
+   * This was `if (!orderNumber || !customerListId) { router.replace('/'); return null; }`
+   * written inline, which React reports as:
+   *
+   *   Cannot update a component while rendering a different component
+   *
+   * That warning is not cosmetic here. expo-router's `linkTo` writes into a
+   * store other components are subscribed to, so redirecting mid-render mutates
+   * navigation state while React is still walking the tree, and the update it
+   * schedules can be dropped or applied against a tree that no longer exists.
+   *
+   * It also fired on the ordinary path rather than some edge case: `finish()`
+   * calls `endDelivery()`, which clears `orderNumber`, which re-renders this
+   * screen with nothing left to scan against — one tick before the `replace()`
+   * it had already issued has committed. Every completed delivery went through
+   * it.
+   *
+   * The guard itself stays. A scan screen with no order is not a screen, it is
+   * a way to file scans against nothing. It just runs after the commit now, and
+   * renders nothing in the single frame before the redirect lands.
+   */
+  const ready = Boolean(orderNumber && customerListId);
+  useEffect(() => { if (!ready) router.replace('/'); }, [ready, router]);
+  if (!ready) return null;
 
   function take(raw: string) {
     const barcode = raw.trim().toUpperCase();
