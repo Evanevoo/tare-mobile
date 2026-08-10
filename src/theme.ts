@@ -27,7 +27,7 @@ export type Palette = {
   ink: string; steel: string; faint: string;
   rule: string; soft: string; edgeLit: string; stamp: string;
   bottle: string; brandLit: string; brandDark: string; onBrand: string;
-  needle: string; amber: string;
+  needle: string; amber: string; fern: string;
   /* Not colours, but they differ: shadows have to be lighter on paper or every
      card looks like it is hovering an inch off the screen. */
   shadowInk: string;
@@ -63,6 +63,23 @@ export const DARK: Palette = {
   needle: '#F0654A',
   amber: '#E0A43A',
 
+  /**
+   * FULL. The only green in the app, added because a cylinder's contents are
+   * the one fact a driver reads off the screen without stopping to read, and
+   * there was no colour for it — full was being drawn in the brand blue, which
+   * is also what "out with a customer" is drawn in.
+   *
+   * Measured 9.6:1 against #141B1E. That is brighter than needle (5.5) and
+   * amber (7.9) on the same surface, and deliberately so: this one gets looked
+   * at in July sun at arm's length, where the two warm signals have the
+   * advantage of being warm and a green does not. Hue 150° keeps it clear of
+   * the brand's 196° cyan, because "full" and "out" must never be a shade
+   * apart. The word FULL is drawn next to it in every place it is used —
+   * red/green is the worst pair there is for a colour-blind driver, and colour
+   * is never the only thing carrying the state.
+   */
+  fern: '#3FD98B',
+
   shadowInk: '#000000',
   glow: 1,
   statusBar: 'light',
@@ -95,6 +112,13 @@ export const LIGHT: Palette = {
   onBrand: '#F2FAFD',
   needle: '#B93A22',
   amber: '#8A5B10',
+
+  // The same green, taken down until it survives paper: 5.4:1 on #FFFFFF,
+  // which lands it between needle (5.7) and bottle (5.9) rather than shouting
+  // over both. The dark palette's version measures 9.6 on its own surface, and
+  // reusing it here would have measured 1.8 — the exact failure this file
+  // darkens every signal colour to avoid.
+  fern: '#107A42',
 
   shadowInk: '#16252B',
   glow: 0.22,                 // the aurora survives as a tint, not a light

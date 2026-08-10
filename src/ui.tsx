@@ -416,15 +416,28 @@ export function Dot({ tone, size = 8 }: { tone: string; size?: number }) {
   );
 }
 
-export function Tag({ label, tone }: { label: string; tone: string }) {
+/**
+ * A state, in a word and a colour, never in a colour alone.
+ *
+ * `big` exists for one situation and should stay rare: the card on the scan
+ * loop that says what was just read is looked at from arm's length, in a
+ * fraction of a second, over the top of a cylinder. 10.5pt is a caption — fine
+ * in a list somebody is holding still and reading, useless as a signal. Same
+ * chip, same colours, just sized for the glance.
+ */
+export function Tag({ label, tone, big }: { label: string; tone: string; big?: boolean }) {
   return (
     <View
       style={{
-        paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6,
+        paddingHorizontal: big ? 11 : 8, paddingVertical: big ? 5 : 3,
+        borderRadius: big ? 8 : 6,
         backgroundColor: tone + '24', borderWidth: 1, borderColor: tone + '3D',
       }}
     >
-      <Text style={{ color: tone, fontSize: 10.5, fontWeight: '800', letterSpacing: 0.4, fontFamily: T.mono }}>
+      <Text style={{
+        color: tone, fontSize: big ? 14 : 10.5, fontWeight: '800',
+        letterSpacing: big ? 0.6 : 0.4, fontFamily: T.mono,
+      }}>
         {label}
       </Text>
     </View>

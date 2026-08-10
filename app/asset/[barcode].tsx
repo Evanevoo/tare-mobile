@@ -53,9 +53,20 @@ export default function AssetDetail() {
             {/* Full/empty is a shelf state. Rented, it doesn't apply — OUT
                 already says everything that matters about it right now, and
                 a FULL/EMPTY tag next to OUT used to claim a shelf state for
-                something that isn't on a shelf. */}
-            {!a.c && <Tag label={a.f ? 'FULL' : 'EMPTY'} tone={a.f ? T.bottle : T.faint} />}
-            <Tag label={a.c ? 'OUT' : 'IN HOUSE'} tone={a.c ? T.amber : T.steel} />
+                something that isn't on a shelf. The scan loop shows both,
+                because a driver holding the thing is deciding what to do with
+                it; this screen is a record, and a record should not state a
+                fill it cannot stand behind.
+
+                THE THREE COLOURS ARE THE SAME THREE EVERYWHERE. Green full,
+                red empty, blue out — see StateChips in app/scan.tsx for why
+                each one is what it is. This screen used to draw FULL in the
+                brand blue and OUT in amber, which meant blue said "full" here
+                and "out" one screen away, and amber said "out" here and "we
+                have never seen this barcode" there. Being out with a customer
+                is the ordinary life of a cylinder, not a warning. */}
+            {!a.c && <Tag label={a.f ? 'FULL' : 'EMPTY'} tone={a.f ? T.fern : T.needle} />}
+            <Tag label={a.c ? 'OUT' : 'IN HOUSE'} tone={a.c ? T.bottle : T.steel} />
             {a.own === 1 && <Tag label="CUSTOMER OWNED" tone={T.steel} />}
             {requal && <Tag label={requal.label} tone={requal.tone} />}
           </View>
