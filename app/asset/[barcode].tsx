@@ -2,6 +2,10 @@ import { View, Text, ScrollView, Pressable } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useStore } from '@/store';
 import { T, Screen, Surface, Btn, Eyebrow, Tag, Rise, Hairline, mono, tint } from '@/ui';
+import { whenLabel } from '@/when';
+import {
+  custodyChips, wasAtDetail, pendingHeadline, pendingNote, type Tone,
+} from '@/pending-ship';
 
 /**
  * One asset, everything known about it.
@@ -41,6 +45,14 @@ export default function AssetDetail() {
 
   const requal = requalState(a.rq);
 
+  /* Meanings to colours, in one place and at render time — the palette object
+     is mutated when the theme flips, so a module-level map would hand out
+     yesterday's greens on paper. See src/theme.ts. */
+  const TONE: Record<Tone, string> = {
+    full: T.fern, empty: T.needle, out: T.bottle, pending: T.amber, quiet: T.steel,
+  };
+  const provenance = wasAtDetail(a);
+
   return (
     <Screen intensity={0.75}>
       <ScrollView contentContainerStyle={{ paddingTop: 14, paddingHorizontal: 18, paddingBottom: 44 }}>
@@ -64,9 +76,19 @@ export default function AssetDetail() {
                 brand blue and OUT in amber, which meant blue said "full" here
                 and "out" one screen away, and amber said "out" here and "we
                 have never seen this barcode" there. Being out with a customer
-                is the ordinary life of a cylinder, not a warning. */}
-            {!a.c && <Tag label={a.f ? 'FULL' : 'EMPTY'} tone={a.f ? T.fern : T.needle} />}
-            <Tag label={a.c ? 'OUT' : 'IN HOUSE'} tone={a.c ? T.bottle : T.steel} />
+                is the ordinary life of a cylinder, not a warning.
+
+                AMBER IS THE FOURTH, AND IT IS NEW. A bottle scanned onto a
+                truck this morning is still in house — the server deliberately
+                does not move custody on a scan — and this screen used to draw
+                it identically to one that has not moved since March. SCANNED
+                OUT sits after IN HOUSE, never instead of it: the thing IS in
+                house, and that is the surprising half that has to survive.
+                Which chips appear is decided in src/pending-ship.ts, once, so
+                the search rows cannot disagree with this screen. */}
+            {custodyChips(a).map((chip) => (
+              <Tag key={chip.label} label={chip.label} tone={TONE[chip.tone]} />
+            ))}
             {a.own === 1 && <Tag label="CUSTOMER OWNED" tone={T.steel} />}
             {requal && <Tag label={requal.label} tone={requal.tone} />}
           </View>
@@ -103,10 +125,50 @@ export default function AssetDetail() {
                 <Text style={{ color: T.faint, fontSize: 12.5, marginTop: 3 }}>
                   Not assigned to a customer.
                 </Text>
+                {/* WHERE IT CAME BACK FROM.
+                    A RETURN releases the asset, so assignedCustomerId goes
+                    null — correct, and it used to destroy the only answer the
+                    record had to "whose was this?". A bottle on the empty rack
+                    was anonymous the moment it landed. The server has kept
+                    lastCustomerId all along; this screen simply never printed
+                    it, which was the owner's second complaint. */}
+                {provenance ? (
+                  <Text style={{ color: T.steel, fontSize: 13, marginTop: 8, lineHeight: 19 }}>
+                    {provenance.charAt(0).toUpperCase()}{provenance.slice(1)}.
+                  </Text>
+                ) : null}
               </View>
             )}
           </Surface>
         </Rise>
+
+        {/* ── scanned out, nobody has approved it ──
+            The whole point of this card: the fact that makes an in-house
+            cylinder not the same as an in-house cylinder. Amber, above the
+            record rather than buried in it, because a driver looking at a
+            bottle that "should" be on a truck needs the answer before they
+            start reading rows. */}
+        {a.ps ? (
+          <Rise delay={80} style={{ marginTop: 14 }}>
+            <Surface tint="rgba(224,164,58,0.10)">
+              <View style={{ padding: 18 }}>
+                <Eyebrow>Awaiting approval</Eyebrow>
+                <Text style={{
+                  color: T.amber, fontSize: 17, fontWeight: '700',
+                  marginTop: 8, lineHeight: 24,
+                }}>
+                  {pendingHeadline(a.ps)}
+                </Text>
+                <Text style={{ color: T.steel, fontSize: 13, marginTop: 8, lineHeight: 19 }}>
+                  {pendingNote(a.ps, boot?.org.assetLabel)}
+                </Text>
+                <Text style={{ color: T.faint, fontSize: 12, marginTop: 8 }}>
+                  Scanned {whenLabel(a.ps.at)}
+                </Text>
+              </View>
+            </Surface>
+          </Rise>
+        ) : null}
 
         {/* ── the record ── */}
         <Rise delay={100} style={{ marginTop: 14 }}>

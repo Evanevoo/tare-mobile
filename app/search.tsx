@@ -6,6 +6,7 @@ import { useStore } from '@/store';
 import { Scanner } from '@/scanner';
 import { useScanRoute, explainMiss } from '@/scan-route';
 import { T, Screen, Surface, Eyebrow, Tag, Icon, ICON, mono, tint, wash, useBottomInset } from '@/ui';
+import { listChips, custodyCaption, type Tone } from '@/pending-ship';
 import type { AssetRec, CustomerRec } from '@/api';
 
 /**
@@ -66,6 +67,19 @@ export default function Search() {
   }
 
   const term = q.trim().toLowerCase();
+
+  /* THE SAME FOUR MEANINGS, THE SAME FOUR COLOURS, AS THE ASSET SCREEN.
+     This row used to draw OUT in amber and FULL in the brand blue, while
+     app/asset/[barcode].tsx drew OUT in blue and FULL in green — so blue meant
+     "full" on one screen and "out" on the next. That was survivable while
+     amber meant nothing else. It is not survivable now: amber is what a
+     cylinder scanned out and not yet approved is drawn in, and having it also
+     mean "out at a customer" here would make the new state unreadable in the
+     one place a driver skims. Built at render time because the palette object
+     is mutated when the theme flips. */
+  const TONE: Record<Tone, string> = {
+    full: T.fern, empty: T.needle, out: T.bottle, pending: T.amber, quiet: T.steel,
+  };
 
   const sections = useMemo((): { title: string; data: Hit[] }[] => {
     if (!term || !boot) return [];
@@ -260,17 +274,37 @@ export default function Search() {
                     <Text style={[mono(15, '600'), { color: T.ink }]}>{item.bc}</Text>
                     <Text style={{ color: T.faint, fontSize: 12, marginTop: 2 }}>
                       {item.a.p ?? 'unknown type'}
-                      {item.a.c ? ` \u00B7 out at ${item.a.c}` : ' \u00B7 in house'}
+                      {/* "in house \u00B7 scanned to POW City on 78089", or "in house
+                          \u00B7 was at Howlett Construction". This row used to say the
+                          same two words for a bottle that left this morning and
+                          one that has not moved since March, which is the whole
+                          complaint. Worded in src/pending-ship.ts so this row
+                          and the asset screen cannot drift apart. */}
+                      {` \u00B7 ${custodyCaption(item.a)}`}
                     </Text>
                   </View>
                   {!selecting && (
                     <>
                       {/* Full/empty is a shelf state; the line above already says
                           "out at <account>" for anything rented, so the tag only
-                          adds a fill-state claim for what's actually in house. */}
-                      {item.a.c
-                        ? <Tag label="OUT" tone={T.amber} />
-                        : <Tag label={item.a.f ? 'FULL' : 'EMPTY'} tone={item.a.f ? T.bottle : T.faint} />}
+                          adds a fill-state claim for what's actually in house.
+
+                          Which chips a list row gets is decided in
+                          src/pending-ship.ts, not here, so a second list
+                          cannot quietly answer it differently.
+
+                          The container wraps. Android exposes a font-size
+                          slider and drivers turn it up, and a two-chip row that
+                          cannot wrap runs off the card instead of moving down
+                          a line — the same fault already fixed on scan.tsx. */}
+                      <View style={{
+                        flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end',
+                        gap: 6, flexWrap: 'wrap', rowGap: 4, flexShrink: 1,
+                      }}>
+                        {listChips(item.a).map((chip) => (
+                          <Tag key={chip.label} label={chip.label} tone={TONE[chip.tone]} />
+                        ))}
+                      </View>
                       <Icon name="chevron-right" size={ICON.sm} color={T.faint} />
                     </>
                   )}

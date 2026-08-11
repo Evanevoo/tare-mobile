@@ -6,6 +6,7 @@ import type { QueuedScan } from './outbox';
 import { toWire } from './outbox';
 import type { BatchItem, BulkCreateResult } from './batch';
 import type { HistoryPage } from './history';
+import type { PendingShipRec } from './pending-ship';
 
 /**
  * One base URL, set at build time per EAS profile. Nothing else in the app
@@ -63,6 +64,17 @@ export interface AssetRec {
   own: 0 | 1;              // customer-owned
   rq: string | null;       // next requalification, YYYY-MM-DD
   lq: string | null;       // last requalification
+  /**
+   * Scanned out and not yet approved — the thing is still in house, on
+   * purpose, and this is the reason. Null on almost every asset, which is why
+   * it costs the download nothing. Optional so a v4 cache still type-checks
+   * on the way to being discarded.
+   */
+  ps?: PendingShipRec | null;
+  /** Who it last came back FROM, by name. Null when it never has. */
+  lc?: string | null;
+  /** The day it came back, YYYY-MM-DD. */
+  rt?: string | null;
 }
 
 export interface CustomerRec {
@@ -92,7 +104,13 @@ export interface ProductRec {
 // 4: customers carry `bc`, the code printed on their card. A v3 cache has no
 // barcode on any customer, so a card scanned at the counter would find nothing
 // and look identical to an unknown customer. The bump discards that cache.
-export const BOOTSTRAP_VERSION = 4;
+//
+// 5: assets carry `ps`, `lc` and `rt` — scanned out and awaiting approval, and
+// who it last came back from. Additive, so a v4 cache would not crash; it
+// would just go on drawing a bottle that left this morning exactly like one
+// that never moved, which is the whole defect. Being quietly wrong for one
+// more sync is worse than a refetch on the wifi they leave from.
+export const BOOTSTRAP_VERSION = 5;
 
 export interface Bootstrap {
   /** Shape version. A cache without this is from an older app and is discarded. */
