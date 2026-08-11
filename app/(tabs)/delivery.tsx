@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { View, Text, TextInput, Pressable, FlatList, Modal } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useStore } from '@/store';
 import { Scanner } from '@/scanner';
 import { useScanRoute, explainMiss } from '@/scan-route';
+import { classify } from '@/scan-match';
 import { formatExample, formatNudge } from '@/formats';
 import { T, Screen, Surface, Btn, Eyebrow, Rise, Tag, mono, tint, wash } from '@/ui';
 
@@ -24,8 +25,28 @@ export default function Delivery() {
   const [q, setQ] = useState('');
   const [picked, setPicked] = useState<{ id: string; name: string } | null>(null);
   const [order, setOrder] = useState('');
-  const [scanning, setScanning] = useState(false);
+  /**
+   * WHICH FIELD ASKED FOR THE CAMERA.
+   *
+   * This screen has two SCAN buttons — one beside the customer search, one
+   * beside the order number — and until now both set the same boolean and the
+   * same handler asked the same open question of whatever came back: what
+   * could this code be? So a driver who tapped SCAN on the order-number field,
+   * while holding a receipt that carries the customer's code an inch from the
+   * order number's, could have the customer picked out from under them. The
+   * decoder reads the whole frame and always has; it does not know which
+   * barcode on the page was meant.
+   *
+   * But the app does know, because the driver just told it by choosing a
+   * button, and it was throwing that away. Carrying the intent instead of a
+   * boolean is the entire fix, and it is worth more than the position filter:
+   * it works on both platforms, it needs no `bounds`, and most of this fleet's
+   * labels are Code 39, which on iOS reports no bounds at all.
+   */
+  const [scanning, setScanning] = useState<null | 'customer' | 'order'>(null);
   const [note, setNote] = useState<string | null>(null);
+  /** What the camera saw and declined to use, so refusing is never silent. */
+  const [stray, setStray] = useState<string | null>(null);
 
   const customers = useMemo(() => {
     const all = boot?.customers ?? [];
@@ -63,10 +84,40 @@ export default function Delivery() {
    * silently in the order-number field is precisely the error that makes an
    * invoice unexplainable later — the failure this screen exists to prevent.
    */
+  /**
+   * WHAT THIS FIELD IS WILLING TO READ.
+   *
+   * Handed to the Scanner, which calls it before a code is ever accepted, so a
+   * refusal costs nothing and the camera simply keeps looking. That is the
+   * right shape for the actual situation: the driver is holding one piece of
+   * paper with two barcodes on it and does not want to be told off, they want
+   * the app to take the one they asked for. Point it at the receipt, and the
+   * customer's code is passed over until the order number comes into view.
+   *
+   * Only the order-number field narrows anything. Scanning from the customer
+   * field stays exactly as open as it was — the driver there genuinely may be
+   * holding a card, a receipt, or a cylinder, and this screen's whole job at
+   * that point is to work out which.
+   */
+  const acceptHere = useCallback((code: string) => {
+    if (scanning !== 'order') return true;
+    const t = classify(code, boot);
+    if (!t || t.kind === 'text') return true;
+
+    // Setting the same string again is a no-op in React, so this is safe to
+    // call from a callback that fires several times a second.
+    setStray(
+      t.kind === 'customer'
+        ? `Skipped ${t.name} — that is a customer code, not an order number.`
+        : `Skipped ${t.barcode} — that is a cylinder, not an order number.`,
+    );
+    return false;
+  }, [scanning, boot]);
+
   function handleCode(code: string) {
     const t = route(code);
     if (!t) return;
-    setScanning(false);
+    setScanning(null);
 
     // An asset was already pushed by route() — the driver is looking at the
     // cylinder now, and nothing on this screen should change underneath them.
@@ -145,10 +196,15 @@ export default function Delivery() {
     borderWidth: 1, borderColor: T.rule,
   } as const;
 
-  /** Sits inside a field the way Show/Hide does on the sign-in screen. */
-  const ScanBtn = () => (
+  /**
+   * Sits inside a field the way Show/Hide does on the sign-in screen.
+   *
+   * `intent` is not decoration. It is the field saying what it is asking for,
+   * and it is the only place in the app that knows.
+   */
+  const ScanBtn = ({ intent }: { intent: 'customer' | 'order' }) => (
     <Pressable
-      onPress={() => { setNote(null); setScanning(true); }}
+      onPress={() => { setNote(null); setStray(null); setScanning(intent); }}
       hitSlop={12}
       style={{ position: 'absolute', right: 13, top: 0, height: 52, justifyContent: 'center' }}
     >
@@ -188,7 +244,7 @@ export default function Delivery() {
                     autoCorrect={false} autoCapitalize="none"
                     style={[field, { paddingRight: 62 }]}
                   />
-                  <ScanBtn />
+                  <ScanBtn intent="customer" />
                 </View>
               )}
             </Rise>
@@ -221,7 +277,7 @@ export default function Delivery() {
                       orderNudge ? { borderColor: T.amber } : null,
                     ]}
                   />
-                  <ScanBtn />
+                  <ScanBtn intent="order" />
                 </View>
                 {orderNudge ? (
                   <Text style={{ color: T.amber, fontSize: 12.5, lineHeight: 18, marginTop: 7 }}>
@@ -292,10 +348,10 @@ export default function Delivery() {
       />
 
       <Modal
-        visible={scanning}
+        visible={scanning !== null}
         animationType="slide"
         presentationStyle="fullScreen"
-        onRequestClose={() => setScanning(false)}
+        onRequestClose={() => setScanning(null)}
       >
         {/* The black floor is not decoration. A Modal's own backdrop is white,
             and it is visible for the whole slide-in before the camera's first
@@ -303,7 +359,8 @@ export default function Delivery() {
         <View style={{ flex: 1, backgroundColor: '#000' }}>
           <Scanner
             onCode={handleCode}
-            onClose={() => setScanning(false)}
+            accept={acceptHere}
+            onClose={() => setScanning(null)}
             cooldownMs={1200}
             // Reading a printed receipt held still, not sweeping a pallet. The
             // periodic Android refocus makes this case worse, not better — the
@@ -312,13 +369,18 @@ export default function Delivery() {
             style={{ flex: 1 }}
           >
             <View style={{ position: 'absolute', left: 0, right: 0, bottom: 44, paddingHorizontal: 26 }}>
+              {/* The instruction is the field's, not the screen's. Telling a
+                  driver aiming at an order number that they may also scan a
+                  customer code is how the wrong barcode gets read on purpose. */}
               <Text
                 style={{
                   color: '#FFFFFF', fontSize: 14, textAlign: 'center',
                   lineHeight: 20, opacity: 0.9,
                 }}
               >
-                Read the order number or the customer code.
+                {scanning === 'order'
+                  ? 'Read the order number.'
+                  : 'Read the order number or the customer code.'}
               </Text>
               <Text
                 style={{
@@ -326,8 +388,23 @@ export default function Delivery() {
                   lineHeight: 18, opacity: 0.6, marginTop: 6,
                 }}
               >
-                Scan a cylinder here and it opens that cylinder instead.
+                {scanning === 'order'
+                  ? 'Customer codes and cylinders on the same page are passed over.'
+                  : 'Scan a cylinder here and it opens that cylinder instead.'}
               </Text>
+              {/* Amber, and only while something is actually being refused. A
+                  camera that has quietly decided to ignore what it can see is
+                  indistinguishable from one that is not working. */}
+              {stray && scanning === 'order' ? (
+                <Text
+                  style={{
+                    color: T.amber, fontSize: 12.5, textAlign: 'center',
+                    lineHeight: 18, marginTop: 10, fontWeight: '700',
+                  }}
+                >
+                  {stray}
+                </Text>
+              ) : null}
             </View>
           </Scanner>
         </View>

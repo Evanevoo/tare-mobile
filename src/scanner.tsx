@@ -10,6 +10,7 @@ import { T, Icon, ICON, wash } from '@/ui';
 import { useStore } from './store';
 import { candidatesFrom, matchKnown, recognizeText, OcrUnavailable } from './ocr';
 import { key } from './scan-match';
+import { RETICLE, withinReticle } from './reticle';
 
 /**
  * The one camera surface.
@@ -25,6 +26,11 @@ import { key } from './scan-match';
  *
  * COOLDOWN. After acceptance, the same code is ignored for 2.5s, or a label
  * sitting in frame fires ten times a second.
+ *
+ * POSITION FILTER. The decoder reads the whole frame and cannot be told not
+ * to, so a code found well outside the reticle is refused after the fact, on
+ * the bounds the read arrives with. It fails open wherever those bounds are
+ * missing or unreliable, which on iOS is most reads — see src/reticle.ts.
  *
  * READY GATE. `onBarcodeScanned` is not attached until the native camera
  * reports ready — attaching earlier crashes some iOS devices mid-session
@@ -72,12 +78,42 @@ import { key } from './scan-match';
 const FILL = { flexGrow: 1, flexShrink: 1, flexBasis: 'auto', backgroundColor: '#000' } as const;
 
 /**
- * The reticle band, as fractions of the frame — read by both the on-screen
- * outline and the Snap crop below, so the two can never drift apart. Left/top
- * are the near edge; width/height are the box's own size, which is the shape
- * expo-image-manipulator's crop wants (an origin + a size, not two edges).
+ * THE POSITION FILTER IS ON FOR iOS ONLY, AND THAT IS A STATEMENT ABOUT WHAT
+ * HAS BEEN TESTED, NOT ABOUT WHAT WORKS.
+ *
+ * `withinReticle` fails open on every uncertainty it can SEE — no bounds, a
+ * zero-sized box, an unmeasured view, a centre outside the frame. Android has
+ * one it cannot see, and it is the dangerous kind, because the numbers look
+ * perfectly reasonable.
+ *
+ * expo-camera's Android path builds its bounding box from ML Kit corner points
+ * and, in one of its rotation branches, swaps x and y on the corners while
+ * leaving the box that was derived from them alone. A read that came back
+ * transposed still lands inside 0..1 and still has a plausible size, so every
+ * guard in reticle.ts passes it through to the comparison — and then the
+ * comparison is asked the wrong question.
+ *
+ * Work out what that costs and it is not evenly spread. The box is 78% of the
+ * frame wide and 28% tall, so the horizontal test accepts almost everything
+ * and the vertical test is the one with teeth. Transposed, a label sitting
+ * legitimately off to one side — cx 0.8, comfortably inside the outline — is
+ * judged as cy 0.8 and refused. A label in the middle survives, so this would
+ * not show up as "the scanner is broken". It would show up as a driver who
+ * has to re-aim more than they used to and never says anything about it.
+ *
+ * That is the exact failure this filter was written to be worth avoiding, and
+ * on the platform most of the fleet carries. There is no Android device on
+ * this desk to check it against, and the honest thing to do with an untested
+ * guess about somebody's working day is not to ship it. iOS gets the filter
+ * now, because that is what is in hand and being tested on.
+ *
+ * TO TURN IT ON FOR ANDROID: open the scanner on an Android phone, put a
+ * label near the left or right edge of the outline, and confirm it still
+ * reads. If it does, this becomes `true`. Nothing else has to change —
+ * `withinReticle` is already platform-neutral and its tests already cover the
+ * Android shapes.
  */
-const RETICLE = { left: 0.11, width: 0.78, top: 0.33, height: 0.20 } as const;
+const POSITION_FILTER = Platform.OS === 'ios';
 
 // Lowercase names are REQUIRED on iOS — uppercase silently matches nothing.
 const DEFAULT_TYPES: BarcodeType[] = [
@@ -108,11 +144,26 @@ const DEFAULT_TYPES: BarcodeType[] = [
  * a real safeguard was in place while the reticle quietly shrank to a band far
  * smaller than what is actually being decoded.
  *
- * The reticle is now honestly what it always was: an aiming guide for the
- * driver, not a constraint on the decoder. If the decode area ever genuinely
- * needs narrowing, it has to happen by cropping a still frame before handing
- * the picture to a decoder — the Snap path below — because that is the only
- * place in this stack where the pixels are ours to cut.
+ * All of that is still true, and the decoder still reads every pixel of every
+ * frame. What has changed is what happens afterwards.
+ *
+ * WHERE A CODE WAS FOUND IS A LEVER; WHERE IT IS LOOKED FOR IS NOT.
+ * Drivers reported the symptom the dead key was supposed to prevent — a code
+ * from outside the outline landing in the list — and the fix is not to
+ * constrain the decode, because nothing in this stack lets us. It is to
+ * decline the answer. `onBarcodeScanned` hands back a `bounds` rectangle in
+ * the view's own units alongside the data, so a read whose centre sits well
+ * outside the reticle can be dropped after the fact. `withinReticle` in
+ * src/reticle.ts is that test, and its comment carries the part that matters:
+ * it fails open on every uncertainty, and on iOS it will usually have no
+ * bounds to weigh at all, because the ZXing path most of this fleet's code39
+ * labels take does not report any.
+ *
+ * So the reticle is still, honestly, an aiming guide — it does not narrow what
+ * is decoded, only what is accepted, and only when the frame tells us enough
+ * to be sure. Narrowing the decode itself remains possible in exactly one
+ * place: cropping a still frame before handing the picture to a decoder, the
+ * Snap path below, because that is where the pixels are ours to cut.
  */
 
 export interface ScannerProps {
@@ -165,6 +216,15 @@ export function Scanner({
   const [mounted, setMounted] = useState(Platform.OS !== 'android');
 
   const cam = useRef<CameraView | null>(null);
+  /**
+   * The preview's own size, which is the space `bounds` is reported in.
+   *
+   * A ref rather than state: this is read inside a callback that fires several
+   * times a second and is never rendered, and putting it in state would remount
+   * the native camera on every rotation of the layout pass. It stays zero until
+   * the first layout, which `withinReticle` treats as "no opinion".
+   */
+  const viewSize = useRef({ width: 0, height: 0 });
   const lastAccepted = useRef<Record<string, number>>({});
   const pending = useRef<{ code: string; at: number } | null>(null);
   const lastReadAt = useRef<number>(Date.now());
@@ -567,7 +627,13 @@ export function Scanner({
   }
 
   return (
-    <View style={[FILL, { overflow: 'hidden' }, style]}>
+    <View
+      style={[FILL, { overflow: 'hidden' }, style]}
+      // The camera fills this View exactly, and the reticle is positioned
+      // against it, so this one measurement is the frame both the outline and
+      // the position check are talking about.
+      onLayout={(e) => { viewSize.current = e.nativeEvent.layout; }}
+    >
       {!mounted ? (
         // Deferred-mount window (Android only, ~150ms) — see the effect above.
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
@@ -587,28 +653,36 @@ export function Scanner({
           }
           onCameraReady={() => setReady(true)}
           barcodeScannerSettings={BARCODE_SETTINGS}
-          onBarcodeScanned={ready && !closing ? ({ data }) => deliver(data) : undefined}
+          // Gated on `reticle` for the same reason the Snap crop is: with no
+          // outline drawn there is no box the driver was asked to aim at, and
+          // rejecting a read against an invisible one is indistinguishable from
+          // the camera being broken. And gated on POSITION_FILTER — see below.
+          onBarcodeScanned={
+            ready && !closing
+              ? ({ data, bounds }) => {
+                  if (POSITION_FILTER && reticle
+                      && !withinReticle(bounds, viewSize.current)) return;
+                  deliver(data);
+                }
+              : undefined
+          }
         />
       </Pressable>
       )}
 
-      {/* ── reticle: one rectangle, wide and short, a little above centre ── */}
+      {/* ── reticle: one rectangle, wide, a little above centre ── */}
       {/* A full outline reads unambiguously as "put the barcode in here" — the
           corner-bracket version this replaced looked more like a camera focus
           reticle, which is the wrong metaphor for a driver glancing at it for
-          half a second with gloves on. Wide rather than tall (78%/20%, not
-          48%/38%) because every code this app reads is a linear barcode — a
-          tall box just left dead space on either side and read as a vertical
-          slot, the wrong shape for what's being aimed at. Positioned above
-          true centre (33%/53%) because a phone held up at an object at chest
-          height gets tilted down to aim, and that puts the object in the upper
-          half of the frame, not dead centre.
+          half a second with gloves on. The proportions and why they are what
+          they are live with the numbers, in src/reticle.ts.
 
-          IT GUIDES, IT DOES NOT CONSTRAIN. The decoder reads the whole frame —
-          see the note where the region of interest used to be. So this box has
-          to be generous enough that a driver who fills it is comfortably inside
-          what is actually being read, and a code landing just outside it still
-          scans rather than mysteriously not working. */}
+          IT STILL GUIDES MORE THAN IT CONSTRAINS. The decoder reads the whole
+          frame; only acceptance is filtered by where a code was found, and only
+          when the platform reports where that was. So this box has to stay
+          generous enough that a driver who fills it is comfortably inside what
+          is being read, and a code landing just outside it still scans rather
+          than mysteriously not working. */}
       {reticle && (
         <View pointerEvents="none" style={{
           position: 'absolute',

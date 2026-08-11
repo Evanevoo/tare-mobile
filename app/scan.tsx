@@ -10,6 +10,7 @@ import { useStore } from '@/store';
 import { forOrder, counts } from '@/outbox';
 import { T, shipTone, Surface, Btn, Edge, Tag, mono, shadow, tint } from '@/ui';
 import { Scanner } from '@/scanner';
+import type { AssetRec } from '@/api';
 
 /**
  * The scan loop.
@@ -57,7 +58,32 @@ export default function Scan() {
     })().catch(() => {});
   }, []);
 
-  if (!orderNumber || !customerListId) { router.replace('/'); return null; }
+  /**
+   * LEAVING IS A SIDE EFFECT, SO IT CANNOT HAPPEN DURING RENDER.
+   *
+   * This was `if (!orderNumber || !customerListId) { router.replace('/'); return null; }`
+   * written inline, which React reports as:
+   *
+   *   Cannot update a component while rendering a different component
+   *
+   * That warning is not cosmetic here. expo-router's `linkTo` writes into a
+   * store other components are subscribed to, so redirecting mid-render mutates
+   * navigation state while React is still walking the tree, and the update it
+   * schedules can be dropped or applied against a tree that no longer exists.
+   *
+   * It also fired on the ordinary path rather than some edge case: `finish()`
+   * calls `endDelivery()`, which clears `orderNumber`, which re-renders this
+   * screen with nothing left to scan against — one tick before the `replace()`
+   * it had already issued has committed. Every completed delivery went through
+   * it.
+   *
+   * The guard itself stays. A scan screen with no order is not a screen, it is
+   * a way to file scans against nothing. It just runs after the commit now, and
+   * renders nothing in the single frame before the redirect lands.
+   */
+  const ready = Boolean(orderNumber && customerListId);
+  useEffect(() => { if (!ready) router.replace('/'); }, [ready, router]);
+  if (!ready) return null;
 
   function take(raw: string) {
     const barcode = raw.trim().toUpperCase();
@@ -84,6 +110,9 @@ export default function Scan() {
     router.replace('/');
     if (n) sync().catch(() => {});
   }
+
+  /** What this org knows about the thing just scanned, if it knows it. */
+  const rec = last ? boot?.assets[last.barcode] : undefined;
 
   const banner =
     last?.kind === 'duplicate' ? { text: 'Already scanned', tone: T.steel }
@@ -176,34 +205,113 @@ export default function Scan() {
         })}
       </View>
 
-      {/* ── the last scan, large ── */}
-      {banner && last && (
-        <Animated.View
-          style={{
-            marginHorizontal: 14, marginBottom: 12, borderRadius: T.radius,
-            borderWidth: 1,
-            borderColor: flash.interpolate({
-              inputRange: [0, 1], outputRange: [T.rule, banner.tone],
-            }),
-            backgroundColor: flash.interpolate({
-              inputRange: [0, 1],
-              outputRange: [tint(0.04), banner.tone + '2E'],
-            }),
-            overflow: 'hidden',
-          }}
-        >
+      {/* ── the last scan, large ──
+          WHAT IT IS, AND WHAT JUST HAPPENED TO IT, ARE TWO DIFFERENT FACTS.
+          The card's frame flashes in the colour of the EVENT — accepted,
+          already-scanned, unrecognised — because that is feedback on the tap
+          and it fades. The chips inside carry the STATE of the thing in the
+          driver's hand, and they do not fade, because he is still holding it.
+          Mixing the two into one colour is how "green" ends up meaning both
+          "full" and "that worked".
+
+          THE SLOT IS ALWAYS HERE, EMPTY OR NOT. It used to render only after
+          the first read, so the first cylinder of every order shoved the list
+          down the screen underneath a thumb that was already moving. A fixed
+          minimum height costs one quiet line before the first scan and buys a
+          screen that never moves again.
+
+          `· [object Object]` LIVED HERE. The line under the barcode appended
+          `boot.assets[barcode]` straight into a template string. That map used
+          to hold a product code and now holds a record — store.ts version-gates
+          the cache for exactly this reason — so what a driver actually saw
+          after every scan of a known cylinder was the literal text
+          "[object Object]". It typechecked, because template literals will
+          stringify anything. */}
+      <Animated.View
+        style={{
+          marginHorizontal: 14, marginBottom: 12, borderRadius: T.radius,
+          minHeight: 130, justifyContent: 'center',
+          borderWidth: 1,
+          borderColor: flash.interpolate({
+            inputRange: [0, 1], outputRange: [T.rule, banner?.tone ?? T.rule],
+          }),
+          backgroundColor: flash.interpolate({
+            inputRange: [0, 1],
+            outputRange: [tint(0.04), (banner?.tone ?? T.steel) + '2E'],
+          }),
+          overflow: 'hidden',
+        }}
+      >
+        {banner && last ? (
           <View style={{ padding: 16, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
             <View style={{ width: 3, alignSelf: 'stretch', borderRadius: 2, backgroundColor: banner.tone }} />
             <View style={{ flex: 1 }}>
-              <Text style={[mono(21, '700'), { color: T.ink }]}>{last.barcode}</Text>
-              <Text style={{ color: banner.tone, fontSize: 13, marginTop: 3, fontWeight: '700' }}>
+              {/* The barcode is the answer to "which one did I just scan?", so
+                  it is the biggest thing on the screen. It has to stay on one
+                  line and the card has to stay the same height, so long codes
+                  are stepped down instead of wrapping.
+
+                  SIZED IN JS, NOT BY adjustsFontSizeToFit, BECAUSE OF ANDROID.
+                  That prop looks cross-platform and is not, under the New
+                  Architecture this app runs: RN serialises `adjustsFontSizeToFit`,
+                  `minimumFontSize` and `maximumFontSize` across to Android and
+                  drops `minimumFontScale` on the way (conversions.h,
+                  toMapBuffer(ParagraphAttributes)). TextLayoutManager then finds
+                  no minimum, and falls back to a floor of FOUR dp. So the same
+                  long code that iOS shrinks politely to ~16pt, Android is free
+                  to shrink until it is unreadable — and it fails silently, on
+                  the platform the drivers actually carry, in the one piece of
+                  text on this screen that exists to be read at arm's length.
+
+                  Three steps off the code's own length is duller and it is the
+                  same on both phones. 30 carries the 8-to-12 character cylinder
+                  codes that are almost all of them; the smaller steps are for
+                  the account-length outliers. */}
+              <Text
+                numberOfLines={1}
+                style={[
+                  mono(last.barcode.length > 16 ? 21 : last.barcode.length > 12 ? 25 : 30, '800'),
+                  { color: T.ink, letterSpacing: -1 },
+                ]}
+              >
+                {last.barcode}
+              </Text>
+              {/* The chip row wraps, because it can hold three at once — FULL,
+                  OUT and an odd-state one like MAINTENANCE — and every label in
+                  the app scales with the phone's font setting. Android exposes
+                  both a font size and a display size slider and drivers do turn
+                  them up, at which point a row that cannot wrap runs off the
+                  card instead of moving down a line. */}
+              {rec && (
+                <View style={{
+                  flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 8,
+                  flexWrap: 'wrap', rowGap: 6,
+                }}>
+                  <StateChips a={rec} />
+                  {rec.p ? (
+                    <Text
+                      numberOfLines={1}
+                      style={[mono(12, '600'), { color: T.faint, flexShrink: 1 }]}
+                    >
+                      {rec.p}
+                    </Text>
+                  ) : null}
+                </View>
+              )}
+              <Text
+                numberOfLines={2}
+                style={{ color: banner.tone, fontSize: 13, marginTop: 8, fontWeight: '700' }}
+              >
                 {banner.text}
-                {boot?.assets[last.barcode] ? ` · ${boot.assets[last.barcode]}` : ''}
               </Text>
             </View>
           </View>
-        </Animated.View>
-      )}
+        ) : (
+          <Text style={{ color: T.faint, fontSize: 13.5, textAlign: 'center', paddingHorizontal: 20, lineHeight: 20 }}>
+            The last one you scan shows here.
+          </Text>
+        )}
+      </Animated.View>
 
       {/* ── this order so far ── */}
       <FlatList
@@ -215,7 +323,9 @@ export default function Scan() {
             Point the camera at a barcode.
           </Text>
         }
-        renderItem={({ item }) => (
+        renderItem={({ item }) => {
+          const a = boot?.assets[item.barcode];
+          return (
           <View
             style={{
               flexDirection: 'row', alignItems: 'center', gap: 12,
@@ -231,7 +341,15 @@ export default function Scan() {
                 {item.state !== 'QUEUED' ? ` · ${item.state.toLowerCase()}` : ''}
               </Text>
             </View>
-            {boot && !(item.barcode in boot.assets) && <Tag label="UNKNOWN" tone={T.amber} />}
+            {/* The same green and red as the card above, small. A load that
+                went out right is a column of green; a pickup that went right is
+                a column of red, and either one being broken by the wrong colour
+                is visible from further away than any of the text is. Known and
+                unknown are mutually exclusive, so this never adds a chip to a
+                row that already has one. */}
+            {a
+              ? <Tag label={a.f ? 'FULL' : 'EMPTY'} tone={a.f ? T.fern : T.needle} />
+              : boot ? <Tag label="UNKNOWN" tone={T.amber} /> : null}
             {item.state === 'QUEUED' && (
               <Pressable
                 hitSlop={12}
@@ -244,7 +362,8 @@ export default function Scan() {
               </Pressable>
             )}
           </View>
-        )}
+          );
+        }}
       />
 
       {/* ── submit ── */}
@@ -309,5 +428,60 @@ export default function Scan() {
         </View>
       </Modal>
     </View>
+  );
+}
+
+/**
+ * THE STATE OF A CYLINDER IS TWO FACTS, NOT ONE, AND THEY DO NOT RANK.
+ *
+ * The record carries `f` (full or empty) and `c` (the account it is out with,
+ * null when it is in house) as separate fields, maintained separately: a
+ * cylinder at a customer's site still has a fill state, and one on the shelf
+ * still has a custody state. So "rented" is not a third value of full/empty —
+ * it is the answer to a different question, and giving the two of them one
+ * colour to fight over would mean the screen could only ever say half of what
+ * it knows.
+ *
+ * Fill gets the loud colour, because it is what the driver is deciding on with
+ * a cylinder in his hand — green full, red empty. Custody gets a quieter one
+ * beside it. Both are spelled out in words: red and green is the single worst
+ * pair for a colour-blind driver and a chip that only differs by colour would
+ * be, to him, two identical chips.
+ *
+ * EMPTY REUSES `needle`, WHICH IS ALSO THE ERROR COLOUR — deliberately, rather
+ * than adding a second red nobody could tell from the first. Red only reads as
+ * "something is wrong" where it is used as an alert; here it is a state chip
+ * sitting against an asset code, beside a green one, both labelled, and an
+ * empty cylinder is a completely ordinary thing to be holding on a return.
+ * Two reds a shade apart, one meaning "empty" and one meaning "this failed",
+ * would be a far worse mistake than the one shared red.
+ *
+ * FILL IS THE LAST RECORDED FILL, and for something that is OUT that is as old
+ * as the delivery that took it there — the customer has been using it since.
+ * That is the honest reason both chips are shown rather than the fill being
+ * suppressed while it is out: "recorded full, currently at Weldcor" is
+ * something a driver can reason about, where either half on its own would
+ * quietly mislead him.
+ *
+ * OUT IS BLUE, which is the brand colour and also this screen's RETURN IN
+ * colour, and that collision was accepted with eyes open. Blue for "out with a
+ * customer" is already what the web console shows, what the customer list on
+ * the delivery screen shows, and what the company's own material uses; one
+ * product cannot say "out" in two colours. The alternative was amber, which on
+ * this screen already means both SHIP OUT and "we have never seen this
+ * barcode" — a third meaning would have been worse, not better.
+ *
+ * The amber chip is the exception rather than the rule: a cylinder the office
+ * has marked for maintenance, lost or retired should not be going onto a
+ * truck, and a driver holding it is the last person who can stop it.
+ */
+function StateChips({ a }: { a: AssetRec }) {
+  const odd = a.s !== 'available' && a.s !== 'rented';
+  return (
+    <>
+      <Tag big label={a.f ? 'FULL' : 'EMPTY'} tone={a.f ? T.fern : T.needle} />
+      <Tag big label={a.c ? 'OUT' : 'IN HOUSE'} tone={a.c ? T.bottle : T.steel} />
+      {odd && <Tag big label={a.s.toUpperCase()} tone={T.amber} />}
+    </>
   );
 }

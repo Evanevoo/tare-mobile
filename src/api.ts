@@ -4,6 +4,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 import type { QueuedScan } from './outbox';
 import { toWire } from './outbox';
+import type { BatchItem, BulkCreateResult } from './batch';
+import type { HistoryPage } from './history';
 
 /**
  * One base URL, set at build time per EAS profile. Nothing else in the app
@@ -121,6 +123,39 @@ export async function fetchBootstrap(): Promise<Bootstrap> {
   });
   if (res.status === 401) throw new Error('Your session expired. Sign in again.');
   if (!res.ok) throw new Error(`Bootstrap failed (${res.status})`);
+  return res.json();
+}
+
+/** The most orders one page may ask for, and what it asks for by default. */
+export const HISTORY_PAGE = 50;
+export const HISTORY_MAX = 100;
+
+/**
+ * The company's orders, newest first.
+ *
+ * History used to be assembled from the outbox, which meant it showed one
+ * handset's own work and nothing else — reinstall the app and the screen came
+ * back empty, which the owner read, reasonably, as scans disappearing. This is
+ * the other half: what the company has, paged.
+ *
+ * A FAILURE HERE IS NOT AN EMERGENCY. The caller falls back to the last page
+ * it cached and says so, because a driver in a yard with no bars is the normal
+ * case for this screen rather than the exception. So the messages below are
+ * sentences and not codes — nothing renders them today, but the day something
+ * does, it must not be showing somebody a 503.
+ */
+export async function fetchHistory(
+  opts: { limit?: number; before?: string | null } = {},
+): Promise<HistoryPage> {
+  const limit = Math.min(HISTORY_MAX, Math.max(1, Math.trunc(opts.limit ?? HISTORY_PAGE)));
+  const q = new URLSearchParams({ limit: String(limit) });
+  if (opts.before) q.set('before', opts.before);
+
+  const res = await fetch(`${API_URL}/api/mobile/history?${q.toString()}`, {
+    headers: { ...(await authHeader()) },
+  });
+  if (res.status === 401) throw new Error('Your session expired. Sign in again.');
+  if (!res.ok) throw new Error('The server could not be reached.');
   return res.json();
 }
 
@@ -263,6 +298,38 @@ export function createAsset(barcode: string, draft: AssetDraft) {
   return send('/api/mobile/assets', 'POST', { barcode, ...draft }) as Promise<{
     asset: AssetRec & { id: string; barcode: string };
   }>;
+}
+
+/**
+ * What a whole pallet has in common. Everything that differs bottle to bottle
+ * — the barcode, the serial — is in the items; everything else is asked once.
+ */
+export interface BulkAssetCreate {
+  productCode: string;
+  location?: string | null;
+  isFull: boolean;
+  nextRequalOn?: string | null;
+  status?: 'available';
+}
+
+/**
+ * Add a pallet of them in one go.
+ *
+ * Needs signal, for the same reason `createAsset` does and more so: forty
+ * barcodes invented offline are forty chances for two phones in the same yard
+ * to invent the same one.
+ *
+ * A PARTIAL SUCCESS COMES BACK 200 AND IS NOT A FAILURE. Half a pallet booked
+ * in yesterday means half the barcodes come back in `skipped` with the rest
+ * created, and the screen reports that honestly rather than throwing the whole
+ * save away — see app/asset/batch.tsx. The only refusals that arrive as thrown
+ * ApiErrors are the ones that stopped the request cold, of which 402 is the
+ * one worth naming: the organisation is read-only, nothing was created, and
+ * the batch is still sitting on the phone.
+ */
+export function createAssets(items: BatchItem[], details: BulkAssetCreate) {
+  return send('/api/mobile/assets/bulk', 'POST', { items, ...details }) as
+    Promise<BulkCreateResult>;
 }
 
 /**

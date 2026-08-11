@@ -89,7 +89,7 @@ export default function More() {
             <Hairline />
             <Item
               icon="clock" label="History"
-              hint="Every scan this phone has made"
+              hint="Every order the company has scanned"
               onPress={() => router.push('/history' as never)}
             />
           </Surface>
@@ -119,6 +119,17 @@ export default function More() {
                   `mailto:hello@scanified.com?subject=Scanified%20app&body=%0A%0A---%0A${
                     encodeURIComponent(`${boot?.org.name ?? ''} · ${boot?.user.email ?? ''}`)}`,
                 ).catch(() => {})}
+            />
+            <Hairline />
+            {/* App Review will not approve a build whose privacy policy is only
+                reachable from the store listing — a reviewer looks for it inside
+                the app, and until now there was nowhere in here to point them.
+                It opens on the web rather than shipping a copy in the bundle so
+                the policy can be corrected without a new binary. */}
+            <Item
+              icon="shield" label="Privacy policy"
+              hint="How Scanified handles scans and location"
+              onPress={() => Linking.openURL('https://scanified.com/legal/privacy').catch(() => {})}
             />
           </Surface>
         </Rise>
