@@ -2,7 +2,7 @@
   "expo": {
     "name": "Scanified",
     "slug": "scanified",
-    "version": "1.0.0",
+    "version": "1.2.0",
     "runtimeVersion": {
       "policy": "appVersion"
     },
@@ -25,7 +25,7 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.scanified.app",
+      "bundleIdentifier": "com.evanevoo.scanifiedmobile",
       "buildNumber": "1",
       "infoPlist": {
         "NSCameraUsageDescription": "Scanified uses the camera to scan asset barcodes when you ship and receive them.",

@@ -1,5 +1,8 @@
-﻿{
-  "cli": { "version": ">= 12.0.0", "appVersionSource": "remote" },
+{
+  "cli": {
+    "version": ">= 12.0.0",
+    "appVersionSource": "remote"
+  },
   "build": {
     "development": {
       "developmentClient": true,
@@ -13,7 +16,9 @@
     },
     "preview": {
       "distribution": "internal",
-      "android": { "buildType": "apk" },
+      "android": {
+        "buildType": "apk"
+      },
       "channel": "preview",
       "env": {
         "EXPO_PUBLIC_SENTRY_DSN": "https://4e68a277ab6b5fce4d5b182c896a3cbe@o4511889566924800.ingest.us.sentry.io/4511889575575552",
@@ -24,7 +29,9 @@
     },
     "production": {
       "autoIncrement": true,
-      "android": { "buildType": "app-bundle" },
+      "android": {
+        "buildType": "app-bundle"
+      },
       "channel": "production",
       "env": {
         "EXPO_PUBLIC_SENTRY_DSN": "https://4e68a277ab6b5fce4d5b182c896a3cbe@o4511889566924800.ingest.us.sentry.io/4511889575575552",
@@ -37,9 +44,9 @@
   "submit": {
     "production": {
       "ios": {
-        "appleId": "REPLACE_WITH_YOUR_APPLE_ID",
-        "ascAppId": "REPLACE_AFTER_CREATING_APP_IN_APP_STORE_CONNECT",
-        "appleTeamId": "REPLACE_WITH_YOUR_TEAM_ID"
+        "appleId": "evankorial77@gmail.com",
+        "ascAppId": "6749334978",
+        "appleTeamId": "FA8UQ322NZ"
       },
       "android": {
         "serviceAccountKeyPath": "./play-service-account.json",
