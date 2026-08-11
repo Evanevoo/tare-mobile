@@ -147,7 +147,15 @@ export default function More() {
                   {
                     text: 'Sign out',
                     style: 'destructive',
-                    onPress: () => { signOut(); router.replace('/login' as never); },
+                    // handOver FIRST: the queue and the job are on this phone,
+                    // and without clearing them the next driver signs in
+                    // holding the last one's work and uploads it under their
+                    // own name. See store.handOver.
+                    onPress: async () => {
+                      await useStore.getState().handOver();
+                      await signOut();
+                      router.replace('/login' as never);
+                    },
                   },
                 ],
               )}

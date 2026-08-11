@@ -16,3 +16,13 @@ _msg.txt
 .claude-flow/  
 .claude/  
 .env  
+
+# Android signing. The keystore itself lives OUTSIDE this repo, at
+# C:\Users\evank\.scanified-signing\upload-key.jks, so that an accidental
+# `git add -A` cannot reach it. credentials.json holds the three passwords
+# and must never be committed. SHA1 2F:23:50:65:...:12:70 is the key Google
+# has on file for com.evanevoo.scanifiedandroid; losing it costs a 48-hour
+# upload-key reset with Play support.
+credentials.json
+*.jks
+*.keystore

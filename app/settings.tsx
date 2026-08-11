@@ -113,7 +113,18 @@ export default function Settings() {
                     : 'Everything has uploaded. You can sign out safely.',
                   [
                     { text: 'Stay', style: 'cancel' },
-                    { text: 'Sign out', style: 'destructive', onPress: () => { signOut(); router.replace('/login'); } },
+                    {
+                      text: 'Sign out',
+                      style: 'destructive',
+                      // Clear the phone before dropping the session — see
+                      // store.handOver. Both sign-out paths must do this, or
+                      // the one that does not becomes the bug.
+                      onPress: async () => {
+                        await useStore.getState().handOver();
+                        await signOut();
+                        router.replace('/login');
+                      },
+                    },
                   ],
                 );
               }}

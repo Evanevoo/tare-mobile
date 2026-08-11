@@ -35,7 +35,7 @@
     },
     "android": {
       "package": "com.evanevoo.scanifiedandroid",
-      "versionCode": 1,
+      "versionCode": 201,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#07090A"

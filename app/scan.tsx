@@ -36,7 +36,7 @@ export default function Scan() {
   const [manual, setManual] = useState(false);
   const [manualCode, setManualCode] = useState('');
   const cooldown = useRef<Record<string, number>>({});
-  const geo = useRef<{ lat: number; lng: number; accuracyM: number | null } | null>(null);
+  const geo = useRef<{ lat: number; lng: number; accuracyM: number | null; at: number } | null>(null);
 
   // The confirmation card flashes on each accepted scan. On a phone held at
   // arm's length this is read peripherally — you should not have to focus on
@@ -46,17 +46,61 @@ export default function Scan() {
   const rows = orderNumber ? forOrder(outbox, orderNumber) : [];
   const c = counts(outbox, orderNumber ?? undefined);
 
+  /**
+   * ONE FIX, STAMPED ON EVERY SCAN, IS NOT EVIDENCE OF WHERE A SCAN HAPPENED.
+   *
+   * This took a single position when the screen mounted and wrote it onto
+   * every barcode taken afterwards. The dispute packet prints that as
+   * "Location at scan", to four decimal places — about eleven metres — for a
+   * bottle that may have been scanned an hour later at the far end of a yard,
+   * or at the next customer if the driver never left the screen. Precision
+   * with no basis is worse than a blank field, because the packet is the
+   * document the argument is settled from.
+   *
+   * A watch keeps it honest at no extra cost to the driver: the fix is
+   * whatever the phone last knew, and it goes stale in seconds rather than
+   * hours. The 25 m / 10 s thresholds are deliberately loose — this locates a
+   * delivery, not a cylinder, and a tight filter would drain the battery of
+   * the one device the shift depends on.
+   *
+   * Anything older than two minutes is dropped rather than attached. "We do
+   * not know" is a truthful answer and the packet already renders it.
+   */
   useEffect(() => {
+    let sub: Location.LocationSubscription | null = null;
+    let cancelled = false;
+
     (async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') return;
-      const p = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      geo.current = {
-        lat: p.coords.latitude, lng: p.coords.longitude,
-        accuracyM: p.coords.accuracy ? Math.round(p.coords.accuracy) : null,
+      if (status !== 'granted' || cancelled) return;
+
+      const stamp = (p: Location.LocationObject) => {
+        geo.current = {
+          lat: p.coords.latitude, lng: p.coords.longitude,
+          accuracyM: p.coords.accuracy ? Math.round(p.coords.accuracy) : null,
+          at: p.timestamp ?? Date.now(),
+        };
       };
+
+      stamp(await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }));
+      if (cancelled) return;
+
+      sub = await Location.watchPositionAsync(
+        { accuracy: Location.Accuracy.Balanced, distanceInterval: 25, timeInterval: 10_000 },
+        stamp,
+      );
     })().catch(() => {});
+
+    return () => { cancelled = true; sub?.remove(); };
   }, []);
+
+  /** The fix only counts if it is recent enough to describe THIS scan. */
+  const freshGeo = () => {
+    const g = geo.current;
+    if (!g) return undefined;
+    if (Date.now() - g.at > 120_000) return undefined;
+    return { lat: g.lat, lng: g.lng, accuracyM: g.accuracyM };
+  };
 
   /**
    * LEAVING IS A SIDE EFFECT, SO IT CANNOT HAPPEN DURING RENDER.
@@ -93,7 +137,7 @@ export default function Scan() {
     if (cooldown.current[barcode] && now - cooldown.current[barcode] < 2500) return;
     cooldown.current[barcode] = now;
 
-    const kind = addScan(barcode, geo.current ?? undefined);
+    const kind = addScan(barcode, freshGeo());
     setLast({ barcode, kind });
 
     flash.setValue(1);

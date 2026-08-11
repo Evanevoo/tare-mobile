@@ -188,14 +188,48 @@ export interface SyncResult {
  * idempotent on (org, orderNumber, barcode, mode), which is the guarantee the
  * whole offline design rests on.
  */
+export class SyncRefused extends Error {
+  constructor(readonly status: number, message: string) {
+    super(message);
+    this.name = 'SyncRefused';
+  }
+}
+
 export async function postScans(scans: QueuedScan[]): Promise<SyncResult> {
   const res = await fetch(`${API_URL}/api/scans`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
     body: JSON.stringify({ scans: scans.map(toWire) }),
   });
-  if (res.status === 401) throw new Error('Your session expired. Sign in again.');
-  if (!res.ok) throw new Error(`Sync failed (${res.status})`);
+
+  /**
+   * A REFUSAL IS NOT BAD RECEPTION.
+   *
+   * Every non-OK status came back as `Sync failed (402)`, `sync` caught it and
+   * set `online: false`, and Home rendered "Offline — nothing is lost". So a
+   * driver whose company had gone read-only for non-payment, or whose session
+   * had expired, spent the day walking to higher ground and pressing Sync
+   * against a server that was never going to accept it. The one thing the app
+   * knew — WHY it was refused — was the thing it threw away.
+   *
+   * These are separated because the driver's next action is different for
+   * each: 402 means phone the office, 401 means sign in again, 5xx and a dead
+   * socket mean try later. The queue is safe in all four cases and every
+   * message says so, because that is the fear the screen has to answer.
+   */
+  if (res.status === 402) {
+    throw new SyncRefused(402,
+      'This account is read-only, so the office has to sort out billing before scans can upload. '
+      + 'Nothing is lost — your scans stay on this phone.');
+  }
+  if (res.status === 401 || res.status === 403) {
+    throw new SyncRefused(res.status,
+      'Your session has expired. Sign in again to upload — your scans stay on this phone.');
+  }
+  if (!res.ok) {
+    throw new SyncRefused(res.status,
+      `The server refused the upload (${res.status}). Your scans stay on this phone; try again shortly.`);
+  }
   return res.json();
 }
 
