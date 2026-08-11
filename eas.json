@@ -1,4 +1,4 @@
-{
+﻿{
   "cli": { "version": ">= 12.0.0", "appVersionSource": "remote" },
   "build": {
     "development": {
@@ -16,6 +16,7 @@
       "android": { "buildType": "apk" },
       "channel": "preview",
       "env": {
+        "EXPO_PUBLIC_SENTRY_DSN": "https://4e68a277ab6b5fce4d5b182c896a3cbe@o4511889566924800.ingest.us.sentry.io/4511889575575552",
         "EXPO_PUBLIC_API_URL": "https://newscanified.netlify.app",
         "EXPO_PUBLIC_SUPABASE_URL": "https://eltushtaxdwhdfpxlytx.supabase.co",
         "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_VXPuQS2_foJIiJM4zHroYQ_hKAONWjX"
@@ -26,6 +27,7 @@
       "android": { "buildType": "app-bundle" },
       "channel": "production",
       "env": {
+        "EXPO_PUBLIC_SENTRY_DSN": "https://4e68a277ab6b5fce4d5b182c896a3cbe@o4511889566924800.ingest.us.sentry.io/4511889575575552",
         "EXPO_PUBLIC_API_URL": "https://newscanified.netlify.app",
         "EXPO_PUBLIC_SUPABASE_URL": "https://eltushtaxdwhdfpxlytx.supabase.co",
         "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_VXPuQS2_foJIiJM4zHroYQ_hKAONWjX"

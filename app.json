@@ -63,6 +63,13 @@
         {
           "locationWhenInUsePermission": "Scanified records where a scan happened so a delivery can be proven later."
         }
+      ],
+      [
+        "@sentry/react-native/expo",
+        {
+          "organization": "scanified",
+          "project": "scanified-mobile"
+        }
       ]
     ],
     "experiments": {
