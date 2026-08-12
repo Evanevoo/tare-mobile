@@ -10,6 +10,19 @@
       "url": "https://u.expo.dev/fad89b31-ae33-4bff-9011-af88c8268844",
       "fallbackToCacheTimeout": 0
     },
+    "//platforms": [
+      "Two, not three. With no `platforms` key Expo defaults to ios, android AND",
+      "web, and `eas update` exports every platform in that list. The first OTA",
+      "this project ever tried to publish died in the export step asking for",
+      "react-native-web - a dependency for a target that does not exist. This app",
+      "is a handset app; there is no web build and there never was one.",
+      "runtimeVersion is unaffected (policy: appVersion), so this does not orphan",
+      "anything already in the field."
+    ],
+    "platforms": [
+      "ios",
+      "android"
+    ],
     "orientation": "portrait",
     "scheme": "scanified",
     "userInterfaceStyle": "automatic",
