@@ -5,6 +5,8 @@ import { pending } from '@/outbox';
 import { signOut, API_URL } from '@/api';
 import { T, Screen, Surface, Btn, Eyebrow, Rise, Hairline, Icon, ICON, mono, tint } from '@/ui';
 import { useTheme, type Pref } from '@/theme';
+import { useUpdates, APP_VERSION, UPDATES_ENABLED, runningBundle } from '@/updates';
+import { statusLine } from '@/update-policy';
 
 /**
  * Settings, kept short on purpose.
@@ -92,6 +94,11 @@ export default function Settings() {
           </Text>
         </Rise>
 
+        <Rise delay={160} style={{ marginTop: 22 }}>
+          <Eyebrow style={{ marginBottom: 12 }}>This app</Eyebrow>
+          <UpdateCard />
+        </Rise>
+
         <Rise delay={180} style={{ marginTop: 26 }}>
           <Eyebrow style={{ marginBottom: 12 }}>Careful</Eyebrow>
           <Surface>
@@ -133,6 +140,82 @@ export default function Settings() {
         </Rise>
       </ScrollView>
     </Screen>
+  );
+}
+
+/**
+ * The version, what it is running, and a button that asks.
+ *
+ * The banner already offers a restart when there is something to restart into,
+ * so this exists for the two moments the banner cannot cover. One: a driver on
+ * the phone to the office being asked "what version are you on" — before this,
+ * the only answer was the store listing, which is the version they installed
+ * and not necessarily the JavaScript they are running. Two: somebody who has
+ * just been told a fix is out and does not want to wait fifteen minutes for
+ * the app to notice.
+ *
+ * `Bundle` is the line that earns its place. "1.2.0 · as installed" and
+ * "1.2.0 · updated 12/08/2026" are the same version number and completely
+ * different code, and knowing which one is in the truck is the difference
+ * between debugging a fix and re-shipping it.
+ */
+function UpdateCard() {
+  const phase = useUpdates((s) => s.phase);
+  const error = useUpdates((s) => s.error);
+  const check = useUpdates((s) => s.check);
+  const install = useUpdates((s) => s.install);
+  const working = phase === 'checking' || phase === 'downloading';
+  const ready = phase === 'ready';
+
+  return (
+    <>
+      <Surface>
+        <Row label="Version" value={APP_VERSION} mono />
+        <Hairline />
+        <Row label="Running" value={runningBundle()} />
+        <Hairline />
+        <Row label="Updates" value={statusLine(phase, { enabled: UPDATES_ENABLED, error })} />
+      </Surface>
+
+      <Btn
+        label={ready ? 'Restart to finish updating' : 'Check for updates'}
+        variant={ready ? 'primary' : 'ghost'}
+        busy={working}
+        disabled={working}
+        style={{ marginTop: 12 }}
+        onPress={async () => {
+          if (ready) { await install(); return; }
+
+          const result = await check({ manual: true });
+          if (result === 'ready') {
+            Alert.alert(
+              'A new version is ready',
+              'It is already downloaded. Restarting takes a couple of seconds and '
+              + 'nothing on this phone is lost.',
+              [
+                { text: 'Later', style: 'cancel' },
+                { text: 'Restart now', onPress: () => { install().catch(() => {}); } },
+              ],
+            );
+          } else if (result === 'error') {
+            Alert.alert('Could not check', useUpdates.getState().error
+              ?? 'The update server could not be reached. Try again on better signal.');
+          } else if (!UPDATES_ENABLED) {
+            // Only reachable on a dev build, and saying so is kinder than the
+            // silence that "skipped" would otherwise produce.
+            Alert.alert('Updates are off',
+              'This build was installed from a development machine, so it does not '
+              + 'take over-the-air updates.');
+          } else {
+            Alert.alert('Up to date', `This phone is running the newest version (${APP_VERSION}).`);
+          }
+        }}
+      />
+      <Text style={{ color: T.faint, fontSize: 12, marginTop: 11, lineHeight: 18 }}>
+        Fixes arrive on their own and the app tells you when one is waiting. This is here
+        for when you have been told there is one and do not want to wait.
+      </Text>
+    </>
   );
 }
 

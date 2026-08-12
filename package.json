@@ -6,7 +6,7 @@
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "test": "node --experimental-strip-types __tests__/outbox.test.mts && node --experimental-strip-types __tests__/scan-match.test.mts && node --experimental-strip-types __tests__/formats.test.mts && node --experimental-strip-types __tests__/ocr.test.mts && node --experimental-strip-types __tests__/when.test.mts && node --experimental-strip-types __tests__/reticle.test.mts && node --experimental-strip-types __tests__/batch.test.mts && node --experimental-strip-types __tests__/history.test.mts && node --experimental-strip-types __tests__/pending-ship.test.mts",
+    "test": "node --experimental-strip-types __tests__/outbox.test.mts && node --experimental-strip-types __tests__/scan-match.test.mts && node --experimental-strip-types __tests__/formats.test.mts && node --experimental-strip-types __tests__/ocr.test.mts && node --experimental-strip-types __tests__/when.test.mts && node --experimental-strip-types __tests__/reticle.test.mts && node --experimental-strip-types __tests__/batch.test.mts && node --experimental-strip-types __tests__/history.test.mts && node --experimental-strip-types __tests__/pending-ship.test.mts && node --experimental-strip-types __tests__/update-policy.test.mts",
     "typecheck": "tsc --noEmit",
     "build:ios": "eas build --platform ios --profile production",
     "build:android": "eas build --platform android --profile production",

@@ -8,6 +8,8 @@ import { supabase } from '@/api';
 import { useStore } from '@/store';
 import { T, Aurora, applyPalette } from '@/ui';
 import { useTheme } from '@/theme';
+import { useUpdateWatch } from '@/updates';
+import { UpdateBanner } from '@/update-banner';
 
 /**
  * Crash reporting, and only when it has somewhere to report to.
@@ -83,6 +85,15 @@ function RootLayout() {
 
   useEffect(() => { if (session === 'in') hydrate(); }, [session]);
 
+  /**
+   * Ask Expo whether there is newer JavaScript, on launch and on every return
+   * to the foreground. Mounted here and only here — see useUpdateWatch. It is
+   * a no-op in development and on a phone with no signal, and it never
+   * restarts anything by itself; all it can do is put the banner below on
+   * screen.
+   */
+  useUpdateWatch();
+
   useEffect(() => {
     if (session === 'loading') return;
     const onLogin = segments[0] === 'login';
@@ -111,6 +122,11 @@ function RootLayout() {
   return (
     <SafeAreaProvider>
       <StatusBar style={T.statusBar} />
+      {/* The navigator and the update banner are siblings so the banner can
+          float above every screen without any of them knowing it exists. It
+          renders itself only on the tabs — see update-policy.bannerRoute for
+          why not on the scan modal. */}
+      <View style={{ flex: 1 }}>
       <Stack
         key={mode}
         screenOptions={{
@@ -175,6 +191,8 @@ function RootLayout() {
         <Stack.Screen name="asset/[barcode]" options={{ title: '' }} />
         <Stack.Screen name="customer/[id]" options={{ title: '' }} />
       </Stack>
+        <UpdateBanner segment={segments[0]} />
+      </View>
     </SafeAreaProvider>
   );
 }
