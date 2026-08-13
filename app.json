@@ -2,10 +2,8 @@
   "expo": {
     "name": "Scanified",
     "slug": "scanified",
-    "version": "1.2.0",
-    "runtimeVersion": {
-      "policy": "appVersion"
-    },
+    "version": "1.2.1",
+    "runtimeVersion": "1.2.0",
     "updates": {
       "url": "https://u.expo.dev/fad89b31-ae33-4bff-9011-af88c8268844",
       "fallbackToCacheTimeout": 0
@@ -16,8 +14,9 @@
       "this project ever tried to publish died in the export step asking for",
       "react-native-web - a dependency for a target that does not exist. This app",
       "is a handset app; there is no web build and there never was one.",
-      "runtimeVersion is unaffected (policy: appVersion), so this does not orphan",
-      "anything already in the field."
+      "runtimeVersion is pinned to 1.2.0 and does not move with every app",
+      "version bump - only bump it when a native/JS change would break OTA",
+      "compatibility with what's already installed in the field."
     ],
     "platforms": [
       "ios",
@@ -48,7 +47,7 @@
     },
     "android": {
       "package": "com.evanevoo.scanifiedandroid",
-      "versionCode": 201,
+      "versionCode": 202,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#07090A"
