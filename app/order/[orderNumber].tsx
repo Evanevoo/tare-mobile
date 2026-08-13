@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   View, Text, TextInput, Pressable, ScrollView, Alert, ActivityIndicator,
 } from 'react-native';
@@ -50,10 +50,36 @@ export default function OrderEdit() {
   const [orderDraft, setOrderDraft] = useState(orderNumber);
   const [showRetag, setShowRetag] = useState(false);
 
+  /**
+   * THE OTHER WAY TO PICK THE WRONG CUSTOMER.
+   *
+   * `retagOrder` below existed for a fat-fingered order number; there was
+   * nothing here for a fat-fingered customer, even though the server has
+   * always accepted `action: 'customer'` (api/mobile/scan-edit) and the
+   * outbox reducer has always accepted `toCustomerListId` (RETAG). A driver
+   * who picked the wrong name off Delivery's list — an easy mistake between
+   * two similarly named accounts on the same street — had to find someone at
+   * a desk to fix it, same as before this screen let you fix an order number
+   * from the truck. This closes that gap the same way: search, pick, confirm.
+   */
+  const [showRecustomer, setShowRecustomer] = useState(false);
+  const [custQuery, setCustQuery] = useState('');
+  const [custPick, setCustPick] = useState<{ id: string; name: string } | null>(null);
+
   const rows = outbox.scans.filter((s) => s.orderNumber === orderNumber);
   const nameBy = new Map((boot?.customers ?? []).map((c) => [c.customerListId, c.name]));
   const listId = rows[0]?.customerListId ?? '';
   const customer = nameBy.get(listId) ?? listId ?? 'no customer';
+
+  const custMatches = useMemo(() => {
+    const n = custQuery.trim().toLowerCase();
+    if (!n) return [];
+    return (boot?.customers ?? [])
+      .filter((c) => !c.tmp && c.customerListId !== listId && (
+        c.name.toLowerCase().includes(n) || c.customerListId.toLowerCase().includes(n)
+      ))
+      .slice(0, 8);
+  }, [boot, custQuery, listId]);
 
   const ship = rows.filter((s) => s.mode === 'SHIP');
   const ret = rows.filter((s) => s.mode === 'RETURN');
@@ -215,6 +241,37 @@ export default function OrderEdit() {
     });
   }
 
+  /** Same shape as retagOrder above, one field over: customerListId instead of orderNumber. */
+  function retagCustomer() {
+    if (!custPick || custPick.id === listId) return;
+    const to = custPick.id;
+
+    const done = () => {
+      setShowRecustomer(false);
+      setCustPick(null);
+      setCustQuery('');
+    };
+
+    const queued = rows.filter((s) => s.state === 'QUEUED');
+    if (queued.length && !anySent) {
+      dispatch({ type: 'RETAG', orderNumber, toCustomerListId: to });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      done();
+      return;
+    }
+
+    const why = needReason();
+    if (!why) return;
+    onServer({ action: 'customer', orderNumber, value: to, reason: why }).then((ok) => {
+      if (!ok) return;
+      // Mirrors retagOrder: the server only rewrote its own SENT rows, so
+      // anything still QUEUED on this phone needs the same change applied
+      // locally or it stays billed to the old account until the next sync.
+      if (queued.length) dispatch({ type: 'RETAG', orderNumber, toCustomerListId: to });
+      done();
+    });
+  }
+
   const field = {
     height: 50, borderRadius: T.radiusSm, paddingHorizontal: 14,
     color: T.ink, fontSize: 15.5,
@@ -333,6 +390,67 @@ export default function OrderEdit() {
                 style={{ marginTop: 12 }}
                 disabled={busy || !orderDraft.trim() || orderDraft.trim().toUpperCase() === orderNumber}
                 onPress={retagOrder}
+              />
+            </>
+          )}
+        </Rise>
+
+        <Rise delay={40} style={{ marginTop: 26 }}>
+          {!showRecustomer ? (
+            <Pressable onPress={() => setShowRecustomer(true)} hitSlop={10}>
+              <Text style={{ color: T.brandLit, fontSize: 13.5, fontWeight: '700' }}>
+                Change the customer
+              </Text>
+            </Pressable>
+          ) : (
+            <>
+              <Eyebrow style={{ marginBottom: 9 }}>Customer</Eyebrow>
+              {custPick ? (
+                <Pressable
+                  onPress={() => { setCustPick(null); setCustQuery(''); }}
+                  style={[field, { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}
+                >
+                  <Text style={{ color: T.ink, fontSize: 15.5, fontWeight: '600' }}>{custPick.name}</Text>
+                  <Text style={{ color: T.faint, fontSize: 12.5 }}>change</Text>
+                </Pressable>
+              ) : (
+                <>
+                  <TextInput
+                    value={custQuery} onChangeText={setCustQuery}
+                    placeholder="Search customers…" placeholderTextColor={T.faint}
+                    autoCorrect={false} autoCapitalize="none"
+                    style={field}
+                  />
+                  {custMatches.map((c) => (
+                    <Pressable
+                      key={c.customerListId}
+                      onPress={() => setCustPick({ id: c.customerListId, name: c.name })}
+                      style={({ pressed }) => ({
+                        paddingHorizontal: 14, paddingVertical: 12,
+                        borderBottomWidth: 1, borderBottomColor: T.soft,
+                        backgroundColor: pressed ? tint(0.05) : 'transparent',
+                      })}
+                    >
+                      <Text style={{ color: T.ink, fontSize: 14.5, fontWeight: '600' }}>{c.name}</Text>
+                      <Text style={[mono(11.5, '500'), { color: T.faint, marginTop: 2 }]}>
+                        {c.customerListId}
+                      </Text>
+                    </Pressable>
+                  ))}
+                  {custQuery.trim() && !custMatches.length && (
+                    <Text style={{ color: T.faint, fontSize: 12.5, marginTop: 8 }}>No customers match.</Text>
+                  )}
+                </>
+              )}
+              <Text style={{ color: T.faint, fontSize: 11.5, marginTop: 6, lineHeight: 16 }}>
+                Moves every scan on this order onto the account you pick.
+              </Text>
+              <Btn
+                label="Move them"
+                variant="ghost"
+                style={{ marginTop: 12 }}
+                disabled={busy || !custPick}
+                onPress={retagCustomer}
               />
             </>
           )}

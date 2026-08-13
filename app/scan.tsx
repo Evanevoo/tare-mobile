@@ -8,6 +8,7 @@ import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import { useStore } from '@/store';
 import { forOrder, counts, type QueuedScan } from '@/outbox';
+import { classify } from '@/scan-match';
 import { T, shipTone, Surface, Btn, Edge, Tag, mono, shadow, tint } from '@/ui';
 import { Scanner } from '@/scanner';
 import type { AssetRec } from '@/api';
@@ -175,6 +176,34 @@ export default function Scan() {
     cooldown.current[barcode] = now;
     cooldownNoted.current[barcode] = false;
 
+    /**
+     * A CUSTOMER CARD IS NOT A CYLINDER.
+     *
+     * This loop used to hand every accepted read straight to addScan(), which
+     * queues it as a bottle on the current order no matter what it actually
+     * was. delivery.tsx guards its order-number field with classify() for
+     * exactly this reason — a mis-scanned code landing silently in the wrong
+     * place is the error that makes an invoice unexplainable later — but the
+     * scan loop itself had no such guard. A driver who reflexively scanned
+     * the customer's card instead of a bottle (easy to do: same clipboard,
+     * same motion) got a normal "Shipped out" confirmation and a cylinder
+     * queued under a barcode that will never match anything real. Nothing
+     * about that looked wrong on the phone; it surfaced weeks later as an
+     * unexplained line on a statement.
+     *
+     * Only the customer case is rejected. An unrecognised code still queues
+     * as an unknown cylinder — see addScan() — because a bottle the office
+     * has not synced yet is common and must never be refused in the field.
+     */
+    const target = classify(barcode, boot);
+    if (target?.kind === 'customer') {
+      setLast({ barcode, kind: 'customer' });
+      flash.setValue(1);
+      Animated.timing(flash, { toValue: 0, duration: 620, useNativeDriver: false }).start();
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      return;
+    }
+
     const kind = addScan(barcode, freshGeo());
     setLast({ barcode, kind });
 
@@ -200,6 +229,7 @@ export default function Scan() {
 
   const banner =
     last?.kind === 'duplicate' ? { text: 'Already scanned', tone: T.steel }
+    : last?.kind === 'customer' ? { text: 'That is a customer code, not a cylinder — scan the bottle', tone: T.needle }
     : last?.kind === 'unknown' ? { text: 'New barcode — recorded; the office assigns its type', tone: T.amber }
     : last ? { text: mode === 'SHIP' ? 'Shipped out' : 'Returned in', tone: T.bottle }
     : null;

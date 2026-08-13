@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { View, Text, TextInput, Pressable, ScrollView, Alert, Modal } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { useStore } from '@/store';
 import { postFill } from '@/api';
+import { cacheGet, cacheSet } from '@/db';
 import {
   T, Screen, Surface, Btn, Eyebrow, Tag, Rise, Icon, ICON, mono, useBottomInset, tint, wash,
 } from '@/ui';
@@ -21,6 +22,12 @@ import { Scanner } from '@/scanner';
  * The count of closed rentals comes back and is shown, because ending twelve
  * rentals with one tap is not something to find out about later.
  */
+type LocateDraft = {
+  location: string; custom: boolean; state: 'full' | 'empty' | null; codes: string[];
+};
+/** Same cache table startDelivery/endDelivery use for the job, one row over. */
+const DRAFT_KEY = 'locateDraft';
+
 export default function Locate() {
   const router = useRouter();
   const { boot, refresh } = useStore();
@@ -34,6 +41,45 @@ export default function Locate() {
   const [typed, setTyped] = useState('');
   const [busy, setBusy] = useState(false);
   const [scanning, setScanning] = useState(false);
+  /** Guards the save-effect below from firing on the empty pre-load render
+      and stomping a draft this same mount is about to restore. */
+  const [hydrated, setHydrated] = useState(false);
+
+  /**
+   * A STAGED SHELF SURVIVES THE APP DYING.
+   *
+   * Delivery's job (customer, order, direction) is written to the on-device
+   * cache on every change and restored on launch — store.ts's hydrate() does
+   * it, and mobile-punchlist.md exists partly because losing that once
+   * already cost a re-scanned load. This screen never got the same
+   * treatment: `codes` lived only in component state, so someone forty
+   * bottles into stocking a shelf who took a call, or whose phone died, or
+   * who backgrounded the app long enough for Android to reclaim it, came
+   * back to Locate reset to step one with nothing to show for the scanning
+   * they had already done. The fix mirrors the delivery job exactly — same
+   * cache table, same load-on-mount / save-on-change shape — because this is
+   * the same problem in the other screen that has one.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    cacheGet<LocateDraft>(DRAFT_KEY).then((d) => {
+      if (cancelled) return;
+      if (d) {
+        setLocation(d.location);
+        setCustom(d.custom);
+        setState(d.state);
+        setCodes(d.codes);
+      }
+      setHydrated(true);
+    }).catch(() => { if (!cancelled) setHydrated(true); });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    const empty = !location && !custom && !state && codes.length === 0;
+    cacheSet(DRAFT_KEY, empty ? null : { location, custom, state, codes }).catch(() => {});
+  }, [hydrated, location, custom, state, codes]);
 
   const locations = boot?.locations ?? [];
 
@@ -71,6 +117,9 @@ export default function Locate() {
       const r = await postFill(location, state, codes);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       await refresh().catch(() => {});
+      // This shelf is saved — a force-quit from here on out must not restore
+      // it a second time and offer to submit the same bottles again.
+      await cacheSet(DRAFT_KEY, null).catch(() => {});
       Alert.alert(
         'Saved',
         [
