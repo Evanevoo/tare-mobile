@@ -10,6 +10,7 @@ import { T, Aurora, applyPalette } from '@/ui';
 import { useTheme } from '@/theme';
 import { useUpdateWatch } from '@/updates';
 import { UpdateBanner } from '@/update-banner';
+import { useAutoSync } from '@/auto-sync';
 
 /**
  * Crash reporting, and only when it has somewhere to report to.
@@ -93,6 +94,12 @@ function RootLayout() {
    * screen.
    */
   useUpdateWatch();
+
+  /**
+   * Retry the outbox on its own — see auto-sync.ts. Mounted here, once, next
+   * to the update watcher it is modelled on.
+   */
+  useAutoSync();
 
   useEffect(() => {
     if (session === 'loading') return;

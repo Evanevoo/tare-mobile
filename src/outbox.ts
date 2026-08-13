@@ -88,7 +88,27 @@ export function reduce(state: Outbox, action: Action): Outbox {
   switch (action.type) {
     case 'ENQUEUE': {
       const { scan } = action;
-      const existing = state.scans.find((s) => sameScan(s, scan.orderNumber, scan.barcode));
+      /**
+       * A SENT ROW IS HISTORY, NOT THE CURRENT PENDING STATE.
+       *
+       * This used to match ANY row with the same (order, barcode), including
+       * one already SENT from an earlier sync in the same job. `.find` returns
+       * the first match in array order, and a SENT row is always the older
+       * one — so once a bottle had synced, every later scan of it kept
+       * comparing itself against that stale SENT row instead of the fresh
+       * QUEUED one sitting after it: SHIP (synced) → RETURN (correctly
+       * replaces in place) → RETURN again both landed here, both found the old
+       * SENT SHIP row, both saw a different mode, and both pushed a NEW
+       * QUEUED RETURN row rather than recognising the first RETURN was
+       * already queued. Two identical rows for one bottle, silently.
+       *
+       * Only a QUEUED or UPLOADING row can be "already pending" or "still
+       * ours to correct" — a SENT row is the server's now. Excluded here the
+       * same way APPLY_SERVER_EDIT excludes anything NOT SENT; this is the
+       * mirror case.
+       */
+      const existing = state.scans.find(
+        (s) => sameScan(s, scan.orderNumber, scan.barcode) && s.state !== 'SENT');
 
       // Already queued in the same direction — a double beep, not a second unit.
       if (existing && existing.mode === scan.mode) return state;

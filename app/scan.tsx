@@ -7,7 +7,7 @@ import * as Haptics from 'expo-haptics';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import { useStore } from '@/store';
-import { forOrder, counts } from '@/outbox';
+import { forOrder, counts, type QueuedScan } from '@/outbox';
 import { T, shipTone, Surface, Btn, Edge, Tag, mono, shadow, tint } from '@/ui';
 import { Scanner } from '@/scanner';
 import type { AssetRec } from '@/api';
@@ -29,14 +29,33 @@ export default function Scan() {
   const router = useRouter();
   const {
     orderNumber, customerName, customerListId, mode, setMode,
-    outbox, addScan, dispatch, endDelivery, boot, sync, syncing,
+    outbox, addScan, dispatch, endDelivery, boot, sync, syncing, dbUnavailable,
   } = useStore();
 
   const [last, setLast] = useState<{ barcode: string; kind: string } | null>(null);
   const [manual, setManual] = useState(false);
   const [manualCode, setManualCode] = useState('');
   const cooldown = useRef<Record<string, number>>({});
+  // One tick per cooldown window, not one per frame — see `take()`.
+  const cooldownNoted = useRef<Record<string, boolean>>({});
   const geo = useRef<{ lat: number; lng: number; accuracyM: number | null; at: number } | null>(null);
+
+  /**
+   * REMOVE, WITH A WAY BACK.
+   *
+   * The old Remove button had no confirm and no undo — one mistap on a moving
+   * truck and a real scan was gone with nothing recorded anywhere that it had
+   * ever existed. A confirmation dialog was the other option and the wrong
+   * one for this screen: it stops the batch to ask a question on every single
+   * correction, which is the opposite of what a fast-moving scan loop needs.
+   * An undo affordance gets the same safety without the interruption — it
+   * costs nothing when nobody needed it, and it is one tap when they did.
+   * Single slot on purpose: only the most recent removal is undoable, which
+   * matches what a driver actually means by "wait, put that back."
+   */
+  const [removed, setRemoved] = useState<{ scan: QueuedScan } | null>(null);
+  const removedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (removedTimer.current) clearTimeout(removedTimer.current); }, []);
 
   // The confirmation card flashes on each accepted scan. On a phone held at
   // arm's length this is read peripherally — you should not have to focus on
@@ -134,8 +153,27 @@ export default function Scan() {
     if (!barcode) return;
 
     const now = Date.now();
-    if (cooldown.current[barcode] && now - cooldown.current[barcode] < 2500) return;
+    if (cooldown.current[barcode] && now - cooldown.current[barcode] < 2500) {
+      /**
+       * A SILENT COOLDOWN IS A CAMERA THAT LOOKS DEAD.
+       *
+       * The scanner reads the same code every frame while it stays in view,
+       * and swallowing every one of those with zero feedback for 2.5 seconds
+       * made a live camera indistinguishable from a broken one — the one
+       * complaint a driver has no way to describe except "it stopped
+       * working." One light tick, the first time a cooldown window blocks a
+       * read rather than every frame it does, proves the loop is alive
+       * without re-queuing the scan or buzzing continuously while the phone
+       * sits still over a barcode.
+       */
+      if (!cooldownNoted.current[barcode]) {
+        cooldownNoted.current[barcode] = true;
+        Haptics.selectionAsync();
+      }
+      return;
+    }
     cooldown.current[barcode] = now;
+    cooldownNoted.current[barcode] = false;
 
     const kind = addScan(barcode, freshGeo());
     setLast({ barcode, kind });
@@ -150,6 +188,8 @@ export default function Scan() {
 
   function finish() {
     const n = c.pending;
+    if (removedTimer.current) clearTimeout(removedTimer.current);
+    setRemoved(null);
     endDelivery();
     router.replace('/');
     if (n) sync().catch(() => {});
@@ -195,6 +235,16 @@ export default function Scan() {
               <Text style={{ color: T.brandLit, fontSize: 14, fontWeight: '700' }}>Type code</Text>
             </Pressable>
           </View>
+          {/* The moment this matters is right here, not on Home — this is
+              the screen where a scan that never reaches disk is happening. */}
+          {dbUnavailable && (
+            <Text
+              numberOfLines={1}
+              style={{ color: T.needle, fontSize: 11.5, fontWeight: '800', marginTop: 8 }}
+            >
+              Not saving to this phone — upload before you stop
+            </Text>
+          )}
         </LinearGradient>
       </View>
 
@@ -399,7 +449,10 @@ export default function Scan() {
                 hitSlop={12}
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                  if (removedTimer.current) clearTimeout(removedTimer.current);
+                  setRemoved({ scan: item });
                   dispatch({ type: 'REMOVE', clientId: item.clientId });
+                  removedTimer.current = setTimeout(() => setRemoved(null), 6000);
                 }}
               >
                 <Text style={{ color: T.needle, fontSize: 13, fontWeight: '700' }}>Remove</Text>
@@ -409,6 +462,45 @@ export default function Scan() {
           );
         }}
       />
+
+      {/* ── undo, one slot, six seconds ──
+          Sits above the submit bar rather than inside it — that bar is
+          Btn's own 56pt+ target and a second control layered on top of it
+          risks eating the tap meant for Submit. 150 clears the bar's own
+          ~124pt (34 top pad + 56 button + 34 bottom pad) with a little air,
+          the same hand-tuned-offset approach the tab-bar-clearing update
+          banner uses. */}
+      {removed && (
+        <View style={{ position: 'absolute', left: 14, right: 14, bottom: 150 }}>
+          <Pressable
+            onPress={() => {
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              if (removedTimer.current) clearTimeout(removedTimer.current);
+              dispatch({ type: 'ENQUEUE', scan: removed.scan });
+              setRemoved(null);
+            }}
+            accessibilityRole="button"
+            accessibilityLabel={`Undo removing ${removed.scan.barcode}`}
+          >
+            <Surface level={3}>
+              <View style={{
+                paddingVertical: 13, paddingHorizontal: 16,
+                flexDirection: 'row', alignItems: 'center', gap: 10,
+              }}>
+                <Text
+                  numberOfLines={1}
+                  style={[mono(13, '600'), { color: T.faint, flex: 1 }]}
+                >
+                  Removed {removed.scan.barcode}
+                </Text>
+                <Text style={{ color: T.brandLit, fontSize: 13.5, fontWeight: '800' }}>
+                  Undo
+                </Text>
+              </View>
+            </Surface>
+          </Pressable>
+        </View>
+      )}
 
       {/* ── submit ── */}
       <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0 }}>

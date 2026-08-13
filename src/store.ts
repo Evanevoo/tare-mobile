@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { reduce, empty, pending, queued, type Action, type Outbox, type Mode, type QueuedScan }
   from './outbox';
 import { ulid } from './ulid';
-import { loadOutbox, saveOutbox, cacheGet, cacheSet } from './db';
+import { loadOutbox, saveOutbox, cacheGet, cacheSet, dbUnavailable as dbFlag } from './db';
 import { fetchBootstrap, postScans, sessionIdentity, SyncRefused, BOOTSTRAP_VERSION, type Bootstrap }
   from './api';
 
@@ -19,6 +19,18 @@ interface State {
   syncing: boolean;
   lastError: string | null;
   lastSync: string | null;
+  /**
+   * THE LOCAL DATABASE, WHEN IT IS GONE.
+   *
+   * `db.ts` exports this the moment SQLite fails to open, but nothing ever
+   * read it — the flag existed, degraded the app to online-only exactly as
+   * designed, and told nobody. A driver whose phone hit this kept scanning
+   * against a screen that looked completely normal, every scan sitting in
+   * memory only, and found out at the end of the shift when the app closed
+   * and the whole thing evaporated with no error anywhere. A message here is
+   * the only thing that turns "silently gone" into "seen and worked around."
+   */
+  dbUnavailable: string | null;
 
   // the delivery in progress
   customerListId: string | null;
@@ -54,6 +66,7 @@ export const useStore = create<State>((set, get) => ({
   syncing: false,
   lastError: null,
   lastSync: null,
+  dbUnavailable: null,
   customerListId: null,
   customerName: null,
   orderNumber: null,
@@ -85,6 +98,10 @@ export const useStore = create<State>((set, get) => ({
     set({
       outbox, boot, lastSync, ready: true,
       email: who?.email ?? null,
+      // Set by loadOutbox()'s own call to open() above, so it is current by
+      // the time this reads it — an ES module `let` export is a live binding,
+      // not a snapshot taken at import time.
+      dbUnavailable: dbFlag,
       customerListId: job?.customerListId ?? null,
       customerName: job?.customerName ?? null,
       orderNumber: job?.orderNumber ?? null,
@@ -147,7 +164,14 @@ export const useStore = create<State>((set, get) => ({
   dispatch(action) {
     const outbox = reduce(get().outbox, action);
     set({ outbox });
-    saveOutbox(outbox).catch(() => {});   // fire and forget; state is already correct
+    // Fire and forget for the happy path — in-memory state is already
+    // correct and a driver must never wait on a disk write between two
+    // scans. But a `false` here means this scan is NOT on disk, and that used
+    // to vanish into an ignored promise. Surfacing it is what lets the screen
+    // say so instead of the shift finding out when the app closes.
+    saveOutbox(outbox).then((ok) => {
+      if (!ok) set({ dbUnavailable: dbFlag ?? 'Could not save to this phone.' });
+    }).catch(() => {});
   },
 
   /**
@@ -159,8 +183,13 @@ export const useStore = create<State>((set, get) => ({
     const { orderNumber, customerListId, mode, outbox, boot } = get();
     if (!orderNumber || !customerListId) return 'unknown';
 
+    // Only a row still pending can be "already scanned this trip" — a SENT
+    // row is history from an earlier sync in this same job and must not
+    // silently swallow a legitimate new scan of the same bottle. Mirrors the
+    // fix in outbox.ts's ENQUEUE reducer; see the comment there for the
+    // SHIP-then-RETURN-then-RETURN case this was dropping.
     const existing = outbox.scans.find(
-      (s) => s.orderNumber === orderNumber && s.barcode === barcode);
+      (s) => s.orderNumber === orderNumber && s.barcode === barcode && s.state !== 'SENT');
     if (existing && existing.mode === mode) return 'duplicate';
 
     const scan: QueuedScan = {

@@ -53,6 +53,34 @@ section('Enqueue');
   ok('a different bottle is a separate row', two.scans.length === 2);
 }
 
+section('A SENT row is history, not a live match — the SHIP·RETURN·RETURN bug');
+{
+  // A bottle that already synced once this job (the driver pressed Sync
+  // mid-batch), then gets corrected. `.find` used to return this SENT row
+  // ahead of anything queued after it, because it is earlier in the array —
+  // so every later scan of the same bottle compared itself against stale
+  // history instead of the live QUEUED row.
+  const sent = (o: Outbox) => {
+    const ids = o.scans.map((x) => x.clientId);
+    return reduce(reduce(o, { type: 'BEGIN_UPLOAD', clientIds: ids }),
+      { type: 'UPLOAD_OK', clientIds: ids });
+  };
+
+  let s = sent(run([{ type: 'ENQUEUE', scan: scan('B5', 'SHIP') }]));
+  ok('the SHIP already went up', s.scans.length === 1 && s.scans[0].state === 'SENT');
+
+  s = reduce(s, { type: 'ENQUEUE', scan: scan('B5', 'RETURN') });
+  ok('a RETURN on the same bottle after a SENT SHIP is a fresh row, not a rewrite of history',
+    s.scans.length === 2, String(s.scans.length));
+  ok('the new row is QUEUED', s.scans[1].state === 'QUEUED');
+
+  s = reduce(s, { type: 'ENQUEUE', scan: scan('B5', 'RETURN') });
+  ok('scanning it again the same direction stays one row — the bug appended a second',
+    s.scans.length === 2, String(s.scans.length));
+  ok('and the SENT row from before is untouched',
+    s.scans.find((x) => x.state === 'SENT')?.mode === 'SHIP');
+}
+
 section('Upload lifecycle');
 {
   const base = run([

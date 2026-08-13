@@ -66,7 +66,7 @@ const ACTIONS = [
 export default function Home() {
   const router = useRouter();
   const {
-    boot, ready, online, outbox, refresh, lastSync,
+    boot, ready, online, outbox, refresh, lastSync, dbUnavailable,
     orderNumber, customerName, customerListId, endDelivery, sync,
   } = useStore();
   const [busy, setBusy] = useState(false);
@@ -346,25 +346,44 @@ export default function Home() {
           </View>
         </Rise>
 
-        {/* ── are my scans safe ── */}
+        {/* ── are my scans safe ──
+            DB-UNAVAILABLE OUTRANKS EVERYTHING ELSE THIS CARD SAYS.
+            "Online" and "waiting to upload" both still mean the scan itself
+            is sitting somewhere safe. `dbUnavailable` means it is not — it is
+            in memory only, and closing the app loses it, whether or not
+            there is signal. That is a different fact from "offline" and has
+            to look like one: red, not amber, and the card's own colour, not
+            a status line buried inside it. */}
         <Rise delay={160} style={{ marginTop: 26 }}>
           <Pressable
             onPress={() => router.push('/activity' as never)}
             accessibilityRole="button"
-            accessibilityLabel={unsent ? `${unsent} scans waiting to upload` : 'Everything is on the server'}
+            accessibilityLabel={
+              dbUnavailable
+                ? 'Not saving to this phone. Scans are only safe once they upload.'
+                : unsent ? `${unsent} scans waiting to upload` : 'Everything is on the server'
+            }
           >
-            <Surface tint={unsent ? 'rgba(224,164,58,0.10)' : undefined}>
+            <Surface tint={
+              dbUnavailable ? 'rgba(214,69,69,0.16)'
+              : unsent ? 'rgba(224,164,58,0.10)'
+              : undefined
+            }>
               <View style={{ padding: 16, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                <Dot tone={online ? T.bottle : T.amber} size={9} />
+                <Dot tone={dbUnavailable ? T.needle : online ? T.bottle : T.amber} size={9} />
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: T.ink, fontSize: 14.5, fontWeight: '700' }}>
-                    {unsent
-                      ? `${unsent} scan${unsent === 1 ? '' : 's'} waiting to upload`
-                      : 'Everything is on the server'}
+                    {dbUnavailable
+                      ? 'Not saving to this phone'
+                      : unsent
+                        ? `${unsent} scan${unsent === 1 ? '' : 's'} waiting to upload`
+                        : 'Everything is on the server'}
                   </Text>
-                  <Text style={{ color: T.faint, fontSize: 12, marginTop: 3 }}>
-                    {online ? 'Online' : 'Offline — nothing is lost'}
-                    {lastSync ? ` · synced ${short(lastSync)}` : ''}
+                  <Text style={{ color: dbUnavailable ? T.needle : T.faint, fontSize: 12, marginTop: 3 }}>
+                    {dbUnavailable
+                      ? 'Scans only stay safe once they upload — keep the app open and get signal soon.'
+                      : (online ? 'Online' : 'Offline — nothing is lost')
+                        + (lastSync ? ` · synced ${short(lastSync)}` : '')}
                   </Text>
                 </View>
                 <Icon name="chevron-right" size={ICON.md} color={T.faint} />
