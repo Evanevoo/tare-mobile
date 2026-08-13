@@ -1,4 +1,5 @@
-import { View, Text, ScrollView } from 'react-native';
+import { useState } from 'react';
+import { View, Text, ScrollView, Pressable } from 'react-native';
 import { useStore } from '@/store';
 import { T, Screen, Surface, Eyebrow, Rise, Hairline, tint } from '@/ui';
 
@@ -10,28 +11,51 @@ import { T, Screen, Surface, Eyebrow, Rise, Hairline, tint } from '@/ui';
  * so it answers instantly and in a yard with no bars. "As of last sync" is
  * printed rather than implied, because a number with no timestamp gets
  * trusted exactly once.
+ *
+ * The "Where" row answers the actual question that sends someone walking to
+ * the other yard: not "how many do we own" but "is one sitting here, full,
+ * right now." Available means in-house AND full — an empty one on the shelf
+ * is real stock but is not a yes to a customer asking for one today.
  */
 export default function Analytics() {
   const { boot, lastSync } = useStore();
+  const [loc, setLoc] = useState<string | null>(null);
 
   const rows = Object.values(boot?.assets ?? {});
   const total = rows.length;
   const out = rows.filter((a) => a.c).length;
-  const full = rows.filter((a) => a.f).length;
+  const availableNow = rows.filter((a) => !a.c && a.f === 1).length;
 
-  // Per product: how many, and how many are out earning.
-  const byProduct = new Map<string, { total: number; out: number }>();
+  // Places worth offering as a filter — in-house stock only, since "where" is
+  // meaningless for something out with a customer.
+  const placeCounts = new Map<string, number>();
+  for (const a of rows) {
+    if (a.c || !a.l) continue;
+    placeCounts.set(a.l, (placeCounts.get(a.l) ?? 0) + 1);
+  }
+  const places = [...placeCounts.entries()].sort((x, y) => y[1] - x[1]);
+
+  // Per product, at the selected place (or everywhere): what's actually
+  // ready to hand over right now, what's on the shelf but needs the fill
+  // plant first, and what's out earning. "Out" ignores the place filter —
+  // a cylinder at a customer does not have a yard, so filtering it by one
+  // would just make it vanish from a filtered list for the wrong reason.
+  const byProduct = new Map<string, { avail: number; needsFill: number; out: number }>();
   for (const a of rows) {
     const code = a.p ?? '(no product)';
-    const p = byProduct.get(code) ?? { total: 0, out: 0 };
-    p.total += 1;
-    if (a.c) p.out += 1;
-    byProduct.set(code, p);
+    const row = byProduct.get(code) ?? { avail: 0, needsFill: 0, out: 0 };
+    if (a.c) {
+      row.out += 1;
+    } else if (!loc || a.l === loc) {
+      if (a.f === 1) row.avail += 1; else row.needsFill += 1;
+    }
+    byProduct.set(code, row);
   }
   const products = [...byProduct.entries()]
     .map(([code, v]) => ({ code, ...v }))
-    .sort((x, y) => y.total - x.total)
-    .slice(0, 30);
+    .filter((p) => p.avail + p.needsFill + p.out > 0)
+    .sort((x, y) => y.avail - x.avail || (y.avail + y.needsFill) - (x.avail + x.needsFill) || x.code.localeCompare(y.code))
+    .slice(0, 40);
 
   const pct = total ? Math.round((out / total) * 100) : 0;
   const plural = (boot?.org.assetPlural ?? 'assets').toLowerCase();
@@ -61,19 +85,37 @@ export default function Analytics() {
             <View style={{ flexDirection: 'row' }}>
               <Stat v={`${pct}%`} l="of the fleet earning" />
               <VRule />
-              <Stat v={String(full)} l="full" />
+              <Stat v={String(availableNow)} l="available now" tone={T.bottle} />
               <VRule />
               <Stat v={String(boot?.stats?.customers ?? boot?.customers?.length ?? 0)} l="customers" />
             </View>
           </Surface>
         </Rise>
 
+        {places.length > 0 && (
+          <Rise delay={80} style={{ marginTop: 24 }}>
+            <Eyebrow style={{ marginBottom: 10 }}>Where</Eyebrow>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <Chip label="All places" on={loc === null} onPress={() => setLoc(null)} />
+                {places.map(([name, n]) => (
+                  <Chip key={name} label={`${name} · ${n}`} on={loc === name} onPress={() => setLoc(loc === name ? null : name)} />
+                ))}
+              </View>
+            </ScrollView>
+          </Rise>
+        )}
+
         <Rise delay={110} style={{ marginTop: 24 }}>
-          <Eyebrow style={{ marginBottom: 12 }}>By product — biggest first</Eyebrow>
+          <Eyebrow style={{ marginBottom: 12 }}>
+            {loc ? `By product — available at ${loc} first` : 'By product — available first'}
+          </Eyebrow>
           <Surface>
-            <View style={{ padding: 18, gap: 14 }}>
+            <View style={{ padding: 18, gap: 16 }}>
               {products.length === 0 && (
-                <Text style={{ color: T.faint, fontSize: 13 }}>Nothing in the fleet yet.</Text>
+                <Text style={{ color: T.faint, fontSize: 13 }}>
+                  {loc ? `Nothing on record at ${loc}.` : 'Nothing in the fleet yet.'}
+                </Text>
               )}
               {products.map((p) => (
                 <View key={p.code}>
@@ -81,18 +123,16 @@ export default function Analytics() {
                     <Text style={{ color: T.ink, fontSize: 13.5, fontWeight: '600', flex: 1 }} numberOfLines={1}>
                       {p.code}
                     </Text>
-                    <Text style={{ color: T.steel, fontSize: 12.5, fontVariant: ['tabular-nums'] }}>
-                      {p.out} out · {p.total} total
+                    <Text style={{
+                      fontSize: 15, fontWeight: '700', fontVariant: ['tabular-nums'],
+                      color: p.avail > 0 ? T.bottle : T.faint,
+                    }}>
+                      {p.avail} available
                     </Text>
                   </View>
-                  {/* One bar, two truths: the lit span is out earning, the dim
-                      remainder is sitting in the yard. */}
-                  <View style={{ height: 6, borderRadius: 3, backgroundColor: tint(0.08), marginTop: 6, overflow: 'hidden' }}>
-                    <View style={{
-                      height: 6, borderRadius: 3, backgroundColor: T.amber,
-                      width: `${p.total ? Math.max(2, Math.round((p.out / p.total) * 100)) : 0}%`,
-                    }} />
-                  </View>
+                  <Text style={{ color: T.steel, fontSize: 11.5, marginTop: 2 }}>
+                    {p.out} out · {p.needsFill} need fill
+                  </Text>
                 </View>
               ))}
             </View>
@@ -100,6 +140,24 @@ export default function Analytics() {
         </Rise>
       </ScrollView>
     </Screen>
+  );
+}
+
+function Chip({ label, on, onPress }: { label: string; on: boolean; onPress: () => void }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={{
+        height: 34, paddingHorizontal: 13, borderRadius: 10,
+        alignItems: 'center', justifyContent: 'center',
+        backgroundColor: on ? T.bottle : tint(0.05),
+        borderWidth: on ? 0 : 1, borderColor: T.rule,
+      }}
+    >
+      <Text style={{ color: on ? T.onBrand : T.steel, fontSize: 12.5, fontWeight: '600' }}>
+        {label}
+      </Text>
+    </Pressable>
   );
 }
 
