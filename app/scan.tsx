@@ -9,6 +9,7 @@ import { useRouter } from 'expo-router';
 import { useStore } from '@/store';
 import { forOrder, counts, type QueuedScan } from '@/outbox';
 import { classify } from '@/scan-match';
+import { playScanAccept, playScanAlert, playSubmitSuccess } from '@/sound';
 import { T, shipTone, Surface, Btn, Edge, Tag, mono, shadow, tint } from '@/ui';
 import { Scanner } from '@/scanner';
 import type { AssetRec } from '@/api';
@@ -201,6 +202,7 @@ export default function Scan() {
       flash.setValue(1);
       Animated.timing(flash, { toValue: 0, duration: 620, useNativeDriver: false }).start();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      playScanAlert();
       return;
     }
 
@@ -210,8 +212,12 @@ export default function Scan() {
     flash.setValue(1);
     Animated.timing(flash, { toValue: 0, duration: 620, useNativeDriver: false }).start();
 
-    if (kind === 'added') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    else if (kind === 'unknown') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    // Duplicate stays quiet on purpose — see `take()`'s cooldown-tick comment
+    // above: a repeat read of a code still in view is the normal case while
+    // the phone holds steady over it, and a sound on every one of those
+    // would turn "still pointed at the same barcode" into a nuisance beep.
+    if (kind === 'added') { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); playScanAccept(); }
+    else if (kind === 'unknown') { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); playScanAlert(); }
     else Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   }
 
@@ -221,7 +227,15 @@ export default function Scan() {
     setRemoved(null);
     endDelivery();
     router.replace('/');
-    if (n) sync().catch(() => {});
+    // finish() also runs from the bare "Done" tap with nothing scanned, which
+    // is a quiet exit and should stay quiet. The confirmation belongs to the
+    // moment there is actually an order going out — same condition sync()
+    // already gates on below, so this reuses it rather than restating it.
+    if (n) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      playSubmitSuccess();
+      sync().catch(() => {});
+    }
   }
 
   /** What this org knows about the thing just scanned, if it knows it. */

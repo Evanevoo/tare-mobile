@@ -94,7 +94,8 @@
             "deploymentTarget": "16.0"
           }
         }
-      ]
+      ],
+      "expo-audio"
     ],
     "experiments": {
       "typedRoutes": true
