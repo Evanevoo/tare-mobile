@@ -1,12 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   View, Text, TextInput, Pressable, ScrollView, Alert, ActivityIndicator,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { useStore } from '@/store';
-import { retagBlockedBy } from '@/outbox';
-import { editSentScan } from '@/api';
+import { retagBlockedBy, type QueuedScan } from '@/outbox';
+import { editSentScan, fetchOrderDetail, type RemoteOrder } from '@/api';
 import {
   T, Screen, Surface, Btn, Eyebrow, Tag, Rise, Icon, ICON, mono, useBottomInset, tint,
 } from '@/ui';
@@ -51,6 +51,20 @@ export default function OrderEdit() {
   const [showRetag, setShowRetag] = useState(false);
 
   /**
+   * WHEN THIS PHONE HAS NOTHING, ASK THE LEDGER.
+   *
+   * The outbox only ever has scans this phone queued or sent. Most orders in
+   * History were never touched by this phone at all, so before this the
+   * screen had nothing to fall back to but a dead end and a pointer to the
+   * console. This fetches the order from the server the moment the outbox
+   * comes up empty — the same record a manager could already reach from a
+   * desk, just reachable from the truck now too, regardless of which phone
+   * did the original scanning.
+   */
+  const [remote, setRemote] = useState<RemoteOrder | null>(null);
+  const [remoteStatus, setRemoteStatus] = useState<'idle' | 'loading' | 'done' | 'error'>('idle');
+
+  /**
    * THE OTHER WAY TO PICK THE WRONG CUSTOMER.
    *
    * `retagOrder` below existed for a fat-fingered order number; there was
@@ -67,8 +81,46 @@ export default function OrderEdit() {
   const [custPick, setCustPick] = useState<{ id: string; name: string } | null>(null);
 
   const rows = outbox.scans.filter((s) => s.orderNumber === orderNumber);
+
+  useEffect(() => {
+    if (rows.length || remoteStatus !== 'idle') return;
+    setRemoteStatus('loading');
+    fetchOrderDetail(orderNumber)
+      .then((r) => { setRemote(r); setRemoteStatus('done'); })
+      .catch(() => setRemoteStatus('error'));
+    // Only the outbox's own emptiness and the order number decide whether to
+    // ask — re-running this on every render would refetch on each keystroke
+    // elsewhere on this screen.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderNumber, rows.length]);
+
+  /**
+   * WHAT THE SCREEN ACTUALLY EDITS.
+   *
+   * Local rows win outright when there are any — this phone's own unsent or
+   * just-sent work, and the whole point of the outbox is that nothing else
+   * gets to speak for it. Only when the outbox is silent on this order does
+   * the server's copy fill the screen, always marked SENT: every one of these
+   * rows already reached the ledger from *some* phone, so editing any of them
+   * goes through the same server call and the same reason box a locally-SENT
+   * row already required.
+   */
+  const effectiveRows: (QueuedScan & { scannedBy?: string | null })[] = rows.length
+    ? rows
+    : (remote?.scans ?? []).map((s) => ({
+        clientId: `remote:${s.barcode}:${s.mode}`,
+        orderNumber,
+        barcode: s.barcode,
+        mode: s.mode,
+        customerListId: remote?.customerListId ?? '',
+        scannedAt: s.scannedAt,
+        lat: null, lng: null, accuracyM: null,
+        state: 'SENT' as const,
+        scannedBy: s.scannedBy,
+      }));
+
   const nameBy = new Map((boot?.customers ?? []).map((c) => [c.customerListId, c.name]));
-  const listId = rows[0]?.customerListId ?? '';
+  const listId = effectiveRows[0]?.customerListId ?? '';
   const customer = nameBy.get(listId) ?? listId ?? 'no customer';
 
   const custMatches = useMemo(() => {
@@ -81,23 +133,36 @@ export default function OrderEdit() {
       .slice(0, 8);
   }, [boot, custQuery, listId]);
 
-  const ship = rows.filter((s) => s.mode === 'SHIP');
-  const ret = rows.filter((s) => s.mode === 'RETURN');
-  const anySent = rows.some((s) => s.state === 'SENT');
+  const ship = effectiveRows.filter((s) => s.mode === 'SHIP');
+  const ret = effectiveRows.filter((s) => s.mode === 'RETURN');
+  const anySent = effectiveRows.some((s) => s.state === 'SENT');
 
-  if (!rows.length) {
+  // Still waiting on the ledger's answer — only reachable once, since the
+  // effect above never fires again for the same order once it leaves 'idle'.
+  if (remoteStatus === 'loading' && !rows.length) {
+    return (
+      <Screen>
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <ActivityIndicator color={T.brandLit} />
+        </View>
+      </Screen>
+    );
+  }
+
+  if (!effectiveRows.length) {
+    /* History lists the whole company now, so most of what it shows was
+       scanned somewhere else. The outbox has neither for this order, and now
+       neither does the ledger — either the server could not be reached, or
+       this order genuinely has nothing on it anywhere. */
+    const unreachable = remoteStatus === 'error';
     return (
       <Screen>
         <View style={{ flex: 1, padding: 22, justifyContent: 'center' }}>
           <Text style={{ color: T.ink, fontSize: 17, fontWeight: '700' }}>Nothing here to change</Text>
-          {/* History lists the whole company now, so most of what it shows was
-              scanned somewhere else. This screen edits the outbox and the
-              scans this handset sent, and it has neither for this order —
-              which is a fact about this phone, not about the order. */}
           <Text style={{ color: T.faint, fontSize: 14, marginTop: 8, lineHeight: 20 }}>
-            {orderNumber} was scanned on another handset, so none of it is on this one.
-            What went out and what came back are on the console, and so is the way to
-            correct them.
+            {unreachable
+              ? `Could not reach the server to look up ${orderNumber}. Check your signal and try again.`
+              : `${orderNumber} has no scans on it — not on this phone, and not on the server.`}
           </Text>
           <Btn label="Back to history" variant="ghost" style={{ marginTop: 22 }}
                onPress={() => router.back()} />
@@ -164,7 +229,7 @@ export default function OrderEdit() {
     }
   }
 
-  function flip(s: (typeof rows)[number]) {
+  function flip(s: (typeof effectiveRows)[number]) {
     const to = s.mode === 'SHIP' ? 'RETURN' : 'SHIP';
     if (s.state === 'QUEUED') {
       dispatch({ type: 'TOGGLE', orderNumber, barcode: s.barcode, mode: to });
@@ -176,7 +241,7 @@ export default function OrderEdit() {
     onServer({ action: 'mode', orderNumber, barcode: s.barcode, mode: s.mode, value: to, reason: why });
   }
 
-  function remove(s: (typeof rows)[number]) {
+  function remove(s: (typeof effectiveRows)[number]) {
     if (s.state === 'QUEUED') {
       dispatch({ type: 'REMOVE', clientId: s.clientId });
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -218,7 +283,7 @@ export default function OrderEdit() {
       return;
     }
 
-    const queued = rows.filter((s) => s.state === 'QUEUED');
+    const queued = effectiveRows.filter((s) => s.state === 'QUEUED');
     if (queued.length && !anySent) {
       dispatch({ type: 'RETAG', orderNumber, toOrderNumber: to });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -252,7 +317,7 @@ export default function OrderEdit() {
       setCustQuery('');
     };
 
-    const queued = rows.filter((s) => s.state === 'QUEUED');
+    const queued = effectiveRows.filter((s) => s.state === 'QUEUED');
     if (queued.length && !anySent) {
       dispatch({ type: 'RETAG', orderNumber, toCustomerListId: to });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -278,7 +343,7 @@ export default function OrderEdit() {
     backgroundColor: tint(0.05), borderWidth: 1, borderColor: T.rule,
   } as const;
 
-  const Line = ({ s }: { s: (typeof rows)[number] }) => {
+  const Line = ({ s }: { s: (typeof effectiveRows)[number] }) => {
     const known = boot?.assets[s.barcode];
     return (
       <View style={{
@@ -290,6 +355,7 @@ export default function OrderEdit() {
           <Text style={[mono(14.5, '600'), { color: T.ink }]}>{s.barcode}</Text>
           <Text style={{ color: T.faint, fontSize: 11.5, marginTop: 2 }}>
             {known?.p ?? 'not in the system'} · {s.state === 'SENT' ? 'on server' : 'on phone'}
+            {s.scannedBy ? ` · ${s.scannedBy}` : ''}
           </Text>
         </View>
         {!known && <Tag label="UNKNOWN" tone={T.amber} />}

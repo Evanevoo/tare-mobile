@@ -294,6 +294,41 @@ export async function editSentScan(body: {
   return json;
 }
 
+export interface RemoteOrderScan {
+  barcode: string;
+  mode: 'SHIP' | 'RETURN';
+  scannedAt: string;
+  scannedBy: string | null;
+}
+
+export interface RemoteOrder {
+  orderNumber: string;
+  customerListId: string | null;
+  scans: RemoteOrderScan[];
+}
+
+/**
+ * One order's scans, read from the server instead of this phone's outbox.
+ *
+ * The order editor is built from the outbox first because a scan still
+ * queued is local state this phone owns outright — nobody else has seen it.
+ * But most orders in History were never scanned on this phone at all, so the
+ * editor had nothing to fall back to except "scanned on another handset" and
+ * a pointer to the console. This is that fallback: the ledger, not the
+ * device, decides what is on an order — the same shift api/mobile/history
+ * already made for the list. Editing what comes back still goes through
+ * editSentScan below, which the server gates on the manager role regardless
+ * of which phone is asking.
+ */
+export async function fetchOrderDetail(orderNumber: string): Promise<RemoteOrder> {
+  const res = await fetch(`${API_URL}/api/mobile/order/${encodeURIComponent(orderNumber)}`, {
+    headers: { ...(await authHeader()) },
+  });
+  if (res.status === 401) throw new Error('Your session expired. Sign in again.');
+  if (!res.ok) throw new Error('The server could not be reached.');
+  return res.json();
+}
+
 /** The editable half of an asset. Everything here is what the thing IS. */
 export interface AssetDraft {
   productCode: string;
