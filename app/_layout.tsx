@@ -103,9 +103,17 @@ function RootLayout() {
 
   useEffect(() => {
     if (session === 'loading') return;
-    const onLogin = segments[0] === 'login';
-    if (session === 'out' && !onLogin) router.replace('/login');
-    if (session === 'in' && onLogin) router.replace('/');
+    // Both are reachable while signed out: 'login' by definition, and
+    // 'reset-password' because that is exactly what it is for — a recovery
+    // link lands here BEFORE the code exchange that signs the phone in, so
+    // treating it as an ordinary protected route would bounce the driver to
+    // the login screen before the screen built to sign them in ever ran.
+    // Cast rather than waited-on typegen: this route is new enough that the
+    // generated segment union may not have picked it up yet in every editor,
+    // and the check is a plain string compare either way.
+    const onAuthScreen = segments[0] === 'login' || (segments[0] as string) === 'reset-password';
+    if (session === 'out' && !onAuthScreen) router.replace('/login');
+    if (session === 'in' && segments[0] === 'login') router.replace('/');
   }, [session, segments]);
 
   /**
@@ -183,6 +191,7 @@ function RootLayout() {
         }}
       >
         <Stack.Screen name="login" options={{ headerShown: false }} />
+        <Stack.Screen name="reset-password" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen
           name="scan"

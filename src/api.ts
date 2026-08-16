@@ -2,6 +2,7 @@ import 'react-native-url-polyfill/auto';
 import { createClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
+import * as Linking from 'expo-linking';
 import type { QueuedScan } from './outbox';
 import { toWire } from './outbox';
 import type { BatchItem, BulkCreateResult } from './batch';
@@ -456,23 +457,31 @@ export async function signIn(email: string, password: string) {
 }
 
 /**
- * Send a recovery link.
+ * Send a recovery link — straight back into this app, not a browser.
  *
- * The link lands on the web app rather than back in here, because setting a
- * new password is a once-every-few-years job and building a deep-link handler
- * for it on the handset is a lot of surface for something a browser already
- * does well. It goes through `/auth/callback` so the PKCE code is exchanged
- * for a session before the reset form is shown — the same route the signup
- * confirmation uses.
+ * The web app's /reset-password still exists and still works for anyone who
+ * opens the email somewhere else, but it never actually solved the problem
+ * for the case that matters here: a driver on the same phone Scanified is
+ * installed on. Routing through a browser logged THAT session in — a
+ * different, separate session from the one this app's own Supabase client
+ * keeps in this phone's storage. Setting a new password in the browser never
+ * touched the app at all; the driver still had to come back and type the new
+ * password in by hand.
  *
- * Never reports whether the address is known. A login screen that answers
- * "no such account" is an account-enumeration oracle, and the driver who
- * genuinely mistyped is helped just as well by "if that address is on the
- * account, a link is on its way".
+ * Pointing the link at the app's own scheme instead means the OS opens
+ * Scanified directly with the one-time code, app/reset-password.tsx exchanges
+ * it for a session in the app's own client, and saving the new password there
+ * IS signing in — no separate trip back to the login screen.
+ *
+ * The trade: this only opens on the phone Scanified is already installed on.
+ * Opened somewhere else — a desktop, a phone without the app — the link
+ * simply does not open anything. Accepted for the same reason the password
+ * itself is never remembered: this app assumes the device asking is the
+ * device that needs it.
  */
 export async function requestPasswordReset(email: string) {
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${API_URL}/auth/callback?next=/reset-password`,
+    redirectTo: Linking.createURL('/reset-password'),
   });
   if (error) throw new Error(error.message);
 }

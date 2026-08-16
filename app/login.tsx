@@ -192,8 +192,8 @@ export default function Login() {
                   >
                     <Text style={{ color: T.brandLit, fontSize: 13.5, lineHeight: 19 }}>
                       If {email.trim()} is on the account, a reset link is on its way.
-                      Open it on this phone or any browser, set a new password, then
-                      come back and sign in.
+                      Open it on this phone — it opens Scanified directly, and setting a
+                      new password signs you straight in.
                     </Text>
                   </View>
                 )}
