@@ -1,4 +1,4 @@
-apply plugin: "com.android.application"
+﻿apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 
@@ -94,8 +94,8 @@ android {
         applicationId 'com.evanevoo.scanifiedandroid'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 202
-        versionName "1.2.1"
+        versionCode 211
+        versionName "1.2.2"
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
     }
@@ -198,3 +198,4 @@ dependencies {
         implementation jscFlavor
     }
 }
+

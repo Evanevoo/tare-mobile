@@ -3,7 +3,7 @@
     "name": "Scanified",
     "slug": "scanified",
     "version": "1.2.2",
-    "runtimeVersion": "1.2.2",
+    "runtimeVersion": "1.2.3",
     "updates": {
       "url": "https://u.expo.dev/fad89b31-ae33-4bff-9011-af88c8268844",
       "fallbackToCacheTimeout": 0
@@ -14,9 +14,20 @@
       "this project ever tried to publish died in the export step asking for",
       "react-native-web - a dependency for a target that does not exist. This app",
       "is a handset app; there is no web build and there never was one.",
-      "runtimeVersion is pinned to 1.2.0 and does not move with every app",
-      "version bump - only bump it when a native/JS change would break OTA",
-      "compatibility with what's already installed in the field."
+      "runtimeVersion does not move with every app version bump - only bump it",
+      "when a native/JS change would break OTA compatibility with what's already",
+      "installed in the field.",
+      "",
+      "It moved 1.2.2 -> 1.2.3 for a second reason, and this one is worth",
+      "remembering. An OTA published to the production channel for runtime 1.2.2",
+      "carried the launch crash - the navigate-before-mount bug documented in",
+      "app/_layout.tsx. Store builds 208 and earlier also declare runtime 1.2.2,",
+      "so a phone running a FIXED binary would still download that broken bundle",
+      "on launch and crash anyway; the embedded fix would never get a chance.",
+      "Bumping the runtime is what strands the bad bundle: nothing asks for",
+      "1.2.2 any more, so nothing is served it. Disabling updates outright would",
+      "also have worked and would have cost the fleet OTA permanently.",
+      "Do not lower this back to 1.2.2."
     ],
     "platforms": [
       "ios",
@@ -38,7 +49,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.evanevoo.scanifiedmobile",
-      "buildNumber": "204",
+      "buildNumber": "211",
       "infoPlist": {
         "NSCameraUsageDescription": "Scanified uses the camera to scan asset barcodes when you ship and receive them.",
         "NSLocationWhenInUseUsageDescription": "Scanified records where a scan happened so a delivery can be proven later.",
@@ -47,7 +58,7 @@
     },
     "android": {
       "package": "com.evanevoo.scanifiedandroid",
-      "versionCode": 204,
+      "versionCode": 211,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#07090A"

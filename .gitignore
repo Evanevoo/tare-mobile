@@ -26,3 +26,7 @@ _msg.txt
 credentials.json
 *.jks
 *.keystore
+
+# local build helpers written by the 209 rebuild
+_*.js
+*.aab

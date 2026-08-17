@@ -20,10 +20,29 @@
     "module registration with NoSuchMethodError before a line of JS ran, and",
     "`expo install --check` reported clean because it validates direct deps against",
     "SDK 54 ranges and never sees a transitive hoist. Pinned to the version expo@54",
-    "itself resolves. Remove this when the whole project moves to a newer SDK."
+    "itself resolves. Remove this when the whole project moves to a newer SDK.",
+    "",
+    "IT HAPPENED AGAIN, to expo-asset, and this one reached production.",
+    "expo-asset@57.0.11 got hoisted to the root and shadowed the expo-asset@12.0.13",
+    "that expo@54.0.36 resolves for itself. 57 is from a far later SDK - it asks for",
+    "expo-constants ~57.0.11 while this project runs expo-constants@18.0.13 - so its",
+    "AssetModule.kt references classes that are simply not in the APK. Android died at",
+    "  java.lang.NoClassDefFoundError",
+    "    at expo.modules.asset.AssetModule.definition (AssetModule.kt:125)",
+    "    at expo.modules.kotlin.ModuleRegistry.register",
+    "    at com.facebook.react.runtime.ReactInstance.<init>",
+    "which is native module registration - before a single line of JS. That is why it",
+    "crashed on launch every time, why no JS fix could touch it, why Expo Go was fine",
+    "(Expo Go ships its own prebuilt natives), and why iOS was unaffected: this is JVM",
+    "class resolution, and iOS never runs it.",
+    "",
+    "The rule this project keeps relearning: `expo install --check` cannot see a",
+    "transitive hoist. Compare node_modules against expo/bundledNativeModules.json",
+    "instead - _drift-check.js does exactly that, and found this in one run."
   ],
   "overrides": {
-    "expo-font": "14.0.12"
+    "expo-font": "14.0.12",
+    "expo-asset": "12.0.13"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
