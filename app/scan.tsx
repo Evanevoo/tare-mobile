@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  View, Text, Pressable, FlatList, Alert, TextInput, Modal, ActivityIndicator, Animated,
+  View, Text, Pressable, FlatList, Alert, TextInput, Modal, ActivityIndicator, Animated, Vibration,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
@@ -202,6 +202,8 @@ export default function Scan() {
       flash.setValue(1);
       Animated.timing(flash, { toValue: 0, duration: 620, useNativeDriver: false }).start();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      // Error gets the longest buzz of the three — see the glove note below.
+      Vibration.vibrate([0, 160, 90, 160]);
       playScanAlert();
       return;
     }
@@ -216,8 +218,18 @@ export default function Scan() {
     // above: a repeat read of a code still in view is the normal case while
     // the phone holds steady over it, and a sound on every one of those
     // would turn "still pointed at the same barcode" into a nuisance beep.
-    if (kind === 'added') { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); playScanAccept(); }
-    else if (kind === 'unknown') { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); playScanAlert(); }
+    //
+    // Why Vibration.vibrate ALONGSIDE the Haptics call: driver feedback
+    // (17 Aug — "more vibrate feedback for each scan cause it's hard to feel
+    // through gloves"). expo-haptics maps to the OS's semantic feedback,
+    // which on most Androids is a refined tick tuned for a bare fingertip;
+    // Vibration drives the motor for a real, gloved-hand buzz. Durations
+    // are deliberate: a short solid thump for accept, a longer double for
+    // unknown — distinguishable by feel alone, without looking at the
+    // screen. Duplicates keep only the light tick; a strong buzz there
+    // would read as "another one counted", which is exactly wrong.
+    if (kind === 'added') { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); Vibration.vibrate(90); playScanAccept(); }
+    else if (kind === 'unknown') { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); Vibration.vibrate([0, 130, 90, 130]); playScanAlert(); }
     else Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   }
 
@@ -233,6 +245,9 @@ export default function Scan() {
     // already gates on below, so this reuses it rather than restating it.
     if (n) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      // The order going out deserves the most confident buzz of all — one
+      // long solid pulse, unmistakable through gloves and a coat pocket.
+      Vibration.vibrate(250);
       playSubmitSuccess();
       sync().catch(() => {});
     }
