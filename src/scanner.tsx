@@ -40,9 +40,12 @@ import { RETICLE, withinReticle } from './reticle';
  * tearing down an AVCaptureSession that is still delivering frames is a
  * known iOS crash.
  *
- * TAP TO REFOCUS. Continuous autofocus-on locks focus at the wrong distance
- * on some phones. Default is off; tapping the preview pulses autofocus on for
- * a beat and back off — the legacy app's trick, kept.
+ * TAP TO REFOCUS, THEN READ. Continuous autofocus-on locks focus at the wrong
+ * distance on some phones. Default is off; tapping the preview pulses
+ * autofocus on for a beat and back off — the legacy app's trick, kept. The tap
+ * now also fires the still-frame read once that pulse has settled, so the one
+ * gesture a driver reaches for when a label will not go does both halves of
+ * what it needs to. See `tapToRead`.
  *
  * TORCH AFTER FAILURE. If the camera has been open for a while with nothing
  * read, the torch button starts glowing as a hint; frost, shadow and dented
@@ -606,6 +609,40 @@ export function Scanner({
     setTimeout(() => { if (alive.current) setFocusPulse(false); }, 350);
   }, []);
 
+  /**
+   * TAP THE PREVIEW: FOCUS, THEN READ THE STILL.
+   *
+   * These were two separate gestures for one intention. Tapping the preview
+   * pulsed autofocus and nothing else; reading a stubborn label meant finding
+   * the Snap button in the control row. A driver reported (17 Aug) doing the
+   * entire job through that button — "I have to take a picture for it to scan
+   * the customer number and sales barcode" — because the live decoder will not
+   * take a long customer or sales-order code: it only accepts a value it has
+   * read twice identically, and a dense code rarely obliges before the window
+   * closes. The still path has no such gate, so the button worked and the
+   * camera appeared not to.
+   *
+   * Focus-then-capture is also simply the right order, which is why the delay
+   * is here rather than snapping on the touch: the pulse settles the lens and
+   * the capture lands on the sharp frame. 380ms is the 350ms pulse plus a beat.
+   *
+   * The Snap button stays exactly where it was. This is a second door into the
+   * same room — the button is the discoverable one, the tap is the fast one —
+   * and `snap()` shares the accept path, so its cooldown and duplicate rules
+   * apply identically no matter which way in you took.
+   */
+  const tapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tapToRead = useCallback(() => {
+    refocus();
+    // Already reading. A second capture would fight the first for the camera
+    // and could only return the same frame twice.
+    if (snapBusy || aiBusy) return;
+    if (tapTimer.current) clearTimeout(tapTimer.current);
+    tapTimer.current = setTimeout(() => { if (alive.current) snap(); }, 380);
+  }, [refocus, snap, snapBusy, aiBusy]);
+
+  useEffect(() => () => { if (tapTimer.current) clearTimeout(tapTimer.current); }, []);
+
   const close = useCallback(() => {
     // Deactivate first; unmount on the next frame. See GRACEFUL CLOSE above.
     setClosing(true);
@@ -640,7 +677,7 @@ export function Scanner({
           <Text style={{ color: T.faint, fontSize: 13 }}>Starting camera…</Text>
         </View>
       ) : (
-      <Pressable style={{ flex: 1 }} onPress={refocus}>
+      <Pressable style={{ flex: 1 }} onPress={tapToRead}>
         <CameraView
           ref={cam}
           style={{ flex: 1 }}
