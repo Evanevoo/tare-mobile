@@ -136,11 +136,19 @@ export default function Locate() {
       // This shelf is saved — a force-quit from here on out must not restore
       // it a second time and offer to submit the same bottles again.
       await cacheSet(DRAFT_KEY, null).catch(() => {});
+      // "6 open rentals closed" told nobody WHO stopped being billed — the
+      // question that actually gets asked back at the yard. Named, one line
+      // per bottle, capped the same way the unknown list is so a 40-bottle
+      // sweep doesn't turn this into a wall of text.
+      const namedClosures = r.closedCustomers.slice(0, 6)
+        .map((c) => `${c.barcode} — ${c.customerName}`).join('\n');
       Alert.alert(
         'Saved',
         [
           `${r.updated} marked ${state} at ${location}.`,
-          r.closed ? `${r.closed} open rental${r.closed === 1 ? '' : 's'} closed — those customers stop being charged.` : null,
+          r.closed
+            ? `${r.closed} open rental${r.closed === 1 ? '' : 's'} closed — those customers stop being charged.\n${namedClosures}${r.closedCustomers.length > 6 ? `\n…and ${r.closedCustomers.length - 6} more` : ''}`
+            : null,
           r.unknown.length ? `${r.unknown.length} not in the system: ${r.unknown.slice(0, 5).join(', ')}${r.unknown.length > 5 ? '…' : ''}` : null,
         ].filter(Boolean).join('\n\n'),
         [{ text: 'Done', onPress: () => router.replace('/') }],

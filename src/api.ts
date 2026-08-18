@@ -238,6 +238,8 @@ export interface FillResult {
   updated: number;
   /** Rentals that were open on these assets and have now been ended. */
   closed: number;
+  /** Who those closed rentals belonged to — one entry per closed rental. */
+  closedCustomers: { barcode: string; customerName: string }[];
   unknown: string[];
 }
 
