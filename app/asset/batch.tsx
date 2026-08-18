@@ -3,6 +3,8 @@ import {
   View, Text, Pressable, ScrollView, Alert, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
+import { Vibration } from 'react-native';
+import { playScanAccept, playScanAlert } from '@/sound';
 import { useNavigation, useRouter } from 'expo-router';
 import { usePreventRemove } from '@react-navigation/native';
 import { useStore } from '@/store';
@@ -197,12 +199,19 @@ export default function BatchAssets() {
     const no = whyRefused(raw, rows, fleet);
     if (no) {
       setRefusal(no);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      // Same buzz and chirp as every other screen that reads a barcode — the
+    // glove rule (see scan.tsx) is app-wide now, not per-screen: a gesture
+    // that buzzes on one page and stays dead on another reads as broken.
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      Vibration.vibrate([0, 130, 90, 130]);
+      playScanAlert();
       return;
     }
     setRefusal(null);
     setPending({ barcode: normalizeCode(raw), serial: '' });
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    Vibration.vibrate(90);
+    playScanAccept();
   }
 
   /**

@@ -2,6 +2,8 @@ import { useMemo, useState } from 'react';
 import { View, Text, TextInput, Pressable, SectionList } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
+import { Vibration } from 'react-native';
+import { playScanAlert } from '@/sound';
 import { useStore } from '@/store';
 import { Scanner } from '@/scanner';
 import { useScanRoute, explainMiss } from '@/scan-route';
@@ -124,14 +126,19 @@ export default function Search() {
     if (!t) return;
 
     if (t.kind === 'text') {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      // Same buzz and chirp as every other screen that reads a barcode — the
+    // glove rule (see scan.tsx) is app-wide now, not per-screen: a gesture
+    // that buzzes on one page and stays dead on another reads as broken.
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      Vibration.vibrate([0, 130, 90, 130]);
+      playScanAlert();
       setQ(t.code);
       setMiss(explainMiss(raw, boot));
       return;
     }
 
-    // route() has already opened the cylinder or the account.
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    // route() has already opened the cylinder or the account — and already
+    // buzzed and chirped for it (scan-route.ts), so nothing fires twice here.
     setMiss(null);
   }
 
