@@ -10,7 +10,7 @@ import { useStore } from '@/store';
 import { forOrder, counts, type QueuedScan } from '@/outbox';
 import { classify } from '@/scan-match';
 import { playScanAccept, playScanAlert, playSubmitSuccess } from '@/sound';
-import { T, shipTone, Surface, Btn, Edge, Tag, mono, shadow, tint } from '@/ui';
+import { T, shipTone, Surface, Btn, Tag, mono } from '@/ui';
 import { Scanner } from '@/scanner';
 import type { AssetRec } from '@/api';
 
@@ -37,6 +37,18 @@ export default function Scan() {
   const [last, setLast] = useState<{ barcode: string; kind: string } | null>(null);
   const [manual, setManual] = useState(false);
   const [manualCode, setManualCode] = useState('');
+  // The scan history (list, undo, submit) used to sit permanently below a
+  // 36%-height camera box. The camera is now full-screen, so that content
+  // moved into a sheet a driver opens on purpose — see the "Order · N" pill
+  // in the header below. Closing it changes nothing about the order; it is
+  // a review surface, not a step in the loop.
+  const [review, setReview] = useState(false);
+  // The bottom overlay (readout + SHIP/RETURN) is measured, not guessed, so
+  // Scanner's own torch/zoom/Snap/Read-text stack (bottom-right, see
+  // `controlsBottomInset` in scanner.tsx) never sits underneath it. 230 is
+  // just a reasonable first-frame guess before onLayout reports the real
+  // number.
+  const [bottomH, setBottomH] = useState(230);
   // One tick per cooldown window, not one per frame — see `onDuplicate()`.
   const cooldownNoted = useRef<Record<string, boolean>>({});
   const geo = useRef<{ lat: number; lng: number; accuracyM: number | null; at: number } | null>(null);
@@ -303,20 +315,47 @@ export default function Scan() {
     : last ? { text: mode === 'SHIP' ? 'Shipped out' : 'Returned in', tone: T.bottle }
     : null;
 
-  return (
-    <View style={{ flex: 1, backgroundColor: T.zinc }}>
-      {/* ── camera ── */}
-      <View style={{ height: '36%', backgroundColor: '#000' }}>
-        {/* One shared surface carries the hard-won parts: double-read
-            confirm, cooldown, torch, zoom, tap-to-refocus, and the ML Kit
-            still-frame fallback on builds that have it. */}
-        <Scanner onCode={take} onDuplicate={onDuplicate} style={{ flex: 1 }} />
+  /**
+   * A PLAIN SCAN IS THE COMMON CASE AND SHOULD LOOK LIKE IT.
+   *
+   * Every accepted read used to render the same full card — colour bar,
+   * FULL/EMPTY + OUT/IN-HOUSE chips, a banner sentence — whether or not there
+   * was anything to read. That is the right amount of information for a
+   * duplicate, a customer code, an unrecognised barcode, or a cylinder the
+   * office has flagged; it is clutter for the thing that happens every few
+   * seconds and needs nothing more than "yes, that one, got it." Only the
+   * cases that actually need a driver's judgement get the full treatment —
+   * the odd-status one in particular is a genuine stop-and-look safety catch
+   * (see StateChips below), not decoration.
+   */
+  const oddStatus = rec ? (rec.s !== 'available' && rec.s !== 'rented') : false;
+  const needsFullCard = last ? (last.kind !== 'added' || oddStatus) : false;
 
-        {/* Scrim, so white text over a bright yard is still readable. */}
+  return (
+    <View style={{ flex: 1, backgroundColor: '#000' }}>
+      {/* ── full-screen camera ──
+          Used to be a fixed 36%-height box with everything else stacked
+          below it — mode toggle, a permanently-visible last-scan card, the
+          whole order list. That put most of the screen on things a driver
+          reads occasionally and the smallest part on the one thing he is
+          actually holding the phone up to do. Everything below is `children`
+          now: drawn over the live preview (Scanner already supports this —
+          see warehouse.tsx's scanning modal for the same pattern), so the
+          reticle shows where to point and the readout/SHIP/RETURN below are
+          readable without looking away from the barcode. `controlsBottomInset`
+          is the measured height of the bottom overlay, so Scanner's own
+          torch/zoom/Snap/Read-text stack sits above it instead of under it. */}
+      <Scanner
+        onCode={take}
+        onDuplicate={onDuplicate}
+        style={{ flex: 1 }}
+        controlsBottomInset={bottomH}
+      >
+        {/* ── header ── */}
         <LinearGradient
           colors={['rgba(0,0,0,0.82)', 'rgba(0,0,0,0.34)', 'transparent']}
           style={{ position: 'absolute', top: 0, left: 0, right: 0, paddingTop: 54,
-                   paddingHorizontal: 18, paddingBottom: 22 }}
+                   paddingHorizontal: 18, paddingBottom: 30 }}
         >
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             <Pressable
@@ -335,6 +374,24 @@ export default function Scan() {
                 {orderNumber}
               </Text>
             </View>
+            {/* Everything the old stacked layout showed at all times — the
+                order list, Remove, Undo, Submit — is one tap away here
+                instead. The number on the pill is the answer to "how many so
+                far", which is the only part of that a driver needs mid-scan. */}
+            <Pressable
+              onPress={() => setReview(true)}
+              hitSlop={10}
+              accessibilityRole="button"
+              accessibilityLabel={`Review this order. ${c.total} scanned`}
+              style={{
+                marginRight: 12, minWidth: 34, minHeight: 30, paddingHorizontal: 9,
+                borderRadius: 15, backgroundColor: 'rgba(255,255,255,0.16)',
+                borderWidth: 1, borderColor: 'rgba(255,255,255,0.3)',
+                alignItems: 'center', justifyContent: 'center',
+              }}
+            >
+              <Text style={[mono(13, '800'), { color: '#fff' }]}>{c.total}</Text>
+            </Pressable>
             <Pressable onPress={() => setManual(true)} hitSlop={14}
               accessibilityRole="button"
               accessibilityLabel="Type a barcode by hand">
@@ -352,251 +409,153 @@ export default function Scan() {
             </Text>
           )}
         </LinearGradient>
-      </View>
 
-      {/* ── mode: the single most-pressed control on the phone ── */}
-      <View style={{ flexDirection: 'row', padding: 14, gap: 11 }}>
-        {(['SHIP', 'RETURN'] as const).map((m) => {
-          const on = mode === m;
-          const tone = shipTone(m);
-          return (
-            <Pressable
-              key={m}
-              onPress={() => { setMode(m); Haptics.selectionAsync(); }}
-              style={{ flex: 1 }}
-              accessibilityRole="radio"
-              accessibilityState={{ selected: on }}
-              accessibilityLabel={
-                m === 'SHIP'
-                  ? `Ship out. ${c.ship} scanned`
-                  : `Return in. ${c.ret} scanned`
-              }
+        {/* ── bottom overlay: readout, then SHIP/RETURN ──
+            WHAT IT IS, AND WHAT JUST HAPPENED TO IT, ARE TWO DIFFERENT FACTS.
+            The card's frame still flashes in the colour of the EVENT and the
+            chips still carry the STATE, same reasoning as before — see
+            `needsFullCard` above for what changed: a plain accepted scan now
+            gets only the barcode, large, and nothing else competing for the
+            eye. Measured via onLayout so Scanner's own bottom-right controls
+            (see `controlsBottomInset` above) never land underneath it. */}
+        <View
+          onLayout={(e) => setBottomH(Math.round(e.nativeEvent.layout.height))}
+          style={{ position: 'absolute', left: 0, right: 0, bottom: 0 }}
+        >
+          <LinearGradient
+            colors={['transparent', 'rgba(7,9,10,0.58)', 'rgba(7,9,10,0.9)']}
+            style={{ paddingHorizontal: 14, paddingTop: 46, paddingBottom: 34 }}
+          >
+            <Animated.View
+              style={{
+                borderRadius: T.radius, justifyContent: 'center', overflow: 'hidden',
+                minHeight: needsFullCard ? 108 : 58,
+                borderWidth: 1,
+                borderColor: flash.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: ['rgba(255,255,255,0.18)', banner?.tone ?? 'rgba(255,255,255,0.18)'],
+                }),
+                backgroundColor: flash.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: ['rgba(255,255,255,0.06)', (banner?.tone ?? T.steel) + '3D'],
+                }),
+              }}
             >
-              {on ? (
-                <LinearGradient
-                  colors={[tone, tone + 'CC']}
-                  start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }}
-                  style={[
-                    // minHeight, not height. Text scales with the system size
-                    // setting and this box has to scale with it — a clipped
-                    // SHIP OUT is the one label in the app that must never be
-                    // ambiguous, since shipping when you meant to receive is
-                    // the expensive mistake this control exists to prevent.
-                    { minHeight: 66, paddingVertical: 8, borderRadius: T.radiusSm,
-                      alignItems: 'center', justifyContent: 'center' },
-                    shadow(2, tone),
-                  ]}
-                >
-                  <Edge inset={14} opacity={0.9} />
-                  <Text style={{ color: T.onBrand, fontSize: 16.5, fontWeight: '900', letterSpacing: 0.4 }}>
-                    {m === 'SHIP' ? 'SHIP OUT' : 'RETURN IN'}
-                  </Text>
-                  <Text style={{ color: 'rgba(4,35,26,0.66)', fontSize: 11.5, marginTop: 2, fontWeight: '700' }}>
-                    {m === 'SHIP' ? `${c.ship} scanned` : `${c.ret} scanned`}
-                  </Text>
-                </LinearGradient>
-              ) : (
-                <View
-                  style={{
-                    minHeight: 66, paddingVertical: 8, borderRadius: T.radiusSm,
-                    alignItems: 'center', justifyContent: 'center',
-                    backgroundColor: tint(0.04),
-                    borderWidth: 1, borderColor: T.rule,
-                  }}
-                >
-                  <Text style={{ color: T.steel, fontSize: 16.5, fontWeight: '800', letterSpacing: 0.4 }}>
-                    {m === 'SHIP' ? 'SHIP OUT' : 'RETURN IN'}
-                  </Text>
-                  <Text style={{ color: T.faint, fontSize: 11.5, marginTop: 2, fontWeight: '600' }}>
-                    {m === 'SHIP' ? `${c.ship} scanned` : `${c.ret} scanned`}
-                  </Text>
-                </View>
-              )}
-            </Pressable>
-          );
-        })}
-      </View>
-
-      {/* ── the last scan, large ──
-          WHAT IT IS, AND WHAT JUST HAPPENED TO IT, ARE TWO DIFFERENT FACTS.
-          The card's frame flashes in the colour of the EVENT — accepted,
-          already-scanned, unrecognised — because that is feedback on the tap
-          and it fades. The chips inside carry the STATE of the thing in the
-          driver's hand, and they do not fade, because he is still holding it.
-          Mixing the two into one colour is how "green" ends up meaning both
-          "full" and "that worked".
-
-          THE SLOT IS ALWAYS HERE, EMPTY OR NOT. It used to render only after
-          the first read, so the first cylinder of every order shoved the list
-          down the screen underneath a thumb that was already moving. A fixed
-          minimum height costs one quiet line before the first scan and buys a
-          screen that never moves again.
-
-          `· [object Object]` LIVED HERE. The line under the barcode appended
-          `boot.assets[barcode]` straight into a template string. That map used
-          to hold a product code and now holds a record — store.ts version-gates
-          the cache for exactly this reason — so what a driver actually saw
-          after every scan of a known cylinder was the literal text
-          "[object Object]". It typechecked, because template literals will
-          stringify anything. */}
-      <Animated.View
-        style={{
-          marginHorizontal: 14, marginBottom: 12, borderRadius: T.radius,
-          minHeight: 130, justifyContent: 'center',
-          borderWidth: 1,
-          borderColor: flash.interpolate({
-            inputRange: [0, 1], outputRange: [T.rule, banner?.tone ?? T.rule],
-          }),
-          backgroundColor: flash.interpolate({
-            inputRange: [0, 1],
-            outputRange: [tint(0.04), (banner?.tone ?? T.steel) + '2E'],
-          }),
-          overflow: 'hidden',
-        }}
-      >
-        {banner && last ? (
-          <View style={{ padding: 16, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-            <View style={{ width: 3, alignSelf: 'stretch', borderRadius: 2, backgroundColor: banner.tone }} />
-            <View style={{ flex: 1 }}>
-              {/* The barcode is the answer to "which one did I just scan?", so
-                  it is the biggest thing on the screen. It has to stay on one
-                  line and the card has to stay the same height, so long codes
-                  are stepped down instead of wrapping.
-
-                  SIZED IN JS, NOT BY adjustsFontSizeToFit, BECAUSE OF ANDROID.
-                  That prop looks cross-platform and is not, under the New
-                  Architecture this app runs: RN serialises `adjustsFontSizeToFit`,
-                  `minimumFontSize` and `maximumFontSize` across to Android and
-                  drops `minimumFontScale` on the way (conversions.h,
-                  toMapBuffer(ParagraphAttributes)). TextLayoutManager then finds
-                  no minimum, and falls back to a floor of FOUR dp. So the same
-                  long code that iOS shrinks politely to ~16pt, Android is free
-                  to shrink until it is unreadable — and it fails silently, on
-                  the platform the drivers actually carry, in the one piece of
-                  text on this screen that exists to be read at arm's length.
-
-                  Three steps off the code's own length is duller and it is the
-                  same on both phones. 30 carries the 8-to-12 character cylinder
-                  codes that are almost all of them; the smaller steps are for
-                  the account-length outliers. */}
-              <Text
-                numberOfLines={1}
-                style={[
-                  mono(last.barcode.length > 16 ? 21 : last.barcode.length > 12 ? 25 : 30, '800'),
-                  { color: T.ink, letterSpacing: -1 },
-                ]}
-              >
-                {last.barcode}
-              </Text>
-              {/* The chip row wraps, because it can hold three at once — FULL,
-                  OUT and an odd-state one like MAINTENANCE — and every label in
-                  the app scales with the phone's font setting. Android exposes
-                  both a font size and a display size slider and drivers do turn
-                  them up, at which point a row that cannot wrap runs off the
-                  card instead of moving down a line. */}
-              {rec && (
-                <View style={{
-                  flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 8,
-                  flexWrap: 'wrap', rowGap: 6,
-                }}>
-                  <StateChips a={rec} />
-                  {rec.p ? (
+              {banner && last ? (
+                needsFullCard ? (
+                  <View style={{ padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                    <View style={{ width: 3, alignSelf: 'stretch', borderRadius: 2, backgroundColor: banner.tone }} />
+                    <View style={{ flex: 1 }}>
+                      <Text
+                        numberOfLines={1}
+                        style={[
+                          mono(last.barcode.length > 16 ? 19 : last.barcode.length > 12 ? 22 : 26, '800'),
+                          { color: '#fff', letterSpacing: -1 },
+                        ]}
+                      >
+                        {last.barcode}
+                      </Text>
+                      {rec && (
+                        <View style={{
+                          flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 7,
+                          flexWrap: 'wrap', rowGap: 6,
+                        }}>
+                          <StateChips a={rec} />
+                          {rec.p ? (
+                            <Text
+                              numberOfLines={1}
+                              style={[mono(12, '600'), { color: 'rgba(255,255,255,0.68)', flexShrink: 1 }]}
+                            >
+                              {rec.p}
+                            </Text>
+                          ) : null}
+                        </View>
+                      )}
+                      <Text
+                        numberOfLines={2}
+                        style={{ color: banner.tone, fontSize: 12.5, marginTop: 7, fontWeight: '700' }}
+                      >
+                        {banner.text}
+                      </Text>
+                    </View>
+                  </View>
+                ) : (
+                  <View style={{ paddingHorizontal: 16, paddingVertical: 12 }}>
                     <Text
                       numberOfLines={1}
-                      style={[mono(12, '600'), { color: T.faint, flexShrink: 1 }]}
+                      style={[
+                        mono(last.barcode.length > 16 ? 22 : last.barcode.length > 12 ? 27 : 32, '800'),
+                        { color: '#fff', letterSpacing: -1 },
+                      ]}
                     >
-                      {rec.p}
+                      {last.barcode}
                     </Text>
-                  ) : null}
-                </View>
+                  </View>
+                )
+              ) : (
+                <Text style={{ color: 'rgba(255,255,255,0.55)', fontSize: 13.5, textAlign: 'center', paddingHorizontal: 20 }}>
+                  Point the camera at a barcode.
+                </Text>
               )}
-              <Text
-                numberOfLines={2}
-                style={{ color: banner.tone, fontSize: 13, marginTop: 8, fontWeight: '700' }}
-              >
-                {banner.text}
-              </Text>
-            </View>
-          </View>
-        ) : (
-          <Text style={{ color: T.faint, fontSize: 13.5, textAlign: 'center', paddingHorizontal: 20, lineHeight: 20 }}>
-            The last one you scan shows here.
-          </Text>
-        )}
-      </Animated.View>
+            </Animated.View>
 
-      {/* ── this order so far ── */}
-      <FlatList
-        data={[...rows].reverse()}
-        keyExtractor={(s) => s.clientId}
-        contentContainerStyle={{ paddingBottom: 120 }}
-        ListEmptyComponent={
-          <Text style={{ color: T.faint, fontSize: 13.5, textAlign: 'center', paddingTop: 34, lineHeight: 20 }}>
-            Point the camera at a barcode.
-          </Text>
-        }
-        renderItem={({ item }) => {
-          const a = boot?.assets[item.barcode];
-          return (
-          <View
-            style={{
-              flexDirection: 'row', alignItems: 'center', gap: 12,
-              paddingHorizontal: 18, paddingVertical: 13,
-              borderBottomWidth: 1, borderBottomColor: T.soft,
-            }}
-          >
-            <View style={{ width: 3, height: 26, borderRadius: 2, backgroundColor: shipTone(item.mode) }} />
-            <View style={{ flex: 1 }}>
-              <Text style={[mono(15, '600'), { color: T.ink }]}>{item.barcode}</Text>
-              <Text style={{ color: T.faint, fontSize: 11.5, marginTop: 2 }}>
-                {item.mode === 'SHIP' ? 'Ship out' : 'Return in'}
-                {item.state !== 'QUEUED' ? ` · ${item.state.toLowerCase()}` : ''}
-              </Text>
+            {/* ── mode: the single most-pressed control on the phone ──
+                Translucent over the live feed on purpose — two clear boxes
+                over the camera, not two opaque tiles blocking it, so the
+                yard stays visible behind them while SHIP OUT / RETURN IN
+                stays the loudest thing in the frame. */}
+            <View style={{ flexDirection: 'row', gap: 11, marginTop: 12 }}>
+              {(['SHIP', 'RETURN'] as const).map((m) => {
+                const on = mode === m;
+                const tone = shipTone(m);
+                return (
+                  <Pressable
+                    key={m}
+                    onPress={() => { setMode(m); Haptics.selectionAsync(); }}
+                    style={{ flex: 1 }}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: on }}
+                    accessibilityLabel={
+                      m === 'SHIP'
+                        ? `Ship out. ${c.ship} scanned`
+                        : `Return in. ${c.ret} scanned`
+                    }
+                  >
+                    <View
+                      style={{
+                        // minHeight, not height — see the original note this
+                        // carried forward: text scales with the system size
+                        // setting, and a clipped SHIP OUT is the one label in
+                        // the app that must never be ambiguous.
+                        minHeight: 72, paddingVertical: 10, borderRadius: T.radiusSm,
+                        alignItems: 'center', justifyContent: 'center',
+                        backgroundColor: on ? tone + '4D' : 'rgba(255,255,255,0.07)',
+                        borderWidth: on ? 1.5 : 1,
+                        borderColor: on ? tone : 'rgba(255,255,255,0.25)',
+                      }}
+                    >
+                      <Text style={{ color: '#fff', fontSize: 16.5, fontWeight: '900', letterSpacing: 0.4 }}>
+                        {m === 'SHIP' ? 'SHIP OUT' : 'RETURN IN'}
+                      </Text>
+                      <Text style={{ color: on ? '#fff' : 'rgba(255,255,255,0.7)', fontSize: 11.5, marginTop: 2, fontWeight: '700' }}>
+                        {m === 'SHIP' ? `${c.ship} scanned` : `${c.ret} scanned`}
+                      </Text>
+                    </View>
+                  </Pressable>
+                );
+              })}
             </View>
-            {/* The same green and red as the card above, small. A load that
-                went out right is a column of green; a pickup that went right is
-                a column of red, and either one being broken by the wrong colour
-                is visible from further away than any of the text is. Known and
-                unknown are mutually exclusive, so this never adds a chip to a
-                row that already has one. */}
-            {a
-              ? <Tag label={a.f ? 'FULL' : 'EMPTY'} tone={a.f ? T.fern : T.needle} />
-              : boot ? <Tag label="UNKNOWN" tone={T.amber} /> : null}
-            {item.state === 'QUEUED' && (
-              <Pressable
-                // 13pt of text with hitSlop 12 was a ~40pt target — under the
-                // 44pt floor on a destructive control on the glove screen.
-                // minHeight centres the label in a real target; the slop tops
-                // it up sideways where rows leave room.
-                hitSlop={16}
-                style={{ minHeight: 44, justifyContent: 'center' }}
-                accessibilityRole="button"
-                accessibilityLabel={`Remove ${item.barcode} from this order`}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                  if (removedTimer.current) clearTimeout(removedTimer.current);
-                  setRemoved({ scan: item });
-                  dispatch({ type: 'REMOVE', clientId: item.clientId });
-                  removedTimer.current = setTimeout(() => setRemoved(null), 6000);
-                }}
-              >
-                <Text style={{ color: T.needle, fontSize: 13, fontWeight: '700' }}>Remove</Text>
-              </Pressable>
-            )}
-          </View>
-          );
-        }}
-      />
+          </LinearGradient>
+        </View>
+      </Scanner>
 
       {/* ── undo, one slot, six seconds ──
-          Sits above the submit bar rather than inside it — that bar is
-          Btn's own 56pt+ target and a second control layered on top of it
-          risks eating the tap meant for Submit. 150 clears the bar's own
-          ~124pt (34 top pad + 56 button + 34 bottom pad) with a little air,
-          the same hand-tuned-offset approach the tab-bar-clearing update
-          banner uses. */}
+          Floats above everything, including the review sheet — a removal
+          only happens from inside that sheet, but the driver may close it
+          right after tapping Remove, and the undo window should survive
+          that. */}
       {removed && (
-        <View style={{ position: 'absolute', left: 14, right: 14, bottom: 150 }}>
+        <View style={{ position: 'absolute', left: 14, right: 14, bottom: 28 }}>
           <Pressable
             onPress={() => {
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -627,24 +586,105 @@ export default function Scan() {
         </View>
       )}
 
-      {/* ── submit ── */}
-      <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0 }}>
-        <LinearGradient
-          colors={['transparent', 'rgba(7,9,10,0.92)', T.zinc]}
-          style={{ paddingHorizontal: 14, paddingTop: 34, paddingBottom: 34 }}
-        >
-          <Btn
-            label={`Submit order · ${c.total}`}
-            sub={c.total ? `${c.ship} out · ${c.ret} in` : undefined}
-            busy={syncing}
-            disabled={!c.total}
-            // The dialog lives in finish() now, so both this and the header's
-            // "Done" get it. Wrapped rather than passed by reference on
-            // purpose — see the note on finish().
-            onPress={() => finish()}
+      {/* ── order review: the list, Remove, and Submit ──
+          One tap away via the header pill rather than permanently on screen
+          underneath a small boxed camera. Opening or closing this changes
+          nothing about the order — scanning behind it works exactly the
+          same whether it is open or closed. */}
+      <Modal visible={review} animationType="slide" onRequestClose={() => setReview(false)}>
+        <View style={{ flex: 1, backgroundColor: T.zinc }}>
+          <View style={{
+            flexDirection: 'row', alignItems: 'center', paddingTop: 54,
+            paddingHorizontal: 18, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: T.rule,
+          }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: T.ink, fontSize: 17, fontWeight: '800' }}>This order so far</Text>
+              <Text style={[mono(12, '500'), { color: T.faint, marginTop: 2 }]}>{orderNumber}</Text>
+            </View>
+            <Pressable onPress={() => setReview(false)} hitSlop={14}
+              accessibilityRole="button" accessibilityLabel="Close">
+              <Text style={{ color: T.brandLit, fontSize: 15, fontWeight: '700' }}>Close</Text>
+            </Pressable>
+          </View>
+
+          <FlatList
+            data={[...rows].reverse()}
+            keyExtractor={(s) => s.clientId}
+            contentContainerStyle={{ paddingBottom: 120 }}
+            ListEmptyComponent={
+              <Text style={{ color: T.faint, fontSize: 13.5, textAlign: 'center', paddingTop: 34, lineHeight: 20 }}>
+                Nothing scanned yet.
+              </Text>
+            }
+            renderItem={({ item }) => {
+              const a = boot?.assets[item.barcode];
+              return (
+              <View
+                style={{
+                  flexDirection: 'row', alignItems: 'center', gap: 12,
+                  paddingHorizontal: 18, paddingVertical: 13,
+                  borderBottomWidth: 1, borderBottomColor: T.soft,
+                }}
+              >
+                <View style={{ width: 3, height: 26, borderRadius: 2, backgroundColor: shipTone(item.mode) }} />
+                <View style={{ flex: 1 }}>
+                  <Text style={[mono(15, '600'), { color: T.ink }]}>{item.barcode}</Text>
+                  <Text style={{ color: T.faint, fontSize: 11.5, marginTop: 2 }}>
+                    {item.mode === 'SHIP' ? 'Ship out' : 'Return in'}
+                    {item.state !== 'QUEUED' ? ` · ${item.state.toLowerCase()}` : ''}
+                  </Text>
+                </View>
+                {/* The same green and red as the readout card, small. Known
+                    and unknown are mutually exclusive, so this never adds a
+                    chip to a row that already has one. */}
+                {a
+                  ? <Tag label={a.f ? 'FULL' : 'EMPTY'} tone={a.f ? T.fern : T.needle} />
+                  : boot ? <Tag label="UNKNOWN" tone={T.amber} /> : null}
+                {item.state === 'QUEUED' && (
+                  <Pressable
+                    // 13pt of text with hitSlop 12 was a ~40pt target — under
+                    // the 44pt floor on a destructive control on the glove
+                    // screen. minHeight centres the label in a real target;
+                    // the slop tops it up sideways where rows leave room.
+                    hitSlop={16}
+                    style={{ minHeight: 44, justifyContent: 'center' }}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Remove ${item.barcode} from this order`}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                      if (removedTimer.current) clearTimeout(removedTimer.current);
+                      setRemoved({ scan: item });
+                      dispatch({ type: 'REMOVE', clientId: item.clientId });
+                      removedTimer.current = setTimeout(() => setRemoved(null), 6000);
+                    }}
+                  >
+                    <Text style={{ color: T.needle, fontSize: 13, fontWeight: '700' }}>Remove</Text>
+                  </Pressable>
+                )}
+              </View>
+              );
+            }}
           />
-        </LinearGradient>
-      </View>
+
+          <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0 }}>
+            <LinearGradient
+              colors={['transparent', 'rgba(7,9,10,0.92)', T.zinc]}
+              style={{ paddingHorizontal: 14, paddingTop: 34, paddingBottom: 34 }}
+            >
+              <Btn
+                label={`Submit order · ${c.total}`}
+                sub={c.total ? `${c.ship} out · ${c.ret} in` : undefined}
+                busy={syncing}
+                disabled={!c.total}
+                // The dialog lives in finish() now, so both this and the
+                // header's "Done" get it. Wrapped rather than passed by
+                // reference on purpose — see the note on finish().
+                onPress={() => finish()}
+              />
+            </LinearGradient>
+          </View>
+        </View>
+      </Modal>
 
       {/* ── manual entry ── */}
       <Modal visible={manual} transparent animationType="fade" onRequestClose={() => setManual(false)}>

@@ -201,6 +201,15 @@ export interface ScannerProps {
   /** Same code accepted again after this many ms. Default 2500. */
   cooldownMs?: number;
   /**
+   * Extra clearance above `insets.bottom` for this component's own bottom-
+   * right control stack (torch, zoom, Snap, Read text). A caller whose own
+   * overlay (passed via `children`) occupies the bottom of the screen — a
+   * full-bleed camera with a readout/action bar over it, e.g. scan.tsx —
+   * sets this to that overlay's height so the two don't sit on top of each
+   * other. Default 0: unchanged for every other caller.
+   */
+  controlsBottomInset?: number;
+  /**
    * Focus once and then leave the lens alone.
    *
    * The legacy app carried the same flag and the same one-line reason: it
@@ -217,7 +226,7 @@ export interface ScannerProps {
 
 export function Scanner({
   onCode, onDuplicate, accept, types, style, children, reticle = true, onClose, cooldownMs = 2500,
-  steadyFocus = false,
+  controlsBottomInset = 0, steadyFocus = false,
 }: ScannerProps) {
   const insets = useSafeAreaInsets();
   const [perm, requestPerm] = useCameraPermissions();
@@ -769,7 +778,7 @@ export function Scanner({
           does for every other floating footer in this app — this is the one
           surface that never went through it, because a full-screen Modal has
           no navigator chrome to make the omission obvious in a simulator. */}
-      <View style={{ position: 'absolute', right: 10, bottom: 10 + insets.bottom, gap: 8, alignItems: 'flex-end' }}>
+      <View style={{ position: 'absolute', right: 10, bottom: 10 + insets.bottom + controlsBottomInset, gap: 8, alignItems: 'flex-end' }}>
         {/*
           SNAP IS ALWAYS OFFERED NOW, AND THAT IS THE FIX.
           It used to be gated on a native module that was never in the build,
