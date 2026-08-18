@@ -23,6 +23,10 @@ export default function Settings() {
   // Who you are should never be a blank card. `boot` needs the server; `email`
   // is on the phone. Falling back through both means the worst case is an
   // address with no display name rather than nothing at all.
+  // Same test More uses. The scanner trial is a diagnostic, not a driver
+  // feature: a row that opens a benchmark is noise on a delivery run.
+  const isAdmin = boot?.user.role === 'admin' || boot?.user.role === 'owner';
+
   const who = boot?.user.name || email || '—';
   const sub = [boot?.user.email || email, boot?.user.role].filter(Boolean).join(' · ');
 
@@ -98,6 +102,25 @@ export default function Settings() {
           <Eyebrow style={{ marginBottom: 12 }}>This app</Eyebrow>
           <UpdateCard />
         </Rise>
+
+        {isAdmin && (
+          <Rise delay={170} style={{ marginTop: 22 }}>
+            <Eyebrow style={{ marginBottom: 12 }}>Lab</Eyebrow>
+            <Surface>
+              <Nav
+                icon="target"
+                label="Scanner test"
+                hint="Photograph a label and give the same photo to both decoders"
+                onPress={() => router.push('/scanx-test' as never)}
+              />
+            </Surface>
+            <Text style={{ color: T.faint, fontSize: 12, marginTop: 11, lineHeight: 18 }}>
+              A new barcode decoder is being trialled. This reads one photo with the scanner
+              the app ships today and with the new one, and keeps score. It changes nothing
+              about how scanning works everywhere else.
+            </Text>
+          </Rise>
+        )}
 
         <Rise delay={180} style={{ marginTop: 26 }}>
           <Eyebrow style={{ marginBottom: 12 }}>Careful</Eyebrow>
@@ -303,6 +326,33 @@ function Danger({
       <View style={{ flex: 1 }}>
         <Text style={{ color: tone, fontSize: 15, fontWeight: '700' }}>{label}</Text>
         <Text style={{ color: T.faint, fontSize: 12, marginTop: 3, lineHeight: 17 }}>{hint}</Text>
+      </View>
+      <Icon name="chevron-right" size={ICON.md} color={T.faint} />
+    </Pressable>
+  );
+}
+
+function Nav({
+  icon, label, hint, onPress,
+}: {
+  icon: React.ComponentProps<typeof Icon>['name'];
+  label: string; hint: string; onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`${label}. ${hint}`}
+      style={({ pressed }) => ({
+        paddingHorizontal: 18, paddingVertical: 16, minHeight: 56,
+        flexDirection: 'row', alignItems: 'center', gap: 14,
+        backgroundColor: pressed ? tint(0.04) : 'transparent',
+      })}
+    >
+      <Icon name={icon} size={ICON.md} color={T.steel} />
+      <View style={{ flex: 1 }}>
+        <Text style={{ color: T.ink, fontSize: 15, fontWeight: '600' }}>{label}</Text>
+        <Text style={{ color: T.faint, fontSize: 12, marginTop: 2 }}>{hint}</Text>
       </View>
       <Icon name="chevron-right" size={ICON.md} color={T.faint} />
     </Pressable>

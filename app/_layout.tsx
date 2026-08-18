@@ -235,6 +235,7 @@ function RootLayout() {
         />
         <Stack.Screen name="search" options={{ title: 'Search' }} />
         <Stack.Screen name="settings" options={{ title: 'Settings' }} />
+        <Stack.Screen name="scanx-test" options={{ title: 'Scanner test' }} />
         <Stack.Screen name="history" options={{ title: 'History' }} />
         <Stack.Screen name="analytics" options={{ title: 'Analytics' }} />
         <Stack.Screen name="asset/new" options={{ title: 'Add' }} />
