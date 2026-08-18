@@ -176,6 +176,17 @@ const DEFAULT_TYPES: BarcodeType[] = [
 export interface ScannerProps {
   /** Called once per accepted read. Already trimmed and uppercased. */
   onCode: (code: string) => void;
+  /**
+   * Called every time a decoded frame matches a code already accepted within
+   * `cooldownMs` — i.e. every time the code is real and correctly read, just
+   * too soon to fire again. Fires on EVERY such frame (several a second while
+   * the phone holds steady over a barcode still in cooldown), not once — a
+   * caller that wants a single "still alive" tick needs its own once-per-
+   * window guard, the same shape `deliver` already uses for `lastAccepted`.
+   * Distinct from a rejected read (`accept` returning false) or an outbox-
+   * level "already scanned on this order," neither of which reaches here.
+   */
+  onDuplicate?: (code: string) => void;
   /** Reject values that cannot be right here (wrong shape, wrong length). */
   accept?: (code: string) => boolean;
   /** Narrow the symbologies to cut false positives — e.g. ['code39']. */
@@ -205,7 +216,7 @@ export interface ScannerProps {
 }
 
 export function Scanner({
-  onCode, accept, types, style, children, reticle = true, onClose, cooldownMs = 2500,
+  onCode, onDuplicate, accept, types, style, children, reticle = true, onClose, cooldownMs = 2500,
   steadyFocus = false,
 }: ScannerProps) {
   const insets = useSafeAreaInsets();
@@ -331,7 +342,13 @@ export function Scanner({
     if (accept && !accept(code)) return;
 
     const now = Date.now();
-    if (lastAccepted.current[code] && now - lastAccepted.current[code] < cooldownMs) return;
+    if (lastAccepted.current[code] && now - lastAccepted.current[code] < cooldownMs) {
+      // A correct read, just too soon — the camera is alive and reading
+      // exactly what it is pointed at. See `onDuplicate` above; a caller
+      // that does nothing with this is exactly as correct as before.
+      onDuplicate?.(code);
+      return;
+    }
 
     // The double-read confirm. First sighting arms; a second sighting of the
     // same value within 450ms fires. A different value re-arms — a misread
@@ -347,7 +364,7 @@ export function Scanner({
     lastReadAt.current = now;
     setStruggling(false);
     onCode(code);
-  }, [accept, cooldownMs, onCode]);
+  }, [accept, cooldownMs, onCode, onDuplicate]);
 
   /**
    * The still-frame path, for labels the live decoder cannot crack.

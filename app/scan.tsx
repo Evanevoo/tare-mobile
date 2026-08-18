@@ -37,8 +37,7 @@ export default function Scan() {
   const [last, setLast] = useState<{ barcode: string; kind: string } | null>(null);
   const [manual, setManual] = useState(false);
   const [manualCode, setManualCode] = useState('');
-  const cooldown = useRef<Record<string, number>>({});
-  // One tick per cooldown window, not one per frame — see `take()`.
+  // One tick per cooldown window, not one per frame — see `onDuplicate()`.
   const cooldownNoted = useRef<Record<string, boolean>>({});
   const geo = useRef<{ lat: number; lng: number; accuracyM: number | null; at: number } | null>(null);
 
@@ -150,31 +149,40 @@ export default function Scan() {
   useEffect(() => { if (!ready) router.replace('/'); }, [ready, router]);
   if (!ready) return null;
 
+  /**
+   * A SILENT COOLDOWN IS A CAMERA THAT LOOKS DEAD.
+   *
+   * The scanner reads the same code every frame while it stays in view.
+   * Swallowing every one of those with zero feedback for the Scanner's own
+   * 2.5s cooldown (see `deliver()` in src/scanner.tsx) made a live camera
+   * indistinguishable from a broken one — the one complaint a driver has no
+   * way to describe except "it stopped working."
+   *
+   * This used to be a second, screen-level cooldown check duplicating the
+   * Scanner's own — and it could never fire, because the Scanner already
+   * suppresses a repeat of the same code before `take()` is ever called
+   * again for it. Found comparing this file line by line against the legacy
+   * scanner (2026-08-18): the intended "prove the loop is alive" tick had
+   * never once fired in production. `onDuplicate` is the Scanner reporting
+   * the suppression itself, so this can react to it instead of guessing.
+   *
+   * One light tick, the first time a cooldown window blocks a read rather
+   * than every frame it does, proves the loop is alive without re-queuing
+   * the scan or buzzing continuously while the phone sits still over a
+   * barcode.
+   */
+  function onDuplicate(barcode: string) {
+    if (!cooldownNoted.current[barcode]) {
+      cooldownNoted.current[barcode] = true;
+      Haptics.selectionAsync();
+    }
+  }
+
   function take(raw: string) {
     const barcode = raw.trim().toUpperCase();
     if (!barcode) return;
-
-    const now = Date.now();
-    if (cooldown.current[barcode] && now - cooldown.current[barcode] < 2500) {
-      /**
-       * A SILENT COOLDOWN IS A CAMERA THAT LOOKS DEAD.
-       *
-       * The scanner reads the same code every frame while it stays in view,
-       * and swallowing every one of those with zero feedback for 2.5 seconds
-       * made a live camera indistinguishable from a broken one — the one
-       * complaint a driver has no way to describe except "it stopped
-       * working." One light tick, the first time a cooldown window blocks a
-       * read rather than every frame it does, proves the loop is alive
-       * without re-queuing the scan or buzzing continuously while the phone
-       * sits still over a barcode.
-       */
-      if (!cooldownNoted.current[barcode]) {
-        cooldownNoted.current[barcode] = true;
-        Haptics.selectionAsync();
-      }
-      return;
-    }
-    cooldown.current[barcode] = now;
+    // A fresh accepted code starts a new cooldown window at the Scanner
+    // level; reset the tick guard so the next window gets its own one tick.
     cooldownNoted.current[barcode] = false;
 
     /**
@@ -302,7 +310,7 @@ export default function Scan() {
         {/* One shared surface carries the hard-won parts: double-read
             confirm, cooldown, torch, zoom, tap-to-refocus, and the ML Kit
             still-frame fallback on builds that have it. */}
-        <Scanner onCode={take} style={{ flex: 1 }} />
+        <Scanner onCode={take} onDuplicate={onDuplicate} style={{ flex: 1 }} />
 
         {/* Scrim, so white text over a bright yard is still readable. */}
         <LinearGradient
