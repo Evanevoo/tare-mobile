@@ -29,6 +29,13 @@ import { whenLabel } from '@/when';
  * would live: one order drawn as two rows, or a scan counted once by the
  * server and once again by the phone.
  *
+ * BOUNDED TO THE LAST 24 HOURS, ON PURPOSE — Evan's own instruction. The
+ * server (api/mobile/history) only groups scans from the rolling last day, so
+ * this is deliberately not a full ledger a driver can scroll back through
+ * forever; "Show older orders" below only reaches as far back as that window
+ * goes and then stops, which is correct, not a bug. Anything further back
+ * lives in the console's Scanned Orders page.
+ *
  * IT STILL WORKS WITH NO SIGNAL, WHICH IS THE POINT. A yard with no bars is
  * the ordinary case, not the edge case. The last page that arrived is kept on
  * disk, shown when the fetch fails, and labelled with when it came down — the
@@ -146,13 +153,13 @@ export default function History() {
         History
       </Text>
       <Text style={{ color: T.faint, fontSize: 13, marginTop: 4 }}>
-        {rows.length} order{rows.length === 1 ? '' : 's'} · everybody, newest first
+        {rows.length} order{rows.length === 1 ? '' : 's'} · last 24 hours, everybody
         {unsent ? ` · ${unsent} scan${unsent === 1 ? '' : 's'} still on this phone` : ''}
       </Text>
       <Text style={{ color: T.faint, fontSize: 12, marginTop: 6, lineHeight: 17 }}>
-        The whole company&apos;s orders, with anything this phone has not uploaded merged
-        in and marked. Tap one to change what went out, what came back, the order number
-        or the customer.
+        The whole company&apos;s scans from the last 24 hours, with anything this phone
+        has not uploaded merged in and marked. Tap one to change what went out, what came
+        back, the order number or the customer.
       </Text>
       {offline && <Note icon="wifi-off" tone={T.amber} text={offlineNotice(fetchedAt)} />}
     </Rise>
