@@ -9,6 +9,7 @@ import {
   decodeBase64Image, coreVersion, warmUp, PRESETS, EFFORT_LABEL,
   type Effort, type ScanXResult,
 } from '@/scanx';
+import { RETICLE } from '@/reticle';
 
 /**
  * SCANNER TEST — the new decoder against the one in the truck, on the same frame.
@@ -136,46 +137,83 @@ export default function ScanXTest() {
       const photo = await cam.current.takePictureAsync({ quality: 0.9, skipProcessing: true });
       if (!photo?.uri) throw new Error('the camera returned no image');
 
-      // A — what ships today. Given the file, not the live preview, so both
-      // engines see the same frame.
-      const t0 = Date.now();
-      const current = await scanFromURLAsync(photo.uri).catch(() => []);
-      const currentMs = Date.now() - t0;
+      /**
+       * CROP TO THE RETICLE FIRST — same box, same reason, as src/scanner.tsx's
+       * `snap()`. `takePictureAsync` captures the whole scene: a driver holding
+       * up a full invoice or packing slip hands both decoders a photo where the
+       * actual barcode is a small fraction of the frame, at a bar width neither
+       * engine can resolve, and BOTH come back empty — which looks exactly like
+       * a decoder bug and is actually a framing one. Cropping down to the
+       * reticle first is what makes this test represent what the live scanner
+       * (which crops the same way) can actually do, not what a raw uncropped
+       * photo can. Falls back to the full frame if the crop itself finds
+       * nothing — a badly-aimed crop can cut a wide code the full frame would
+       * still have caught whole.
+       */
+      const runBoth = async (imgUri: string) => {
+        const t0 = Date.now();
+        const cur = await scanFromURLAsync(imgUri).catch(() => []);
+        const curMs = Date.now() - t0;
 
-      // B — ScanX. Resize natively first: handing a 12-megapixel JPEG through
-      // base64 into the JS heap costs more than the decode does.
-      const small = await manipulateAsync(
-        photo.uri,
-        [{ resize: { width: maxDim } }],
-        // manipulateAsync is deprecated in favour of the contextual API, but it
-        // is still exported and is one call instead of three. Swap it when the
-        // project moves off SDK 54.
-        { compress: 0.85, format: SaveFormat.JPEG, base64: true },
-      );
+        const small = await manipulateAsync(
+          imgUri,
+          [{ resize: { width: maxDim } }],
+          // manipulateAsync is deprecated in favour of the contextual API, but it
+          // is still exported and is one call instead of three. Swap it when the
+          // project moves off SDK 54.
+          { compress: 0.85, format: SaveFormat.JPEG, base64: true },
+        );
 
-      const t1 = Date.now();
-      const sx: ScanXResult = small.base64
-        ? await decodeBase64Image(small.base64, {
-            maxDim, effort, symbologies: PRESETS[preset],
-          })
-        : { ms: 0, w: 0, h: 0, sourceW: 0, sourceH: 0, codes: [], error: 'no base64 from the resize' };
-      const scanxWallMs = Date.now() - t1;
+        const t1 = Date.now();
+        const sx: ScanXResult = small.base64
+          ? await decodeBase64Image(small.base64, {
+              maxDim, effort, symbologies: PRESETS[preset],
+            })
+          : { ms: 0, w: 0, h: 0, sourceW: 0, sourceH: 0, codes: [], error: 'no base64 from the resize' };
+        const wallMs = Date.now() - t1;
+        return { cur, curMs, sx, wallMs };
+      };
 
-      const currentTexts = dedupe(current.map((c) => c.data));
-      const scanxTexts = dedupe(sx.codes.map((c) => c.text));
+      let uri = photo.uri;
+      let cropped = false;
+      if (photo.width && photo.height) {
+        try {
+          const c = await manipulateAsync(photo.uri, [{
+            crop: {
+              originX: Math.round(photo.width * RETICLE.left),
+              originY: Math.round(photo.height * RETICLE.top),
+              width: Math.round(photo.width * RETICLE.width),
+              height: Math.round(photo.height * RETICLE.height),
+            },
+          }], { compress: 1 });
+          uri = c.uri;
+          cropped = true;
+        } catch { /* fall through with the uncropped photo */ }
+      }
+
+      let pass = await runBoth(uri);
+      let usedFallback = false;
+      if (cropped && pass.cur.length === 0 && pass.sx.codes.length === 0) {
+        usedFallback = true;
+        pass = await runBoth(photo.uri);
+      }
+
+      const currentTexts = dedupe(pass.cur.map((c) => c.data));
+      const scanxTexts = dedupe(pass.sx.codes.map((c) => c.text));
 
       const shot: Shot = {
         at: Date.now(),
         current: currentTexts,
-        currentFormats: dedupe(current.map((c) => String(c.type))),
-        currentMs,
+        currentFormats: dedupe(pass.cur.map((c) => String(c.type))),
+        currentMs: pass.curMs,
         scanx: scanxTexts,
-        scanxFormats: dedupe(sx.codes.map((c) => c.format)),
-        scanxMs: sx.ms,
-        scanxWallMs,
-        size: sx.w ? `${sx.sourceW}×${sx.sourceH} → ${sx.w}×${sx.h}` : '—',
+        scanxFormats: dedupe(pass.sx.codes.map((c) => c.format)),
+        scanxMs: pass.sx.ms,
+        scanxWallMs: pass.wallMs,
+        size: (pass.sx.w ? `${pass.sx.sourceW}×${pass.sx.sourceH} → ${pass.sx.w}×${pass.sx.h}` : '—')
+          + (usedFallback ? ' · full frame, crop missed' : cropped ? ' · cropped to reticle' : ''),
         verdict: judge(currentTexts, scanxTexts),
-        error: sx.error,
+        error: pass.sx.error,
       };
 
       setShots((prev) => [shot, ...prev].slice(0, 12));
@@ -188,8 +226,8 @@ export default function ScanXTest() {
         neither: t.neither + (shot.verdict === 'neither' ? 1 : 0),
         currentHits: t.currentHits + (currentTexts.length ? 1 : 0),
         scanxHits: t.scanxHits + (scanxTexts.length ? 1 : 0),
-        currentMs: t.currentMs + currentMs,
-        scanxMs: t.scanxMs + sx.ms,
+        currentMs: t.currentMs + pass.curMs,
+        scanxMs: t.scanxMs + pass.sx.ms,
       }));
     } catch (e: any) {
       // A real failure (camera/resize), not "nothing decoded" — that path
@@ -243,6 +281,19 @@ export default function ScanXTest() {
                 enableTorch={torch}
                 autofocus={autofocus}
               />
+              {/* Aim guide, same box `capture` crops to first — see the doc
+                  comment on that crop. Without this drawn, there's nothing
+                  telling you the crop exists at all, let alone where it is. */}
+              <View pointerEvents="none" style={{
+                position: 'absolute',
+                left: `${RETICLE.left * 100}%`, width: `${RETICLE.width * 100}%`,
+                top: `${RETICLE.top * 100}%`, height: `${RETICLE.height * 100}%`,
+              }}>
+                <View style={{
+                  flex: 1, borderRadius: 12, borderWidth: 2,
+                  borderColor: T.brandLit, opacity: 0.85,
+                }} />
+              </View>
             </View>
           </Surface>
         </Rise>
