@@ -179,7 +179,14 @@ export default function AssetDetail() {
             <Hairline />
             <Row label="Serial number" value={a.sn ?? '—'} mono />
             <Hairline />
-            <Row label="Status" value={cap(a.s)} />
+            {/* Never print the raw enum on its own. "Rented" with no `c` is a
+                real, current state for ~3,585 cylinders the Aug 18 reload
+                carried over from old Scanified, whose own status column said
+                rented on bottles it had already lost the customer link for —
+                see claude/asset-status-customer-mismatch.md. Printing it
+                straight would put "Rented" one line under "Not assigned to a
+                customer" on the same screen. */}
+            <Row label="Status" value={a.c ? 'Rented' : a.s === 'rented' ? 'Available' : cap(a.s)} />
             <Hairline />
             <Row label="Contents" value={a.c ? 'Rented — n/a' : a.f ? 'Full' : 'Empty'} />
             {a.l ? (
