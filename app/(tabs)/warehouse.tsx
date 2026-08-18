@@ -136,6 +136,17 @@ export default function Locate() {
       // This shelf is saved — a force-quit from here on out must not restore
       // it a second time and offer to submit the same bottles again.
       await cacheSet(DRAFT_KEY, null).catch(() => {});
+      // THE CACHE WAS CLEARED. THE SCREEN WAS NOT.
+      //
+      // Locate lives on a tab — router.replace('/') below leaves this screen
+      // mounted in the background, same as switching tabs by hand does. Only
+      // the on-device draft was reset, so a tab back to Warehouse resurrected
+      // the exact 15 bottles just saved and offered to mark them full again,
+      // second-guessing a save that had already gone through. The persisted
+      // draft and the live state were two different copies of the same
+      // "what's on this shelf" fact, and clearing one was never going to
+      // clear the other.
+      setStep(1); setLocation(''); setCustom(false); setState(null); setCodes([]); setTyped('');
       // "6 open rentals closed" told nobody WHO stopped being billed — the
       // question that actually gets asked back at the yard. Named, one line
       // per bottle, capped the same way the unknown list is so a 40-bottle
