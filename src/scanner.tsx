@@ -40,12 +40,16 @@ import { RETICLE, withinReticle } from './reticle';
  * tearing down an AVCaptureSession that is still delivering frames is a
  * known iOS crash.
  *
- * TAP TO REFOCUS, THEN READ. Continuous autofocus-on locks focus at the wrong
- * distance on some phones. Default is off; tapping the preview pulses
- * autofocus on for a beat and back off — the legacy app's trick, kept. The tap
- * now also fires the still-frame read once that pulse has settled, so the one
- * gesture a driver reaches for when a label will not go does both halves of
- * what it needs to. See `tapToRead`.
+ * PERIODIC REFOCUS, PLUS TAP TO FORCE ONE. Continuous autofocus-on locks focus
+ * at the wrong distance on some phones, so the lens is nudged off and back on
+ * every second or so instead — the legacy app's trick, kept, and, since
+ * 2026-08-18, applied on both platforms (see PERIODIC REFOCUS below). This
+ * used to be iOS-only via a default-off/tap-to-pulse path, which — checked
+ * directly against the legacy app — was backwards: iOS never actually
+ * refocused on its own, only when someone tapped first. Tapping the preview
+ * still forces one extra cycle on demand and, once it settles, fires the
+ * still-frame read, so the one gesture a driver reaches for when a label will
+ * not go does both halves of what it needs to. See `tapToRead`.
  *
  * TORCH AFTER FAILURE. If the camera has been open for a while with nothing
  * read, the torch button starts glowing as a hint; frost, shadow and dented
@@ -186,7 +190,7 @@ export interface ScannerProps {
   /** Same code accepted again after this many ms. Default 2500. */
   cooldownMs?: number;
   /**
-   * Focus once and then leave the lens alone (Android).
+   * Focus once and then leave the lens alone.
    *
    * The legacy app carried the same flag and the same one-line reason: it
    * "avoids blur when pointing at barcode — use for customer barcode scanning".
@@ -194,7 +198,8 @@ export interface ScannerProps {
    * changing distances; it is wrong for somebody holding a phone still over a
    * printed receipt, because a lens told to re-acquire every second spends a
    * good part of every second hunting, and the frames it delivers mid-hunt are
-   * exactly the soft ones a long Code 39 label cannot survive.
+   * exactly the soft ones a long Code 39 label cannot survive. Applies on both
+   * platforms — see PERIODIC REFOCUS below.
    */
   steadyFocus?: boolean;
 }
@@ -209,13 +214,14 @@ export function Scanner({
   const [closing, setClosing] = useState(false);
   const [torch, setTorch] = useState(false);
   const [zoom, setZoom] = useState(0);
-  const [focusPulse, setFocusPulse] = useState(false);
   const [struggling, setStruggling] = useState(false);
   const [snapBusy, setSnapBusy] = useState(false);
   const [aiBusy, setAiBusy] = useState(false);
   /** Why the last "Read text" tap produced nothing — shown under the button. */
   const [aiMiss, setAiMiss] = useState<string | null>(null);
-  const [androidFocusOff, setAndroidFocusOff] = useState(false);
+  /** off for a beat = "refocus now" to the native camera. Drives `autofocus`
+      below on both platforms — see PERIODIC REFOCUS. */
+  const [focusOff, setFocusOff] = useState(false);
   const [mounted, setMounted] = useState(Platform.OS !== 'android');
 
   const cam = useRef<CameraView | null>(null);
@@ -260,34 +266,39 @@ export function Scanner({
   }, [perm?.granted]);
 
   /**
-   * ANDROID PERIODIC REFOCUS.
+   * PERIODIC REFOCUS — BOTH PLATFORMS.
    *
-   * The doc block at the top of this file says continuous autofocus "locks at
-   * the wrong distance on some phones" and describes a pulse-to-refocus trick —
-   * but until now that trick was wired for iOS only; Android ran plain
-   * `autofocus="on"` with no refocus path at all. That is backwards: it is
-   * Android's autofocus that tends to lock on the first thing it settles on and
-   * never re-evaluate, which is exactly what the legacy Android app
-   * (gas-cylinder-android/components/ScanArea.tsx) built a fix for and proved out
-   * in the field — a driver holding a cylinder closer or farther after the first
-   * lock got a soft, unreadable frame until they backed out and reopened the
-   * scanner. The fix is a periodic toggle: autofocus off for a beat, then back
-   * on, which most Android camera stacks treat as "focus again now" rather than
-   * "stop focusing." Kept as a separate flag from `focusPulse` because the two
-   * platforms' defaults are opposite — iOS defaults off and pulses on; Android
-   * defaults on and pulses off — and collapsing them into one flag would make
-   * one of the two platforms wrong.
+   * Checked directly against the legacy app on 2026-08-18 while chasing "the
+   * autofocus never focuses, it's just blurry": gas-cylinder-android's
+   * ScanArea.tsx starts its `autofocusMode` at 'on' and runs this exact
+   * toggle — off for 180ms, back on — on an unconditional interval, for BOTH
+   * platforms. Nothing in it is Android-only there.
+   *
+   * This file had it backwards. The toggle below ran on Android only; iOS
+   * instead defaulted `autofocus` to 'off' permanently and only turned it on
+   * for a 350ms pulse when the driver tapped the preview (`refocus`, below).
+   * That means iOS autofocus never ran on its own — it needed a tap first,
+   * every time — which is worse than what it was written to fix, and matches
+   * the reported symptom exactly.
+   *
+   * One flag (`focusOff`) now drives `autofocus` on both platforms: off for a
+   * beat forces most camera stacks to treat it as "focus again now" rather
+   * than "stop focusing," same as it always did for Android alone. `cycleRef`
+   * lets the manual tap (`refocus`) trigger the identical cycle instead of a
+   * second, separate mechanism.
    */
+  const cycleRef = useRef<() => void>(() => {});
   useEffect(() => {
-    if (Platform.OS !== 'android' || !ready) return;
+    if (!ready) return;
     const timers: ReturnType<typeof setTimeout>[] = [];
     const cycle = () => {
-      setAndroidFocusOff(true);
+      setFocusOff(true);
       // Tracked, not fire-and-forget: without this the inner timer outlives the
       // component, and on a fast close/reopen the stale one lands in the new
       // session and knocks focus off at random.
-      timers.push(setTimeout(() => { if (alive.current) setAndroidFocusOff(false); }, 180));
+      timers.push(setTimeout(() => { if (alive.current) setFocusOff(false); }, 180));
     };
+    cycleRef.current = cycle;
 
     // Let the preview settle before touching focus at all, or the first second
     // of every scan is a visible glitch.
@@ -602,11 +613,10 @@ export function Scanner({
     }
   }, [accept, onCode, aiBusy, reticle]);
 
-  /** iOS focus pulse: on for a beat, back to off. Continuous-on locks focus. */
+  /** Manual nudge: run one focus cycle right now, same one PERIODIC REFOCUS
+      uses, on both platforms. */
   const refocus = useCallback(() => {
-    if (Platform.OS !== 'ios') return;
-    setFocusPulse(true);
-    setTimeout(() => { if (alive.current) setFocusPulse(false); }, 350);
+    cycleRef.current();
   }, []);
 
   /**
@@ -623,8 +633,9 @@ export function Scanner({
    * camera appeared not to.
    *
    * Focus-then-capture is also simply the right order, which is why the delay
-   * is here rather than snapping on the touch: the pulse settles the lens and
-   * the capture lands on the sharp frame. 380ms is the 350ms pulse plus a beat.
+   * is here rather than snapping on the touch: the cycle settles the lens and
+   * the capture lands on the sharp frame. 380ms is the 180ms refocus toggle
+   * plus enough beyond it for the lens to actually re-settle.
    *
    * The Snap button stays exactly where it was. This is a second door into the
    * same room — the button is the discoverable one, the tap is the fast one —
@@ -685,9 +696,7 @@ export function Scanner({
           facing="back"
           enableTorch={torch}
           zoom={zoom}
-          autofocus={
-            Platform.OS === 'ios' ? (focusPulse ? 'on' : 'off') : (androidFocusOff ? 'off' : 'on')
-          }
+          autofocus={focusOff ? 'off' : 'on'}
           onCameraReady={() => setReady(true)}
           barcodeScannerSettings={BARCODE_SETTINGS}
           // Gated on `reticle` for the same reason the Snap crop is: with no
