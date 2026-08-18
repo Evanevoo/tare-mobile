@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { View, Text, TextInput, Pressable, ScrollView, Alert, Modal } from 'react-native';
 import * as Haptics from 'expo-haptics';
+import { Vibration } from 'react-native';
+import { playScanAccept, playScanAlert, playSubmitSuccess } from '@/sound';
 import { useRouter } from 'expo-router';
 import { useStore } from '@/store';
 import { postFill } from '@/api';
@@ -105,8 +107,19 @@ export default function Locate() {
       return;
     }
 
-    Haptics.notificationAsync(
-      known ? Haptics.NotificationFeedbackType.Success : Haptics.NotificationFeedbackType.Warning);
+    /**
+     * THE SAME BUZZ AND CHIRP AS THE SCAN LOOP, FOR THE SAME HANDS.
+     *
+     * The driver feedback that added Vibration alongside Haptics on scan.tsx
+     * ("hard to feel through gloves") was about scanning, full stop — but the
+     * fix only ever landed on the delivery scan loop. A locating sweep reads
+     * hundreds of bottles with the same gloves in the same yard, and all it
+     * got was the OS's polite tick, which is exactly what the driver said
+     * they could not feel. Same durations as scan.tsx so the language is one
+     * language: short solid buzz = counted, double buzz = look at the screen.
+     */
+    if (known) { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); Vibration.vibrate(90); playScanAccept(); }
+    else { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); Vibration.vibrate([0, 130, 90, 130]); playScanAlert(); }
     setCodes((c) => [...c, bc]);
   }
 
@@ -116,6 +129,9 @@ export default function Locate() {
     try {
       const r = await postFill(location, state, codes);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      // A saved shelf is the warehouse's "order went out" — one long pulse.
+      Vibration.vibrate(250);
+      playSubmitSuccess();
       await refresh().catch(() => {});
       // This shelf is saved — a force-quit from here on out must not restore
       // it a second time and offer to submit the same bottles again.

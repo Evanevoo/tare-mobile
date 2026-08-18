@@ -1,6 +1,9 @@
 import { useCallback } from 'react';
+import { Vibration } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { useStore } from '@/store';
+import { playScanAccept } from './sound';
 import { classify, type ScanTarget } from './scan-match';
 
 /**
@@ -44,6 +47,19 @@ export function useScanRoute(opts?: ScanRouteOptions) {
   return useCallback((raw: string): ScanTarget | null => {
     const t = classify(raw, boot);
     if (!t) return null;
+    /**
+     * A read that resolved deserves the same buzz-and-chirp everywhere.
+     *
+     * Home's quick scan and Delivery's setup fields went through here and
+     * made no sound and no vibration at all — the driver-feedback fix for
+     * gloved hands only ever reached the scan loop. From the driver's side
+     * these are all one gesture, "point the phone at a barcode", and a
+     * gesture that buzzes on one screen and stays dead on another reads as
+     * broken, not as scoped.
+     */
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    Vibration.vibrate(90);
+    playScanAccept();
     if (t.kind === 'asset') router.push(`/asset/${encodeURIComponent(t.barcode)}` as never);
     // The ACCOUNT NUMBER, not the uuid — see the note in app/customer/[id].tsx
     // for why that screen has to answer to both.
