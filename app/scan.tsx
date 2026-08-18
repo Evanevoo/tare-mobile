@@ -233,16 +233,48 @@ export default function Scan() {
     else Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   }
 
-  function finish() {
+  /**
+   * ONE EXIT, ONE CONFIRMATION, WHICHEVER CONTROL YOU PRESSED.
+   *
+   * This was reachable two ways with two different levels of care. The Submit
+   * bar wrapped it in an Alert; the "Done" word at the top of the header
+   * called it bare. Both run the same body — endDelivery() and a replace() to
+   * Home — so a driver with forty bottles queued who tapped Done submitted the
+   * lot and left the screen, with nothing asked and nothing to undo.
+   *
+   * The `if (n)` guard below reads like it was meant to prevent exactly that,
+   * and it does gate the haptic, the buzz, the sound and the sync. But
+   * endDelivery() and the navigation sat ABOVE it and ran regardless, so the
+   * intent never reached the two lines that actually end the order.
+   *
+   * The confirmation now lives in here rather than in either caller, so it
+   * cannot go missing from one of them again. An empty order still leaves
+   * silently — there is nothing to confirm, and a driver who opened this
+   * screen by mistake should not have to answer a question to get out of it.
+   *
+   * CALL IT AS `() => finish()`, NEVER `onPress={finish}`. Pressable hands the
+   * press event to its handler as the first argument, which would arrive here
+   * as a truthy `confirmed` and skip the very dialog this exists to show.
+   */
+  function finish(confirmed = false) {
     const n = c.pending;
+
+    if (n && !confirmed) {
+      Alert.alert(
+        'Submit order',
+        `${c.ship} shipped, ${c.ret} returned on ${orderNumber}.\n\nThey upload now if you have signal, and stay safe on this phone if you do not.`,
+        [
+          { text: 'Keep scanning', style: 'cancel' },
+          { text: 'Submit', onPress: () => finish(true) },
+        ],
+      );
+      return;
+    }
+
     if (removedTimer.current) clearTimeout(removedTimer.current);
     setRemoved(null);
     endDelivery();
     router.replace('/');
-    // finish() also runs from the bare "Done" tap with nothing scanned, which
-    // is a quiet exit and should stay quiet. The confirmation belongs to the
-    // moment there is actually an order going out — same condition sync()
-    // already gates on below, so this reuses it rather than restating it.
     if (n) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       // The order going out deserves the most confident buzz of all — one
@@ -279,7 +311,12 @@ export default function Scan() {
                    paddingHorizontal: 18, paddingBottom: 22 }}
         >
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <Pressable onPress={finish} hitSlop={14}>
+            <Pressable
+              onPress={() => finish()}
+              hitSlop={14}
+              accessibilityRole="button"
+              accessibilityLabel={c.total ? `Done. Submits ${c.total} scans on this order` : 'Done. Leave this order'}
+            >
               <Text style={{ color: '#fff', fontSize: 15.5, fontWeight: '700' }}>Done</Text>
             </Pressable>
             <View style={{ marginLeft: 14, flex: 1 }}>
@@ -290,7 +327,9 @@ export default function Scan() {
                 {orderNumber}
               </Text>
             </View>
-            <Pressable onPress={() => setManual(true)} hitSlop={14}>
+            <Pressable onPress={() => setManual(true)} hitSlop={14}
+              accessibilityRole="button"
+              accessibilityLabel="Type a barcode by hand">
               <Text style={{ color: T.brandLit, fontSize: 14, fontWeight: '700' }}>Type code</Text>
             </Pressable>
           </View>
@@ -317,13 +356,25 @@ export default function Scan() {
               key={m}
               onPress={() => { setMode(m); Haptics.selectionAsync(); }}
               style={{ flex: 1 }}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: on }}
+              accessibilityLabel={
+                m === 'SHIP'
+                  ? `Ship out. ${c.ship} scanned`
+                  : `Return in. ${c.ret} scanned`
+              }
             >
               {on ? (
                 <LinearGradient
                   colors={[tone, tone + 'CC']}
                   start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }}
                   style={[
-                    { height: 66, borderRadius: T.radiusSm,
+                    // minHeight, not height. Text scales with the system size
+                    // setting and this box has to scale with it — a clipped
+                    // SHIP OUT is the one label in the app that must never be
+                    // ambiguous, since shipping when you meant to receive is
+                    // the expensive mistake this control exists to prevent.
+                    { minHeight: 66, paddingVertical: 8, borderRadius: T.radiusSm,
                       alignItems: 'center', justifyContent: 'center' },
                     shadow(2, tone),
                   ]}
@@ -339,7 +390,7 @@ export default function Scan() {
               ) : (
                 <View
                   style={{
-                    height: 66, borderRadius: T.radiusSm,
+                    minHeight: 66, paddingVertical: 8, borderRadius: T.radiusSm,
                     alignItems: 'center', justifyContent: 'center',
                     backgroundColor: tint(0.04),
                     borderWidth: 1, borderColor: T.rule,
@@ -505,7 +556,14 @@ export default function Scan() {
               : boot ? <Tag label="UNKNOWN" tone={T.amber} /> : null}
             {item.state === 'QUEUED' && (
               <Pressable
-                hitSlop={12}
+                // 13pt of text with hitSlop 12 was a ~40pt target — under the
+                // 44pt floor on a destructive control on the glove screen.
+                // minHeight centres the label in a real target; the slop tops
+                // it up sideways where rows leave room.
+                hitSlop={16}
+                style={{ minHeight: 44, justifyContent: 'center' }}
+                accessibilityRole="button"
+                accessibilityLabel={`Remove ${item.barcode} from this order`}
                 onPress={() => {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                   if (removedTimer.current) clearTimeout(removedTimer.current);
@@ -572,13 +630,10 @@ export default function Scan() {
             sub={c.total ? `${c.ship} out · ${c.ret} in` : undefined}
             busy={syncing}
             disabled={!c.total}
-            onPress={() => {
-              Alert.alert(
-                'Submit order',
-                `${c.ship} shipped, ${c.ret} returned on ${orderNumber}.\n\nThey upload now if you have signal, and stay safe on this phone if you do not.`,
-                [{ text: 'Keep scanning', style: 'cancel' }, { text: 'Submit', onPress: finish }],
-              );
-            }}
+            // The dialog lives in finish() now, so both this and the header's
+            // "Done" get it. Wrapped rather than passed by reference on
+            // purpose — see the note on finish().
+            onPress={() => finish()}
           />
         </LinearGradient>
       </View>
@@ -600,7 +655,7 @@ export default function Scan() {
                 placeholder="PW-K-041827" placeholderTextColor={T.faint}
                 style={[
                   {
-                    height: 54, borderRadius: T.radiusSm, paddingHorizontal: 15, color: T.ink,
+                    minHeight: 54, borderRadius: T.radiusSm, paddingHorizontal: 15, color: T.ink,
                     backgroundColor: 'rgba(0,0,0,0.35)', borderWidth: 1, borderColor: T.rule,
                   },
                   mono(18, '600'),

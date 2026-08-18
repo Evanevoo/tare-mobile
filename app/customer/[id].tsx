@@ -118,14 +118,16 @@ export default function CustomerDetail() {
               ) : null}
               {customer.phone ? (
                 <>
-                  <Pressable onPress={() => Linking.openURL(`tel:${customer.phone}`)}>
+                  <Pressable onPress={() => Linking.openURL(`tel:${customer.phone}`)}
+                    accessibilityRole="button" accessibilityLabel={`Call ${customer.phone}`}>
                     <Row label="Phone" value={customer.phone} action />
                   </Pressable>
                   <Hairline />
                 </>
               ) : null}
               {customer.email ? (
-                <Pressable onPress={() => Linking.openURL(`mailto:${customer.email}`)}>
+                <Pressable onPress={() => Linking.openURL(`mailto:${customer.email}`)}
+                  accessibilityRole="button" accessibilityLabel={`Email ${customer.email}`}>
                   <Row label="Email" value={customer.email} action />
                 </Pressable>
               ) : null}
@@ -156,6 +158,8 @@ export default function CustomerDetail() {
                 <Pressable
                   key={bc}
                   onPress={() => router.push(`/asset/${encodeURIComponent(bc)}` as never)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Open cylinder ${bc}`}
                   style={({ pressed }) => ({
                     paddingHorizontal: 16, paddingVertical: 14,
                     borderTopWidth: i ? 1 : 0, borderTopColor: T.soft,

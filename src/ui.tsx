@@ -223,6 +223,10 @@ export function Btn({
           fontSize: 16,
           fontWeight: '700',
           letterSpacing: -0.2,
+          // Labels like "Submit order · 12" change on every scan. Tabular
+          // figures keep the digits a fixed width so the label stops
+          // reflowing as the count climbs from 1 to 8 to 10.
+          fontVariant: ['tabular-nums'],
         }}
       >
         {busy ? 'Working…' : label}
@@ -232,6 +236,7 @@ export function Btn({
           style={{
             color: isPrimary ? 'rgba(4,35,26,0.66)' : T.faint,
             fontSize: 11.5, marginTop: 1, fontWeight: '600',
+            fontVariant: ['tabular-nums'],
           }}
         >
           {sub}

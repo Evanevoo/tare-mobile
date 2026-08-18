@@ -190,7 +190,7 @@ export default function Delivery() {
   const rulesMissing = !!boot && !boot.formats;
 
   const field = {
-    height: 52, borderRadius: T.radiusSm, paddingHorizontal: 15,
+    minHeight: 52, borderRadius: T.radiusSm, paddingHorizontal: 15,
     color: T.ink, fontSize: 16,
     backgroundColor: tint(0.05),
     borderWidth: 1, borderColor: T.rule,
@@ -206,6 +206,8 @@ export default function Delivery() {
     <Pressable
       onPress={() => { setNote(null); setStray(null); setScanning(intent); }}
       hitSlop={12}
+      accessibilityRole="button"
+      accessibilityLabel={intent === 'customer' ? 'Scan a customer card' : 'Scan the order number'}
       style={{ position: 'absolute', right: 13, top: 0, height: 52, justifyContent: 'center' }}
     >
       <Text style={[mono(12, '700'), { color: T.brandLit, letterSpacing: 0.6 }]}>SCAN</Text>
@@ -224,7 +226,11 @@ export default function Delivery() {
             <Rise>
               <Eyebrow style={{ marginBottom: 10 }}>1 · Customer</Eyebrow>
               {picked ? (
-                <Pressable onPress={() => setPicked(null)}>
+                <Pressable
+                  onPress={() => setPicked(null)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Customer ${picked.name}. Tap to change`}
+                >
                   <Surface tint={wash(0.13)} style={{ marginBottom: 22 }}>
                     <View style={{ padding: 16 }}>
                       <Text style={{ color: T.ink, fontSize: 17, fontWeight: '700' }}>
@@ -250,7 +256,11 @@ export default function Delivery() {
             </Rise>
 
             {note && (
-              <Pressable onPress={() => setNote(null)}>
+              <Pressable
+                onPress={() => setNote(null)}
+                accessibilityRole="button"
+                accessibilityLabel={`${note}. Tap to dismiss`}
+              >
                 <View
                   style={{
                     marginBottom: 16, padding: 12, borderRadius: T.radiusSm,
@@ -326,6 +336,8 @@ export default function Delivery() {
         renderItem={({ item }) => (
           <Pressable
             onPress={() => { setPicked({ id: item.customerListId, name: item.name }); setQ(''); }}
+            accessibilityRole="button"
+            accessibilityLabel={`Pick ${item.name}`}
             style={({ pressed }) => ({
               paddingHorizontal: 18, paddingVertical: 15,
               borderBottomWidth: 1, borderBottomColor: T.soft,

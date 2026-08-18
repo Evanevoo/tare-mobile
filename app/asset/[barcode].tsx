@@ -100,6 +100,8 @@ export default function AssetDetail() {
             {a.c ? (
               <Pressable
                 onPress={() => customer && router.push(`/customer/${customer.id}` as never)}
+                accessibilityRole="button"
+                accessibilityLabel={customer ? `Open customer ${customer.name}` : undefined}
                 style={({ pressed }) => ({
                   padding: 18, backgroundColor: pressed ? tint(0.04) : 'transparent',
                   flexDirection: 'row', alignItems: 'center', gap: 12,

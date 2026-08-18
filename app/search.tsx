@@ -145,7 +145,7 @@ export default function Search() {
             placeholderTextColor={T.faint}
             autoCorrect={false} autoCapitalize="none" autoFocus
             style={{
-              flex: 1, height: 54, borderRadius: T.radiusSm, paddingHorizontal: 16,
+              flex: 1, minHeight: 54, borderRadius: T.radiusSm, paddingHorizontal: 16,
               color: T.ink, fontSize: 16,
               backgroundColor: tint(0.05),
               borderWidth: 1, borderColor: term ? wash(0.4) : T.rule,

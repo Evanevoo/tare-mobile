@@ -65,7 +65,7 @@ export default function Login() {
   }
 
   const field = {
-    height: 54, borderRadius: T.radiusSm, paddingHorizontal: 16,
+    minHeight: 54, borderRadius: T.radiusSm, paddingHorizontal: 16,
     color: T.ink, fontSize: 16,
     backgroundColor: tint(0.045),
     borderWidth: 1, borderColor: T.rule,

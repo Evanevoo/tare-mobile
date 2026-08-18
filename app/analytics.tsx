@@ -144,15 +144,32 @@ export default function Analytics() {
 }
 
 function Chip({ label, on, onPress }: { label: string; on: boolean; onPress: () => void }) {
+  /**
+   * The only control on this screen, and it had missed four rules at once:
+   * 34pt tall against a 44pt floor, no hitSlop to make up the difference, no
+   * pressed feedback of any kind, and nothing announced to a screen reader —
+   * the selected range was carried by a background colour alone.
+   *
+   * Every sibling pattern in the app already does this correctly; this one
+   * was written quickly and never revisited. `selected` is the part that
+   * matters most: without it VoiceOver reads four identical buttons and gives
+   * no way to tell which range is showing.
+   */
   return (
     <Pressable
       onPress={onPress}
-      style={{
-        height: 34, paddingHorizontal: 13, borderRadius: 10,
+      hitSlop={8}
+      accessibilityRole="button"
+      accessibilityLabel={`Show ${label}`}
+      accessibilityState={{ selected: on }}
+      style={({ pressed }) => ({
+        minHeight: 44, paddingHorizontal: 13, paddingVertical: 6, borderRadius: 10,
         alignItems: 'center', justifyContent: 'center',
-        backgroundColor: on ? T.bottle : tint(0.05),
+        backgroundColor: on
+          ? (pressed ? T.brandDark : T.bottle)
+          : (pressed ? tint(0.11) : tint(0.05)),
         borderWidth: on ? 0 : 1, borderColor: T.rule,
-      }}
+      })}
     >
       <Text style={{ color: on ? T.onBrand : T.steel, fontSize: 12.5, fontWeight: '600' }}>
         {label}

@@ -138,7 +138,7 @@ export default function Locate() {
   }
 
   const field = {
-    height: 52, borderRadius: T.radiusSm, paddingHorizontal: 15,
+    minHeight: 52, borderRadius: T.radiusSm, paddingHorizontal: 15,
     color: T.ink, fontSize: 16,
     backgroundColor: tint(0.05),
     borderWidth: 1, borderColor: T.rule,
@@ -219,7 +219,7 @@ export default function Locate() {
                   accessibilityRole="button"
                   accessibilityState={{ selected: state === k }}
                   style={{
-                    flex: 1, height: 62, borderRadius: T.radiusSm,
+                    flex: 1, minHeight: 62, paddingVertical: 8, borderRadius: T.radiusSm,
                     alignItems: 'center', justifyContent: 'center',
                     backgroundColor: state === k
                       ? (k === 'full' ? wash(0.18) : tint(0.07))

@@ -338,7 +338,7 @@ export default function OrderEdit() {
   }
 
   const field = {
-    height: 50, borderRadius: T.radiusSm, paddingHorizontal: 14,
+    minHeight: 50, borderRadius: T.radiusSm, paddingHorizontal: 14,
     color: T.ink, fontSize: 15.5,
     backgroundColor: tint(0.05), borderWidth: 1, borderColor: T.rule,
   } as const;
@@ -433,15 +433,29 @@ export default function OrderEdit() {
         )}
 
         <Rise delay={40} style={{ marginTop: 26 }}>
+          {/* A toggle, not a one-way door. This used to only ever open —
+              setShowRetag(false) appeared nowhere — so one stray tap left the
+              form on screen for the rest of the visit. Wayfinding asks every
+              screen to answer "how do I get out?"; the answer here is the
+              same control that got you in. */}
           {!showRetag ? (
-            <Pressable onPress={() => setShowRetag(true)} hitSlop={10}>
+            <Pressable onPress={() => setShowRetag(true)} hitSlop={10}
+                       accessibilityRole="button"
+                       accessibilityLabel="Change the order number">
               <Text style={{ color: T.brandLit, fontSize: 13.5, fontWeight: '700' }}>
                 Change the order number
               </Text>
             </Pressable>
           ) : (
             <>
-              <Eyebrow style={{ marginBottom: 9 }}>Order number</Eyebrow>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 9 }}>
+                <Eyebrow>Order number</Eyebrow>
+                <Pressable onPress={() => { setShowRetag(false); setOrderDraft(orderNumber); }} hitSlop={12}
+                           accessibilityRole="button"
+                           accessibilityLabel="Cancel changing the order number">
+                  <Text style={{ color: T.faint, fontSize: 12.5, fontWeight: '700' }}>Cancel</Text>
+                </Pressable>
+              </View>
               <TextInput
                 value={orderDraft} onChangeText={(v) => setOrderDraft(v.toUpperCase())}
                 autoCapitalize="characters" autoCorrect={false}
@@ -463,14 +477,23 @@ export default function OrderEdit() {
 
         <Rise delay={40} style={{ marginTop: 26 }}>
           {!showRecustomer ? (
-            <Pressable onPress={() => setShowRecustomer(true)} hitSlop={10}>
+            <Pressable onPress={() => setShowRecustomer(true)} hitSlop={10}
+                       accessibilityRole="button"
+                       accessibilityLabel="Change the customer">
               <Text style={{ color: T.brandLit, fontSize: 13.5, fontWeight: '700' }}>
                 Change the customer
               </Text>
             </Pressable>
           ) : (
             <>
-              <Eyebrow style={{ marginBottom: 9 }}>Customer</Eyebrow>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 9 }}>
+                <Eyebrow>Customer</Eyebrow>
+                <Pressable onPress={() => { setShowRecustomer(false); setCustPick(null); setCustQuery(''); }} hitSlop={12}
+                           accessibilityRole="button"
+                           accessibilityLabel="Cancel changing the customer">
+                  <Text style={{ color: T.faint, fontSize: 12.5, fontWeight: '700' }}>Cancel</Text>
+                </Pressable>
+              </View>
               {custPick ? (
                 <Pressable
                   onPress={() => { setCustPick(null); setCustQuery(''); }}

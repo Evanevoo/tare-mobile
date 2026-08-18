@@ -1,5 +1,6 @@
 import { Tabs } from 'expo-router';
 import { View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useStore } from '@/store';
 import { pending } from '@/outbox';
 import { T, Icon, ICON } from '@/ui';
@@ -19,6 +20,22 @@ import { T, Icon, ICON } from '@/ui';
 export default function TabLayout() {
   const outbox = useStore((s) => s.outbox);
   const unsent = pending(outbox).length;
+  /**
+   * MEASURED, NOT ASSUMED.
+   *
+   * This bar used to be `height: 88, paddingBottom: 30` — the notched-iPhone
+   * home-indicator inset, written as a literal. On a handset without one (SE,
+   * 8, most Androids on three-button navigation) that is 30pt of dead chrome
+   * under every screen in the app; where the inset is larger it under-clears
+   * and the labels sit in the gesture area.
+   *
+   * The app has always known the real number: `useBottomInset` and `Screen` in
+   * src/ui.tsx both read it. This file simply predates that and never caught
+   * up. The `|| 12` floor is for the zero-inset case, which needs *some*
+   * breathing room under a 44pt row rather than none.
+   */
+  const insets = useSafeAreaInsets();
+  const bottom = insets.bottom || 12;
 
   return (
     <Tabs
@@ -30,9 +47,9 @@ export default function TabLayout() {
           backgroundColor: 'rgba(10,14,16,0.96)',
           borderTopColor: T.rule,
           borderTopWidth: 1,
-          height: 88,
+          height: 58 + bottom,
           paddingTop: 8,
-          paddingBottom: 30,
+          paddingBottom: bottom,
         },
         tabBarLabelStyle: { fontSize: 11, fontWeight: '700', marginTop: 2 },
         tabBarItemStyle: { paddingVertical: 2 },

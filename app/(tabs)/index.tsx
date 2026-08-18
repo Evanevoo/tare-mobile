@@ -241,7 +241,7 @@ export default function Home() {
                 accessibilityLabel="Search customers and assets"
                 style={{
                   flex: 1, flexDirection: 'row', alignItems: 'center',
-                  gap: 10, height: 52, paddingLeft: 12,
+                  gap: 10, minHeight: 52, paddingLeft: 12,
                 }}
               >
                 <Icon name="search" size={ICON.md} color={T.faint} />

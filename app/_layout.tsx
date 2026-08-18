@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Stack, useRouter, useSegments } from 'expo-router';
+import { Stack, useRouter, useSegments, useRootNavigationState } from 'expo-router';
 import { View, ActivityIndicator, useColorScheme } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -54,6 +54,39 @@ function RootLayout() {
   const hydrate = useStore((s) => s.hydrate);
   const router = useRouter();
   const segments = useSegments();
+  /**
+   * WHETHER THERE IS A NAVIGATOR TO NAVIGATE.
+   *
+   * This is the guard for the crash that got 1.2.0 and 1.2.2 rejected by App
+   * Review with "the app crashed on launch", and it is worth the paragraph
+   * because nothing about the old code looked wrong.
+   *
+   * The render gate below waits for BOTH the session and the theme. The
+   * redirect effect underneath waited only for the session. Whenever the
+   * session resolved first — which on a fresh install is the common case, not
+   * the rare one, because the Supabase client starts recovering its session at
+   * module scope while the theme's AsyncStorage read does not begin until the
+   * first effect runs — this component returned the bare loading View, which
+   * contains NO <Stack>, and then called router.replace('/login') against a
+   * router with nothing mounted. expo-router's assertIsReady throws:
+   *
+   *   Attempted to navigate before mounting the Root Layout component.
+   *
+   * There is no ErrorBoundary exported from this file and Sentry.wrap is not
+   * one, so in a release build that is an unhandled exception out of the commit
+   * phase: RCTFatal, process gone, before a single pixel. In development it is
+   * a red box you dismiss, which is exactly why every Expo Go run looked fine.
+   *
+   * It also was not a coin flip. With no navigator mounted useSegments()
+   * returns [], so segments[0] is undefined, so onAuthScreen is false — and a
+   * signed-out launch (every App Review launch) took the throwing branch every
+   * single time the race was lost.
+   *
+   * Keying off the root navigation state rather than adding `themeReady` to the
+   * condition is deliberate: it asks the question that actually matters, and it
+   * stays correct when somebody adds a third async gate to the render below.
+   */
+  const rootNavState = useRootNavigationState();
 
   /* Theme. The palette is swapped during render — before any screen below has
      read a colour — and `key={mode}` remounts the tree so every inline style
@@ -103,6 +136,9 @@ function RootLayout() {
 
   useEffect(() => {
     if (session === 'loading') return;
+    // Nothing below may run until a navigator exists to receive it — see the
+    // note on rootNavState above. This is the launch crash.
+    if (!rootNavState?.key) return;
     // Both are reachable while signed out: 'login' by definition, and
     // 'reset-password' because that is exactly what it is for — a recovery
     // link lands here BEFORE the code exchange that signs the phone in, so
@@ -114,7 +150,7 @@ function RootLayout() {
     const onAuthScreen = segments[0] === 'login' || (segments[0] as string) === 'reset-password';
     if (session === 'out' && !onAuthScreen) router.replace('/login');
     if (session === 'in' && segments[0] === 'login') router.replace('/');
-  }, [session, segments]);
+  }, [session, segments, rootNavState?.key]);
 
   /**
    * Nothing mounts until BOTH the session and the theme are known.
@@ -206,6 +242,7 @@ function RootLayout() {
         <Stack.Screen name="asset/edit/[barcode]" options={{ title: 'Correct' }} />
         <Stack.Screen name="asset/[barcode]" options={{ title: '' }} />
         <Stack.Screen name="customer/[id]" options={{ title: '' }} />
+        <Stack.Screen name="order/[orderNumber]" options={{ title: '' }} />
       </Stack>
         <UpdateBanner segment={segments[0]} />
       </View>
