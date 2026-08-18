@@ -10,6 +10,10 @@ import {
   type Effort, type ScanXResult,
 } from '@/scanx';
 import { RETICLE } from '@/reticle';
+import {
+  decodeBase64Image as zxDecode, coreVersion as zxVersion, warmUp as zxWarmUp,
+  PRESETS as ZX_PRESETS, type ZXResult,
+} from '@/zxing';
 
 /**
  * SCANNER TEST — the new decoder against the one in the truck, on the same frame.
@@ -34,6 +38,16 @@ import { RETICLE } from '@/reticle';
  * number be quoted out of context.
  */
 
+/**
+ * The verdict is about ScanX vs the shipping decoder, and it stays that way
+ * even though a third engine now runs on the same frame.
+ *
+ * zxing is a CANDIDATE, not a contestant: it is the engine the SDK is likely
+ * to be built on, and it is here to answer "does this read WeldCor's labels",
+ * which is a question about the labels, not a race. Folding it into the
+ * verdict would make every historical score incomparable with the ones
+ * already collected. It gets its own row and its own hit count instead.
+ */
 type Verdict = 'agree' | 'scanx-only' | 'current-only' | 'differ' | 'neither';
 
 type Shot = {
@@ -45,14 +59,19 @@ type Shot = {
   scanxFormats: string[];
   scanxMs: number;        // core time
   scanxWallMs: number;    // core + base64 + JSON, i.e. what the tap costs
+  zx: string[];
+  zxFormats: string[];
+  zxMs: number;
+  zxWallMs: number;
   size: string;
   verdict: Verdict;
   error?: string;
+  zxError?: string;
 };
 
 const EMPTY_TALLY = {
   runs: 0, agree: 0, scanxOnly: 0, currentOnly: 0, differ: 0, neither: 0,
-  currentHits: 0, scanxHits: 0, scanxMs: 0, currentMs: 0,
+  currentHits: 0, scanxHits: 0, zxHits: 0, scanxMs: 0, currentMs: 0, zxMs: 0,
 };
 
 const PRESET_KEYS = ['all', 'retail', 'assets', 'qr'] as const;
@@ -69,6 +88,8 @@ export default function ScanXTest() {
   const [ready, setReady] = useState(false);
   const [version, setVersion] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [zxVersionText, setZxVersionText] = useState<string | null>(null);
+  const [zxLoadError, setZxLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [torch, setTorch] = useState(false);
   /**
@@ -104,9 +125,16 @@ export default function ScanXTest() {
   const [shots, setShots] = useState<Shot[]>([]);
   const [tally, setTally] = useState({ ...EMPTY_TALLY });
 
-  // Pull the decoder in on mount. It is ~400 KB of generated JS and Hermes has
-  // to walk all of it once; doing that here rather than on the first tap keeps
-  // the first capture honest instead of charging it for the module load.
+  // Pull both decoders in on mount. Together they are ~2 MB of generated JS
+  // and Hermes has to walk all of it once; doing that here rather than on the
+  // first tap keeps the first capture honest instead of charging it for the
+  // module load.
+  //
+  // zxing loading is NOT fatal to this screen. ScanX is what the screen was
+  // built to evaluate and the comparison still stands without a third column,
+  // so a zxing failure is reported in its own row rather than blocking the
+  // capture button — the opposite arrangement would mean a problem in the
+  // newest, least-proven piece takes the whole test harness down with it.
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -116,6 +144,15 @@ export default function ScanXTest() {
         if (alive) { setVersion(v); setReady(true); }
       } catch (e: any) {
         if (alive) setLoadError(e?.message ? String(e.message) : 'could not start the decoder');
+      }
+    })();
+    (async () => {
+      try {
+        await zxWarmUp();
+        const v = await zxVersion();
+        if (alive) setZxVersionText(v);
+      } catch (e: any) {
+        if (alive) setZxLoadError(e?.message ? String(e.message) : 'could not start zxing');
       }
     })();
     return () => { alive = false; };
@@ -171,7 +208,21 @@ export default function ScanXTest() {
             })
           : { ms: 0, w: 0, h: 0, sourceW: 0, sourceH: 0, codes: [], error: 'no base64 from the resize' };
         const wallMs = Date.now() - t1;
-        return { cur, curMs, sx, wallMs };
+
+        // C — zxing-cpp, the SDK's candidate engine. Same base64, same frame,
+        // same moment as the other two. Adaptive binarisation is on by
+        // default and that is deliberate: without it a shadow across a
+        // packing slip is unreadable at any resolution, which is a condition
+        // two of the reference photographs from the floor actually have.
+        const t2 = Date.now();
+        const zx: ZXResult = small.base64
+          ? await zxDecode(small.base64, {
+              maxDim, effort: effort > 0 ? 1 : 0, formats: ZX_PRESETS[preset], binarize: true,
+            })
+          : { ms: 0, w: 0, h: 0, sourceW: 0, sourceH: 0, codes: [], error: 'no base64 from the resize' };
+        const zxWallMs = Date.now() - t2;
+
+        return { cur, curMs, sx, wallMs, zx, zxWallMs };
       };
 
       let uri = photo.uri;
@@ -193,13 +244,15 @@ export default function ScanXTest() {
 
       let pass = await runBoth(uri);
       let usedFallback = false;
-      if (cropped && pass.cur.length === 0 && pass.sx.codes.length === 0) {
+      if (cropped && pass.cur.length === 0 && pass.sx.codes.length === 0
+          && pass.zx.codes.length === 0) {
         usedFallback = true;
         pass = await runBoth(photo.uri);
       }
 
       const currentTexts = dedupe(pass.cur.map((c) => c.data));
       const scanxTexts = dedupe(pass.sx.codes.map((c) => c.text));
+      const zxTexts = dedupe(pass.zx.codes.map((c) => c.text));
 
       const shot: Shot = {
         at: Date.now(),
@@ -210,10 +263,15 @@ export default function ScanXTest() {
         scanxFormats: dedupe(pass.sx.codes.map((c) => c.format)),
         scanxMs: pass.sx.ms,
         scanxWallMs: pass.wallMs,
+        zx: zxTexts,
+        zxFormats: dedupe(pass.zx.codes.map((c) => c.format)),
+        zxMs: pass.zx.ms,
+        zxWallMs: pass.zxWallMs,
         size: (pass.sx.w ? `${pass.sx.sourceW}×${pass.sx.sourceH} → ${pass.sx.w}×${pass.sx.h}` : '—')
           + (usedFallback ? ' · full frame, crop missed' : cropped ? ' · cropped to reticle' : ''),
         verdict: judge(currentTexts, scanxTexts),
         error: pass.sx.error,
+        zxError: pass.zx.error,
       };
 
       setShots((prev) => [shot, ...prev].slice(0, 12));
@@ -226,8 +284,10 @@ export default function ScanXTest() {
         neither: t.neither + (shot.verdict === 'neither' ? 1 : 0),
         currentHits: t.currentHits + (currentTexts.length ? 1 : 0),
         scanxHits: t.scanxHits + (scanxTexts.length ? 1 : 0),
+        zxHits: t.zxHits + (zxTexts.length ? 1 : 0),
         currentMs: t.currentMs + pass.curMs,
         scanxMs: t.scanxMs + pass.sx.ms,
+        zxMs: t.zxMs + pass.zx.ms,
       }));
     } catch (e: any) {
       // A real failure (camera/resize), not "nothing decoded" — that path
@@ -267,6 +327,7 @@ export default function ScanXTest() {
 
   const avgCurrent = tally.runs ? Math.round(tally.currentMs / tally.runs) : 0;
   const avgScanx = tally.runs ? Math.round(tally.scanxMs / tally.runs) : 0;
+  const avgZx = tally.runs ? Math.round(tally.zxMs / tally.runs) : 0;
 
   return (
     <Screen intensity={0.7}>
@@ -354,6 +415,16 @@ export default function ScanXTest() {
             The decoder did not start: {loadError}
           </Text>
         )}
+        {!!zxLoadError && (
+          <Text style={{ color: T.amber, fontSize: 12.5, marginTop: 8, lineHeight: 18 }}>
+            zxing did not start: {zxLoadError} — the other two engines still run.
+          </Text>
+        )}
+        {!!zxVersionText && (
+          <Text style={{ color: T.faint, fontSize: 11.5, marginTop: 8 }}>
+            {version ? `${version} · ` : ''}{zxVersionText}
+          </Text>
+        )}
 
         {shots.length > 0 && (
           <Rise delay={60} style={{ marginTop: 22 }}>
@@ -371,6 +442,8 @@ export default function ScanXTest() {
             <Hairline />
             <Row label="Read by ScanX" value={`${tally.scanxHits}/${tally.runs}`} mono />
             <Hairline />
+            <Row label="Read by zxing" value={`${tally.zxHits}/${tally.runs}`} mono />
+            <Hairline />
             <Row label="Same answer" value={String(tally.agree)} mono />
             <Hairline />
             <Row label="Only ScanX got it" value={String(tally.scanxOnly)} mono />
@@ -384,6 +457,8 @@ export default function ScanXTest() {
             <Row label="Average, today" value={`${avgCurrent} ms`} mono />
             <Hairline />
             <Row label="Average, ScanX core" value={`${avgScanx} ms`} mono />
+            <Hairline />
+            <Row label="Average, zxing core" value={`${avgZx} ms`} mono />
           </Surface>
           <Text style={{ color: T.faint, fontSize: 12, marginTop: 11, lineHeight: 18 }}>
             “Only ScanX got it” and “Disagreed” are the two rows worth chasing. The first is
@@ -510,12 +585,28 @@ function LastShot({ shot }: { shot: Shot }) {
         formats={shot.scanxFormats}
         ms={`${shot.scanxMs} ms`}
       />
+      <Hairline />
+      <Engine
+        name="zxing (SDK candidate)"
+        sub={`${Math.round(shot.zxMs)} ms core · ${shot.zxWallMs} ms with the handover · adaptive threshold on`}
+        codes={shot.zx}
+        formats={shot.zxFormats}
+        ms={`${Math.round(shot.zxMs)} ms`}
+      />
 
       {!!shot.error && (
         <>
           <Hairline />
           <Text style={{ color: T.needle, fontSize: 12.5, paddingHorizontal: 18, paddingVertical: 12 }}>
-            {shot.error}
+            ScanX: {shot.error}
+          </Text>
+        </>
+      )}
+      {!!shot.zxError && (
+        <>
+          <Hairline />
+          <Text style={{ color: T.needle, fontSize: 12.5, paddingHorizontal: 18, paddingVertical: 12 }}>
+            zxing: {shot.zxError}
           </Text>
         </>
       )}
