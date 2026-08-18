@@ -59,6 +59,8 @@ const PRESET_LABEL: Record<(typeof PRESET_KEYS)[number], string> = {
   all: 'All', retail: 'Retail', assets: 'Asset tags', qr: 'QR',
 };
 
+const sleep = (ms: number) => new Promise<void>((resolve) => { setTimeout(resolve, ms); });
+
 export default function ScanXTest() {
   const [perm, requestPerm] = useCameraPermissions();
   const cam = useRef<CameraView | null>(null);
@@ -68,6 +70,18 @@ export default function ScanXTest() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [torch, setTorch] = useState(false);
+  /**
+   * Continuous autofocus locks onto whatever the lens first settles on and,
+   * on a lot of Android hardware, never re-evaluates — the same problem
+   * src/scanner.tsx's "PERIODIC REFOCUS" fixes for every live scan screen
+   * with a background off/on toggle loop. This screen has no ambient video
+   * decode running to have already nudged it that way, so without a pulse
+   * of its own every still came back locked wherever the camera happened to
+   * land at mount — usually not on a barcode a few inches away — and BOTH
+   * decoders read nothing, every time, regardless of which one is "right":
+   * neither can decode a genuinely out-of-focus photo. See `capture`.
+   */
+  const [autofocus, setAutofocus] = useState<'on' | 'off'>('off');
 
   // Auto mode: loop `capture` on its own instead of waiting for a tap. A ref
   // (not just the `auto` state) is what the capture loop actually reads —
@@ -110,6 +124,15 @@ export default function ScanXTest() {
     if (!cam.current || busy) return;
     setBusy(true);
     try {
+      // Force a fresh focus pull before every still — off, then on, then a
+      // real wait for the lens to converge — rather than trusting whatever
+      // continuous autofocus already locked onto. See the `autofocus` state
+      // doc above for why this exists.
+      setAutofocus('off');
+      await sleep(60);
+      setAutofocus('on');
+      await sleep(550);
+
       const photo = await cam.current.takePictureAsync({ quality: 0.9, skipProcessing: true });
       if (!photo?.uri) throw new Error('the camera returned no image');
 
@@ -218,6 +241,7 @@ export default function ScanXTest() {
                 style={{ flex: 1 }}
                 facing="back"
                 enableTorch={torch}
+                autofocus={autofocus}
               />
             </View>
           </Surface>
