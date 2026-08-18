@@ -69,6 +69,19 @@ export default function ScanXTest() {
   const [busy, setBusy] = useState(false);
   const [torch, setTorch] = useState(false);
 
+  // Auto mode: loop `capture` on its own instead of waiting for a tap. A ref
+  // (not just the `auto` state) is what the capture loop actually reads —
+  // state from the render that scheduled a setTimeout can be stale by the
+  // time it fires, a ref can't be. `captureRef` sidesteps the same staleness
+  // for the *function* itself, since capture is rebuilt on every settings
+  // change (effort/preset/maxDim are its deps).
+  const [auto, setAuto] = useState(false);
+  const autoRef = useRef(false);
+  const captureRef = useRef<() => void>(() => {});
+  const alive = useRef(true);
+  useEffect(() => { autoRef.current = auto; if (auto) captureRef.current(); }, [auto]);
+  useEffect(() => () => { alive.current = false; }, []);
+
   const [effort, setEffort] = useState<Effort>(0);
   const [preset, setPreset] = useState<(typeof PRESET_KEYS)[number]>('all');
   const [maxDim, setMaxDim] = useState(720);
@@ -156,11 +169,21 @@ export default function ScanXTest() {
         scanxMs: t.scanxMs + sx.ms,
       }));
     } catch (e: any) {
+      // A real failure (camera/resize), not "nothing decoded" — that path
+      // above always produces a shot, empty or not, no throw. In auto mode
+      // a repeating alert every ~quarter-second is its own kind of bug, so
+      // this stops the loop instead of stacking dialogs.
+      if (autoRef.current) setAuto(false);
       Alert.alert('Capture failed', e?.message ? String(e.message) : 'Try again.');
     } finally {
       setBusy(false);
+      if (autoRef.current && alive.current) {
+        setTimeout(() => { if (alive.current) captureRef.current(); }, 250);
+      }
     }
   }, [busy, effort, maxDim, preset]);
+
+  useEffect(() => { captureRef.current = capture; }, [capture]);
 
   if (!perm) return <Screen intensity={0.7}><View /></Screen>;
 
@@ -203,12 +226,26 @@ export default function ScanXTest() {
         <Rise delay={40} style={{ marginTop: 12, flexDirection: 'row', gap: 10 }}>
           <View style={{ flex: 1 }}>
             <Btn
-              label={busy ? 'Reading…' : 'Capture and compare'}
-              busy={busy}
-              disabled={busy || !ready}
-              onPress={capture}
+              label={auto ? 'Auto — tap to stop' : busy ? 'Reading…' : 'Capture and compare'}
+              busy={busy && !auto}
+              disabled={!ready}
+              onPress={() => { if (auto) setAuto(false); else capture(); }}
             />
           </View>
+          <Pressable
+            onPress={() => setAuto((v) => !v)}
+            accessibilityRole="switch"
+            accessibilityState={{ checked: auto }}
+            accessibilityLabel="Auto scan"
+            disabled={!ready}
+            style={({ pressed }) => ({
+              width: 58, borderRadius: T.radiusSm, alignItems: 'center', justifyContent: 'center',
+              borderWidth: 1, borderColor: auto ? T.rule : 'transparent',
+              backgroundColor: auto ? T.stamp : pressed ? T.soft : tint(0.04),
+            })}
+          >
+            <Icon name="repeat" size={ICON.md} color={auto ? T.bottle : T.faint} />
+          </Pressable>
           <Pressable
             onPress={() => setTorch((v) => !v)}
             accessibilityRole="switch"
@@ -223,6 +260,14 @@ export default function ScanXTest() {
             <Icon name="zap" size={ICON.md} color={torch ? T.bottle : T.faint} />
           </Pressable>
         </Rise>
+
+        {auto && (
+          <Text style={{ color: T.faint, fontSize: 12, marginTop: 10, lineHeight: 18 }}>
+            Recapturing on its own, back to back — hold the barcode steady in frame. Each
+            capture still costs what the timing note below says; this doesn't make ScanX
+            faster, it just removes the tap.
+          </Text>
+        )}
 
         {!ready && !loadError && (
           <Text style={{ color: T.faint, fontSize: 12, marginTop: 10 }}>
