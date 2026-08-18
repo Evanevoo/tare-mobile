@@ -306,11 +306,40 @@ export function Scanner({
    * than "stop focusing," same as it always did for Android alone. `cycleRef`
    * lets the manual tap (`refocus`) trigger the identical cycle instead of a
    * second, separate mechanism.
+   *
+   * THE 1000ms CADENCE, KEPT FROM THE LEGACY APP, DID NOT SURVIVE CONTACT
+   * WITH THIS CAMERA STACK (2026-08-18, reported live against Locate on
+   * Android): "keeps focusing on and off, never lands sharp." The legacy
+   * app's `autofocusMode` toggle and this one's `autofocus` prop toggle are
+   * not the same operation underneath — expo-camera sits on CameraX on
+   * Android, and switching its AF mode off and back on is a heavier
+   * operation than whatever single-trigger call the legacy native module
+   * made. If a full autofocus search under CameraX takes longer than 1000ms
+   * to converge — plausible up close on a barcode, or in a dim yard — the
+   * next cycle interrupts it before it ever locks, and the lens never gets a
+   * frame to actually settle on. That reads as continuous hunting rather
+   * than a periodic nudge, which is exactly the symptom reported.
+   *
+   * This file cannot see the camera, so 2000ms is a reasoned first correction
+   * — double the recovery time before the next interruption — not a verified
+   * fix. It also drops the old "extra early kicks" (which existed to
+   * re-acquire faster right after opening the camera, under the tighter
+   * 1000ms cadence) rather than retune their offsets against a new interval;
+   * a steady, unhurried cadence beats a fast, precisely-timed one if the
+   * underlying problem is "not enough time to converge." If a rebuild still
+   * shows the same symptom, the next lever is not a longer interval but
+   * dropping the toggle for continuously-moving screens (Locate, batch)
+   * entirely and trusting CameraX's own continuous-AF mode to keep hunting
+   * for a sharp frame on its own — expo-camera has no imperative
+   * "focus now" call to trigger a single scan instead of toggling the mode
+   * (checked against CameraViewRef's public methods), so a mode-toggle is
+   * the only lever this library exposes either way.
    */
   const cycleRef = useRef<() => void>(() => {});
   useEffect(() => {
     if (!ready) return;
     const timers: ReturnType<typeof setTimeout>[] = [];
+    let iv: ReturnType<typeof setInterval> | null = null;
     const cycle = () => {
       setFocusOff(true);
       // Tracked, not fire-and-forget: without this the inner timer outlives the
@@ -321,17 +350,15 @@ export function Scanner({
     cycleRef.current = cycle;
 
     // Let the preview settle before touching focus at all, or the first second
-    // of every scan is a visible glitch.
-    timers.push(setTimeout(cycle, 600));
-    if (steadyFocus) return () => timers.forEach(clearTimeout);
+    // of every scan is a visible glitch. The recurring interval only starts
+    // once this first cycle has fired, so every cycle — including the first —
+    // gets the same full 2000ms of recovery time before the next one.
+    timers.push(setTimeout(() => {
+      cycle();
+      if (!steadyFocus) iv = setInterval(cycle, 2000);
+    }, 600));
 
-    // Sweeping a pallet: keep re-acquiring. The later kicks are offset off the
-    // interval's own ticks (600+1400, 600+2500 against a 1000ms period) so two
-    // cycles never fire together — overlapping cycles cancel each other's
-    // off-window early and the refocus silently does not happen.
-    timers.push(setTimeout(cycle, 2000), setTimeout(cycle, 3100));
-    const iv = setInterval(cycle, 1000);
-    return () => { timers.forEach(clearTimeout); clearInterval(iv); };
+    return () => { timers.forEach(clearTimeout); if (iv) clearInterval(iv); };
   }, [ready, steadyFocus]);
 
   /**
