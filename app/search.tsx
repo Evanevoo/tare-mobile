@@ -197,9 +197,13 @@ export default function Search() {
         </View>
 
         {cam && (
+          /* One barcode, phone held over the label — same case asset/new.tsx
+             and asset/batch.tsx use steadyFocus for, not a sweep across a
+             rack. See src/scanner.tsx. */
           <Scanner
             onCode={onScan}
             onClose={() => setCam(false)}
+            steadyFocus
             style={{
               height: 260, borderRadius: T.radius, overflow: 'hidden', marginTop: 12,
               borderWidth: 1, borderColor: T.rule,

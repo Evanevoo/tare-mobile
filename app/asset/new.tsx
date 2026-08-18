@@ -172,9 +172,18 @@ export default function NewAsset() {
           <Rise delay={50}>
             <Field label="Barcode" style={{ marginTop: 24 }}>
               {scanning ? (
+                /* The same camera, told to hold its focus. This is one
+                   barcode at a time, phone held over the label on a pallet
+                   or a single found bottle — never a sweep across a rack —
+                   which is exactly the case steadyFocus exists for (see
+                   asset/batch.tsx and src/scanner.tsx). Left at the default
+                   before this, the periodic Android refocus fought the read
+                   it was trying to make: the same "autofocus never settles,
+                   just blurry" complaint reported against this screen. */
                 <Scanner
                   onCode={take}
                   onClose={() => setScanning(false)}
+                  steadyFocus
                   style={{
                     height: 260, borderRadius: T.radius,
                     borderWidth: 1, borderColor: wash(0.35),
