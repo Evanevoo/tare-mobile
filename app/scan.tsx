@@ -15,6 +15,7 @@ import { T, shipTone, Surface, Btn, Tag, mono } from '@/ui';
 import { Scanner } from '@/scanner';
 import type { AssetRec } from '@/api';
 import { Sheet } from '@/sheet';
+import { matchesFormat, formatExample } from '@/formats';
 
 /**
  * The scan loop.
@@ -59,7 +60,9 @@ export default function Scan() {
     outbox, addScan, dispatch, endDelivery, boot, sync, syncing, dbUnavailable,
   } = useStore();
 
-  const [last, setLast] = useState<{ barcode: string; kind: string } | null>(null);
+  const [last, setLast] = useState<
+    { barcode: string; kind: string; offFormat?: boolean } | null
+  >(null);
   const [manual, setManual] = useState(false);
   const [manualCode, setManualCode] = useState('');
   // The scan history (list, undo, submit) used to sit permanently below a
@@ -265,7 +268,29 @@ export default function Scan() {
     }
 
     const kind = addScan(barcode, freshGeo());
-    setLast({ barcode, kind });
+
+    /**
+     * THE ORG WROTE DOWN WHAT ITS BARCODES LOOK LIKE. THIS LOOP NEVER READ IT.
+     *
+     * Asked 19 Aug: "we selected barcode format, why are we able to scan an
+     * asset barcode different from what we selected". The rule was being
+     * applied on Add and on Batch add and nowhere in the scan loop, so the one
+     * place a wrong label actually enters the system was the one place that
+     * never mentioned it.
+     *
+     * BOTH CONDITIONS MATTER, and the second is what keeps this from becoming
+     * noise. A barcode the fleet already knows is right BY DEFINITION —
+     * plenty of real cylinders were labelled before the rule was written, and
+     * warning about those would put an alert on half a rack and teach drivers
+     * to ignore it. It is the combination — the fleet has never heard of this
+     * code AND it does not look like one of ours — that means something: a
+     * shipping label, a pallet tag, a manufacturer's own barcode on the side
+     * of the bottle. Recorded either way; see the banner.
+     */
+    const offFormat = kind === 'unknown'
+      && !matchesFormat(barcode, boot?.formats?.barcode);
+
+    setLast({ barcode, kind, offFormat });
 
     flash.setValue(1);
     Animated.timing(flash, { toValue: 0, duration: 620, useNativeDriver: false }).start();
@@ -292,6 +317,10 @@ export default function Scan() {
     }
 
     if (kind === 'added') { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); Vibration.vibrate(90); playScanAccept(); }
+    // Off-format gets the error buzz, not the warning one — the same pattern a
+    // customer card gets. Through gloves that is the whole message: this is
+    // not the kind of mistake you keep walking from.
+    else if (offFormat) { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error); Vibration.vibrate([0, 160, 90, 160]); playScanAlert(); }
     else if (kind === 'unknown') { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); Vibration.vibrate([0, 130, 90, 130]); playScanAlert(); }
     else if (kind === 'duplicate') dupe(barcode);
     else Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -453,9 +482,28 @@ export default function Scan() {
   /** What this org knows about the thing just scanned, if it knows it. */
   const rec = last ? boot?.assets[last.barcode] : undefined;
 
+  /**
+   * "That does not look like one of yours" — said where it can still be acted
+   * on, which is with the bottle in hand rather than three weeks later on an
+   * invoice nobody can explain.
+   *
+   * Still recorded, and that is not a compromise. A driver in a yard holding a
+   * cylinder whose label was printed wrong has to be able to get the scan out;
+   * the outbox exists so work is never lost to a validation rule. What changes
+   * is that the odd one out is now unmistakable at the moment it happens —
+   * red, the error buzz, and the example from the org's own setting.
+   */
+  const barcodeEg = formatExample(boot?.formats?.barcode);
+
   const banner =
     last?.kind === 'duplicate' ? { text: 'Already scanned', tone: T.steel }
     : last?.kind === 'customer' ? { text: 'That is a customer code, not a cylinder — scan the bottle', tone: T.needle }
+    : last?.offFormat ? {
+        text: barcodeEg
+          ? `Not one of your barcodes — yours look like ${barcodeEg}. Recorded anyway.`
+          : 'Not one of your barcodes. Recorded anyway.',
+        tone: T.needle,
+      }
     : last?.kind === 'unknown' ? { text: 'New barcode — recorded; the office assigns its type', tone: T.amber }
     : last ? { text: mode === 'SHIP' ? 'Shipped out' : 'Returned in', tone: T.bottle }
     : null;
