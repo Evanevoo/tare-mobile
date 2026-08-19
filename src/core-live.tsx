@@ -1,6 +1,6 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { View, Text, Pressable, ActivityIndicator } from 'react-native';
+import { View, Text, Pressable, ActivityIndicator, Platform } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { decodeBase64Image as coreDecode, warmUp, version } from '@/scanx-core';
@@ -82,8 +82,45 @@ export function CoreLiveTest({ onClose }: { onClose: () => void }) {
   const [engine, setEngine] = useState<string | null>(null);
   const [engineError, setEngineError] = useState<string | null>(null);
 
+  /**
+   * DEFERRED MOUNT (Android only) AND onCameraReady GATING.
+   *
+   * Both are copied from src/scanner.tsx, and this screen failed without them
+   * in a way worth writing down: every capture came back
+   *
+   *     Unable to find the class expo.modules.camera.ExpoCameraView
+   *     view with tag 1098
+   *
+   * which is the native side saying the view this ref points at is not in its
+   * registry. Mounting a CameraView on the same tick the modal opens — while
+   * a fullScreen slide-in is still running — hands React a view tag that the
+   * camera's own view manager has not finished registering, and the ref then
+   * addresses a view that never existed as far as native is concerned. The
+   * app's real scanner has carried the 150ms Android defer since it was ported
+   * from the legacy app; this screen was written without it, and reproduced
+   * the exact bug the defer exists to prevent.
+   *
+   * `ready` closes the other half: onCameraReady is the only signal that the
+   * session is actually delivering, and the capture loop must not run before
+   * it. Waiting for it costs a few hundred milliseconds once; not waiting cost
+   * every frame.
+   */
+  const [mounted, setMounted] = useState(Platform.OS !== 'android');
+  const [ready, setReady] = useState(false);
+
   const alive = useRef(true);
-  useEffect(() => () => { alive.current = false; }, []);
+  useEffect(() => {
+    alive.current = true;
+    if (!perm?.granted) void requestPerm();
+    return () => { alive.current = false; };
+  }, [perm?.granted]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    if (!perm?.granted) { setMounted(false); setReady(false); return; }
+    const t = setTimeout(() => { if (alive.current) setMounted(true); }, 150);
+    return () => clearTimeout(t);
+  }, [perm?.granted]);
 
   useEffect(() => {
     (async () => {
@@ -192,7 +229,7 @@ export function CoreLiveTest({ onClose }: { onClose: () => void }) {
   useEffect(() => { runningRef.current = running; }, [running]);
 
   useEffect(() => {
-    if (!engine) return;
+    if (!engine || !ready) return;
     let stop = false;
     (async () => {
       while (!stop && alive.current) {
@@ -201,7 +238,7 @@ export function CoreLiveTest({ onClose }: { onClose: () => void }) {
       }
     })();
     return () => { stop = true; };
-  }, [engine, once]);
+  }, [engine, ready, once]);
 
   if (!perm?.granted) {
     return (
@@ -219,9 +256,22 @@ export function CoreLiveTest({ onClose }: { onClose: () => void }) {
 
   const status = engineError ? engineError
     : !engine ? 'Starting the decoder…'
+    : !ready ? 'Starting the camera…'
     : busy ? 'Reading…'
     : !running ? 'Paused.'
     : 'Hold the label level and fill the width.';
+
+  if (!mounted) {
+    // The Android deferred-mount window, ~150ms. Rendering the camera inside
+    // it is what produced the stale view tag; saying so out loud is better
+    // than a black rectangle.
+    return (
+      <View style={{ flex: 1, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator color="#fff" />
+        <Text style={{ color: T.steel, fontSize: 13, marginTop: 12 }}>Starting camera…</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={{ flex: 1, backgroundColor: '#000' }}>
@@ -229,9 +279,11 @@ export function CoreLiveTest({ onClose }: { onClose: () => void }) {
         ref={cam}
         style={{ flex: 1 }}
         facing="back"
+        active
         enableTorch={torch}
         animateShutter={false}
         autofocus={focusOff ? 'off' : 'on'}
+        onCameraReady={() => { if (alive.current) setReady(true); }}
         /*
           NO barcodeScannerSettings AND NO onBarcodeScanned.
           That absence is the whole point of this screen: without them the
