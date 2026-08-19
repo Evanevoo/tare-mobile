@@ -1,6 +1,6 @@
 
 var createScanx = (() => {
-  var _scriptDir = import.meta.url;
+  var _scriptDir = typeof document !== 'undefined' && document.currentScript ? document.currentScript.src : undefined;
   
   return (
 function(createScanx) {
@@ -28,4 +28,9 @@ e=G;p(na);var ea=c([null,fc,Tb,ec,dc,cc,bc,ac,$b,_b,jc,Zb,Yb,Xb,rb,Ya,Db,Db,sc,m
 }
 );
 })();
-export default createScanx;
+if (typeof exports === 'object' && typeof module === 'object')
+  module.exports = createScanx;
+else if (typeof define === 'function' && define['amd'])
+  define([], function() { return createScanx; });
+else if (typeof exports === 'object')
+  exports["createScanx"] = createScanx;

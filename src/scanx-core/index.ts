@@ -97,8 +97,14 @@ let modPromise: Promise<Wasm> | null = null;
 function load(): Promise<Wasm> {
   if (!modPromise) {
     modPromise = (async () => {
-      const factory = (await import('./scanx.js')).default;
-      return (await factory()) as Wasm;
+      // CommonJS, not ESM. The Emscripten ES6 output opens with
+      // `import.meta.url`, which Metro cannot parse and which fails the whole
+      // bundle export — so this is built with EXPORT_ES6=0 and the factory
+      // arrives on `module.exports`. The `.default` fallback covers Metro's
+      // interop wrapping it.
+      const mod: any = await import('./scanx.js');
+      const factory = (mod?.default ?? mod) as () => Promise<Wasm>;
+      return await factory();
     })();
   }
   return modPromise;
