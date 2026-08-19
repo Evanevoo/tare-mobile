@@ -76,6 +76,8 @@ export type Action =
   | { type: 'BEGIN_UPLOAD'; clientIds: string[] }
   | { type: 'UPLOAD_OK'; clientIds: string[] }
   | { type: 'UPLOAD_FAILED'; clientIds: string[] }
+  /** Crash recovery at hydrate: strand nothing in UPLOADING. See the reducer. */
+  | { type: 'RECOVER_INFLIGHT' }
   | { type: 'CLEAR_SENT' };
 
 export const empty: Outbox = { scans: [] };
@@ -214,6 +216,44 @@ export function reduce(state: Outbox, action: Action): Outbox {
           ids.has(s.clientId) && s.state === 'UPLOADING' ? { ...s, state: 'QUEUED' } : s),
       };
     }
+
+    /**
+     * THE APP DIED MID-UPLOAD. PUT THE ROWS BACK IN LINE.
+     *
+     * Found 19 Aug 2026, from a real lost delivery: scanned for Flatstone
+     * Construction, pressed Done then Submit, the screen went grey and froze,
+     * the app was force-closed, and the scans were gone. Nothing reached the
+     * server — no Flatstone scan exists in the ledger.
+     *
+     * Here is the whole mechanism. `BEGIN_UPLOAD` moves rows to UPLOADING and
+     * that state is persisted to SQLite immediately, as it must be. The ONLY
+     * thing that ever moves a row back out of UPLOADING is `UPLOAD_FAILED`,
+     * which runs in sync()'s catch block. A catch block requires the process
+     * to still be alive. A crash, a force-quit, an OS kill under memory
+     * pressure — none of them run it.
+     *
+     * And sync() only ever sends `queued(outbox)`, which is `state ===
+     * 'QUEUED'` exactly. So a row stranded in UPLOADING is never retried by
+     * anything, ever. It sits on the phone, counts as pending, and will not
+     * move for the rest of the device's life. The driver did everything right
+     * and the shift is gone.
+     *
+     * The recovery is the one fact that makes this safe: if this app is
+     * hydrating, it has just started, so by definition no upload is in
+     * flight. Any UPLOADING row is therefore a corpse from a previous
+     * process and belongs back in the queue.
+     *
+     * Re-sending something the server may already have is deliberately the
+     * safe direction, not a risk taken: /api/scans createMany uses
+     * skipDuplicates and returns a `replayed` count, so a row that did land
+     * before the crash posts zero the second time. Duplicate delivery is
+     * free; a lost delivery is a phone call from a yard.
+     */
+    case 'RECOVER_INFLIGHT':
+      return {
+        scans: state.scans.map((s) =>
+          s.state === 'UPLOADING' ? { ...s, state: 'QUEUED' } : s),
+      };
 
     case 'CLEAR_SENT':
       return { scans: state.scans.filter((s) => s.state !== 'SENT') };

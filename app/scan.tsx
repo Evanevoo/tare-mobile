@@ -28,6 +28,28 @@ import type { AssetRec } from '@/api';
  * happened, and the active mode is a lit object rather than a tinted rectangle,
  * because shipping when you meant to receive is the expensive mistake.
  */
+
+/**
+ * WHAT KIND OF THING THIS IS, in the fewest words that are still specific.
+ *
+ * The bootstrap sends assets in compact keys to keep the payload small: `p` is
+ * the product code, `gt` the gas type, `cat` the category, `ds` a free
+ * description. A driver reading a confirmation wants the noun — "OXY 244" or
+ * "Argon" — not all four, so this takes the most specific field present and
+ * stops. Product code first because it is what the paperwork and the office
+ * both use; gas type next because it is what the bottle is; category and
+ * description are the fallbacks for fleets that fill neither.
+ *
+ * Returns null when the org knows nothing about this barcode, which is a real
+ * and common case (a new bottle scanned before the office has typed it in) and
+ * must render as nothing rather than as "Unknown".
+ */
+function kindOf(a: { p?: string | null; gt?: string | null; cat?: string | null; ds?: string | null } | undefined): string | null {
+  if (!a) return null;
+  const pick = (a.p || a.gt || a.cat || a.ds || '').trim();
+  return pick.length ? pick : null;
+}
+
 export default function Scan() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -350,6 +372,33 @@ export default function Scan() {
 
     if (removedTimer.current) clearTimeout(removedTimer.current);
     setRemoved(null);
+
+    /**
+     * DISMISS THE SHEET BEFORE LEAVING THE SCREEN. THIS LINE IS THE BUG FIX.
+     *
+     * Reported 19 Aug 2026, twice, from a real delivery to Flatstone
+     * Construction: "scanned a delivery, then clicked Done, Submit, and the
+     * screen went grey and froze. Closed the app, and the scan is gone."
+     *
+     * Submit lives INSIDE this Modal, so pressing it ran the whole of finish()
+     * with `review` still true. `router.replace('/')` then tore this screen
+     * down while a visible Modal was still mounted on it. On Android a Modal
+     * is a real platform dialog window, not a view in the tree: unmounting its
+     * owner without lowering `visible` first leaves that window orphaned on
+     * top of the app. It renders as a grey sheet over the new screen and
+     * swallows every touch, and there is no way back — the only exit is force
+     * closing the app. Exactly what was reported, both times.
+     *
+     * `onRequestClose` was the only place that ever set this false, which is
+     * the Android back button — so the one path a driver actually uses to
+     * finish a delivery was the one path that never dismissed the sheet.
+     *
+     * The data loss is the second half and is fixed separately, in the outbox:
+     * force-closing during the sync this function kicks off used to strand
+     * every row in UPLOADING for ever. See RECOVER_INFLIGHT.
+     */
+    setReview(false);
+
     endDelivery();
     router.replace('/');
     if (n) {
@@ -551,6 +600,27 @@ export default function Scan() {
                     >
                       {last.barcode}
                     </Text>
+                    {/*
+                      WHAT IT WAS, NOT JUST WHICH ONE.
+                      A barcode alone confirms the read landed but not that the
+                      right THING was picked up — and on a rack of identical
+                      cylinders the number is the one part a driver cannot check
+                      by looking. Asked for directly, 19 Aug: "the screen should
+                      show what kind of asset was scanned last."
+                      Only on the plain path; the full card already carries the
+                      product beside its chips.
+                    */}
+                    {kindOf(rec) ? (
+                      <Text
+                        numberOfLines={1}
+                        style={{
+                          color: 'rgba(255,255,255,0.72)', fontSize: 13.5,
+                          fontWeight: '700', marginTop: 4,
+                        }}
+                      >
+                        {kindOf(rec)}
+                      </Text>
+                    ) : null}
                   </View>
                 )
               ) : (
@@ -770,6 +840,53 @@ export default function Scan() {
               <Text style={{ color: T.faint, fontSize: 13, marginBottom: 16, lineHeight: 19 }}>
                 For a label that is scratched, painted over, or under frost.
               </Text>
+
+              {/*
+                SHIP OR RETURN, DECIDED HERE, WITH THE BARCODE IN VIEW.
+                Asked for 19 Aug. A typed barcode used to inherit whatever the
+                toggle behind this sheet happened to be set to, and the sheet
+                covers that toggle — so the one entry path where the driver
+                cannot see the mode was the one path that silently used it.
+                Typing a barcode is already the slow, deliberate, gloves-off
+                case; it is exactly where a wrong direction is most likely and
+                least noticed, and shipping when you meant to receive is the
+                expensive mistake this whole screen is built around.
+
+                This writes the real store mode rather than keeping a private
+                copy, so what you pick here is what `take()` uses and what the
+                toggle shows when the sheet closes — one source of truth, and
+                no way for the sheet and the screen behind it to disagree.
+              */}
+              <View style={{ flexDirection: 'row', gap: 10, marginBottom: 16 }}>
+                {(['SHIP', 'RETURN'] as const).map((m) => {
+                  const on = mode === m;
+                  return (
+                    <Pressable
+                      key={m}
+                      onPress={() => { setMode(m); Haptics.selectionAsync(); }}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected: on }}
+                      accessibilityLabel={m === 'SHIP' ? 'Ship out' : 'Return in'}
+                      style={{
+                        flex: 1, minHeight: 52, borderRadius: T.radiusSm,
+                        alignItems: 'center', justifyContent: 'center',
+                        borderWidth: on ? 2 : 1,
+                        borderColor: on ? (m === 'SHIP' ? T.brandLit : T.bottle) : T.rule,
+                        backgroundColor: on
+                          ? (m === 'SHIP' ? 'rgba(56,189,248,0.16)' : 'rgba(52,211,153,0.16)')
+                          : 'rgba(0,0,0,0.25)',
+                      }}
+                    >
+                      <Text style={{
+                        color: on ? T.ink : T.faint,
+                        fontSize: 14.5, fontWeight: on ? '800' : '600',
+                      }}>
+                        {m === 'SHIP' ? 'Ship out' : 'Return in'}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
               <TextInput
                 value={manualCode} onChangeText={(v) => setManualCode(v.toUpperCase())}
                 autoFocus autoCapitalize="characters" autoCorrect={false}

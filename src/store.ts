@@ -76,7 +76,7 @@ export const useStore = create<State>((set, get) => ({
   unresolved: [],
 
   async hydrate() {
-    const [outbox, cached, lastSync, job, who] = await Promise.all([
+    const [loaded, cached, lastSync, job, who] = await Promise.all([
       loadOutbox(),
       cacheGet<Bootstrap>('bootstrap'),
       cacheGet<string>('lastSync'),
@@ -93,6 +93,28 @@ export const useStore = create<State>((set, get) => ({
     // a yard. So the payload carries a version, and anything that does not
     // match is discarded and refetched rather than trusted.
     const boot = cached && cached.v === BOOTSTRAP_VERSION ? cached : null;
+
+    /**
+     * ANYTHING STILL "UPLOADING" ON DISK IS A CORPSE. RESURRECT IT.
+     *
+     * This app is starting, so no upload can be in flight — any row left in
+     * UPLOADING is from a process that died between BEGIN_UPLOAD and either
+     * answer. Nothing else in the app will ever touch those rows again:
+     * sync() sends `queued()`, which is QUEUED only, and the one transition
+     * out of UPLOADING lives in a catch block that a killed process never
+     * runs. Cost of leaving them: a whole delivery silently stranded on the
+     * phone for ever (Flatstone, 19 Aug). Cost of re-sending one the server
+     * already has: nothing, because the ingest dedupes and replays zero.
+     *
+     * Persisted immediately rather than left to the fire-and-forget write in
+     * dispatch(), because the entire point is surviving the next crash.
+     */
+    const recovered = reduce(loaded, { type: 'RECOVER_INFLIGHT' });
+    const outbox = recovered;
+    const strandedCount = loaded.scans.filter((s) => s.state === 'UPLOADING').length;
+    if (strandedCount) {
+      await saveOutbox(recovered).catch(() => {});
+    }
 
     // Restore the job in flight, if there was one. A driver who force-quit at
     // bottle thirty comes back to bottle thirty.
