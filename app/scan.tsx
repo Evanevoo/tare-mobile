@@ -399,8 +399,30 @@ export default function Scan() {
      */
     setReview(false);
 
-    endDelivery();
-    router.replace('/');
+    /**
+     * AND THEN LET THE SHEET ACTUALLY CLOSE BEFORE LEAVING.
+     *
+     * Dismissing the Modal and calling router.replace in the same synchronous
+     * block fixed the grey frozen screen and produced a BLACK one instead —
+     * reported on the very next delivery. Both are the same underlying race.
+     * `setReview(false)` does not close an Android dialog window; it schedules
+     * a React re-render which then asks the platform to close it, and that
+     * takes a frame. Tearing the owning screen down inside that frame — while
+     * the dialog is mid-dismiss and a live CameraView is being unmounted on
+     * the same commit — leaves the app showing this screen's own black
+     * background with nothing left mounted on it.
+     *
+     * One frame of patience removes the race entirely. 150ms rather than a
+     * bare requestAnimationFrame because the work being waited on is native
+     * dialog teardown plus camera release, not a JS paint, and a driver cannot
+     * perceive the difference.
+     *
+     * THE SYNC IS KICKED OFF FIRST, DELIBERATELY. Whatever the UI does next,
+     * the scans are already on their way, and if this process dies mid-flight
+     * RECOVER_INFLIGHT puts them back in the queue at next launch. Data
+     * safety must not depend on the navigation succeeding — that assumption
+     * is what cost the Flatstone delivery.
+     */
     if (n) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       // The order going out deserves the most confident buzz of all — one
@@ -409,6 +431,15 @@ export default function Scan() {
       playSubmitSuccess();
       sync().catch(() => {});
     }
+
+    // Both together, on the far side of the wait. Clearing the job while this
+    // screen is still mounted would leave it rendering for a frame with no
+    // order and no customer — the exact inconsistent state its own guard was
+    // once written to bail out of.
+    setTimeout(() => {
+      endDelivery();
+      router.replace('/');
+    }, 150);
   }
 
   /** What this org knows about the thing just scanned, if it knows it. */
