@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { View, Text, ScrollView, Pressable, Alert, Modal } from 'react-native';
-import { Scanner } from '@/scanner';
+import { CoreLiveTest } from '@/core-live';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { useStore } from '@/store';
@@ -39,7 +39,6 @@ export default function Settings() {
    * and the reason this is safe to hand to somebody mid-shift.
    */
   const [testing, setTesting] = useState(false);
-  const [reads, setReads] = useState<{ code: string; at: number; known: string | null }[]>([]);
 
   const who = boot?.user.name || email || '—';
   const sub = [boot?.user.email || email, boot?.user.role].filter(Boolean).join(' · ');
@@ -134,18 +133,18 @@ export default function Settings() {
               />
               <Hairline />
               {/*
-                THE LIVE ONE. Same camera, same reticle, same decode path the
-                delivery loop uses — the sheet below is a copy of Delivery's,
-                deliberately, so what is tested here is what drivers actually
-                run. The difference is that nothing is written: no order, no
-                outbox row, no customer. Scan a rack of bottles as fast as you
-                like and the ledger never hears about it.
+                THE LIVE ONE, AND IT RUNS OUR ENGINE ALONE.
+                The row above hands one photograph to four decoders and keeps
+                score. This one removes the other three: a bare camera with no
+                platform barcode scanner attached, capturing on a loop and
+                giving every frame to scanx-core. Anything it reads here, it
+                read by itself. Nothing is written anywhere.
               */}
               <Nav
                 icon="target"
                 label="Live scanner test"
-                hint="Scan for real, see what it reads, save nothing"
-                onPress={() => { setReads([]); setTesting(true); }}
+                hint="Our decoder only — no ML Kit. Saves nothing."
+                onPress={() => setTesting(true)}
               />
             </Surface>
             <Text style={{ color: T.faint, fontSize: 12, marginTop: 11, lineHeight: 18 }}>
@@ -221,44 +220,16 @@ export default function Settings() {
         presentationStyle="fullScreen"
         onRequestClose={() => setTesting(false)}
       >
-        <View style={{ flex: 1, backgroundColor: '#000' }}>
-          <Scanner
-            onCode={(code) => {
-              const known = boot?.assets?.[code];
-              setReads((prev) => [
-                { code, at: Date.now(), known: known ? (known.p || known.gt || 'on the fleet') : null },
-                ...prev,
-              ].slice(0, 50));
-            }}
-            onClose={() => setTesting(false)}
-            style={{ flex: 1 }}
-          >
-            <View style={{ position: 'absolute', left: 0, right: 0, bottom: 40, paddingHorizontal: 22 }}>
-              <Text style={{ color: '#fff', fontSize: 13.5, textAlign: 'center', opacity: 0.9, marginBottom: 10 }}>
-                {reads.length
-                  ? `${reads.length} read${reads.length === 1 ? '' : 's'} — nothing is being saved`
-                  : 'Scan anything. Nothing is saved.'}
-              </Text>
-              {reads.slice(0, 3).map((r) => (
-                <View
-                  key={`${r.code}-${r.at}`}
-                  style={{
-                    flexDirection: 'row', alignItems: 'center', gap: 10,
-                    backgroundColor: 'rgba(0,0,0,0.55)', borderRadius: 10,
-                    paddingHorizontal: 12, paddingVertical: 9, marginTop: 6,
-                  }}
-                >
-                  <Text style={[mono(15, '700'), { color: '#fff', flexShrink: 1 }]} numberOfLines={1}>
-                    {r.code}
-                  </Text>
-                  <Text style={{ color: r.known ? T.bottle : T.amber, fontSize: 12, fontWeight: '700' }}>
-                    {r.known ?? 'not on the fleet'}
-                  </Text>
-                </View>
-              ))}
-            </View>
-          </Scanner>
-        </View>
+        {/*
+          NOT the shared Scanner component, deliberately.
+          Scanner's live reads come from expo-camera's onBarcodeScanned, which
+          IS ML Kit — the decoder is wired into the camera session natively and
+          cannot be swapped for another. Running scanx-core alongside it would
+          be a race between two engines rather than a test of one. So this
+          mounts a bare CameraView with no barcode settings attached at all:
+          every code on that screen was read by our engine and nothing else.
+        */}
+        <CoreLiveTest onClose={() => setTesting(false)} />
       </Modal>
     </Screen>
   );

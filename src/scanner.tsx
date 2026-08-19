@@ -402,7 +402,36 @@ export function Scanner({
     // cycles never fire together — overlapping cycles cancel each other's
     // off-window early and the refocus silently does not happen.
     timers.push(setTimeout(cycle, 2000), setTimeout(cycle, 3100));
-    const iv = setInterval(cycle, 1000);
+
+    /**
+     * STOP HUNTING WHEN IT IS ALREADY READING.
+     *
+     * Reported from the yard, 19 Aug: "the focus keeps turning on and off
+     * repeatedly." It does — once a second, visibly, by design, because that
+     * is what legacy did and it is genuinely right for a driver sweeping a
+     * pallet at changing distances.
+     *
+     * It is wrong the rest of the time. A lens told to re-acquire every second
+     * spends a good part of every second hunting, and the frames it delivers
+     * mid-hunt are exactly the soft ones a long Code 39 label cannot survive.
+     * So the refocus that exists to help find a barcode was firing hardest
+     * while barcodes were already being found, making the picture worse and
+     * looking broken while it did it.
+     *
+     * `steadyFocus` was the existing answer and it is too blunt: it is a prop
+     * set per screen, so it cannot know that THIS driver, right now, is
+     * reading fine. The clock can. A read in the last three seconds means the
+     * lens is where it needs to be, so leave it alone; go quiet, and resume
+     * hunting only once the reads stop.
+     *
+     * Net effect: pulsing while searching, still while working. Which is what
+     * the periodic refocus was always trying to be.
+     */
+    const iv = setInterval(() => {
+      const since = Date.now() - lastReadAt.current;
+      if (since < 3000) return;   // it is working; do not disturb the lens
+      cycle();
+    }, 1000);
     return () => { timers.forEach(clearTimeout); clearInterval(iv); };
   }, [ready, steadyFocus]);
 
