@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { View, Text, ScrollView, Pressable, Alert } from 'react-native';
+import { View, Text, ScrollView, Pressable, Alert, Modal } from 'react-native';
+import { Scanner } from '@/scanner';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { useStore } from '@/store';
@@ -30,6 +31,15 @@ export default function Settings() {
   // Same test More uses. The scanner trial is a diagnostic, not a driver
   // feature: a row that opens a benchmark is noise on a delivery run.
   const isAdmin = boot?.user.role === 'admin' || boot?.user.role === 'owner';
+
+  /**
+   * The live scanner trial. Deliberately holds its reads in component state
+   * and nowhere else — not the outbox, not the cache, not the server. Closing
+   * the sheet forgets them, which is the correct behaviour for a diagnostic
+   * and the reason this is safe to hand to somebody mid-shift.
+   */
+  const [testing, setTesting] = useState(false);
+  const [reads, setReads] = useState<{ code: string; at: number; known: string | null }[]>([]);
 
   const who = boot?.user.name || email || '—';
   const sub = [boot?.user.email || email, boot?.user.role].filter(Boolean).join(' · ');
@@ -122,6 +132,21 @@ export default function Settings() {
                 hint="Photograph a label and give the same photo to both decoders"
                 onPress={() => router.push('/scanx-test' as never)}
               />
+              <Hairline />
+              {/*
+                THE LIVE ONE. Same camera, same reticle, same decode path the
+                delivery loop uses — the sheet below is a copy of Delivery's,
+                deliberately, so what is tested here is what drivers actually
+                run. The difference is that nothing is written: no order, no
+                outbox row, no customer. Scan a rack of bottles as fast as you
+                like and the ledger never hears about it.
+              */}
+              <Nav
+                icon="target"
+                label="Live scanner test"
+                hint="Scan for real, see what it reads, save nothing"
+                onPress={() => { setReads([]); setTesting(true); }}
+              />
             </Surface>
             <Text style={{ color: T.faint, fontSize: 12, marginTop: 11, lineHeight: 18 }}>
               A new barcode decoder is being trialled. This reads one photo with the scanner
@@ -171,6 +196,70 @@ export default function Settings() {
           </Surface>
         </Rise>
       </ScrollView>
+
+      {/*
+        LIVE SCANNER TRIAL — a deliberate copy of Delivery's scanning sheet.
+        Same Modal shape, same fullScreen presentation, same black floor for
+        the same reason (a Modal's own backdrop is white, and it is visible
+        for the whole slide-in before the camera's first frame arrives — a
+        white flash in a dark cab at 06:10).
+
+        Copied rather than shared because the point is to test what drivers
+        run: if this diverged from Delivery, a clean result here would prove
+        nothing about the screen that matters.
+
+        NOT `steadyFocus`. Delivery's setup fields read a printed receipt held
+        still; this is for sweeping a rack of cylinders, which is the scan
+        loop's case, so it gets the scan loop's periodic refocus.
+
+        Nothing here navigates, so no afterModalClose is needed — see
+        src/nav.ts for why that would matter if it did.
+      */}
+      <Modal
+        visible={testing}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        onRequestClose={() => setTesting(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: '#000' }}>
+          <Scanner
+            onCode={(code) => {
+              const known = boot?.assets?.[code];
+              setReads((prev) => [
+                { code, at: Date.now(), known: known ? (known.p || known.gt || 'on the fleet') : null },
+                ...prev,
+              ].slice(0, 50));
+            }}
+            onClose={() => setTesting(false)}
+            style={{ flex: 1 }}
+          >
+            <View style={{ position: 'absolute', left: 0, right: 0, bottom: 40, paddingHorizontal: 22 }}>
+              <Text style={{ color: '#fff', fontSize: 13.5, textAlign: 'center', opacity: 0.9, marginBottom: 10 }}>
+                {reads.length
+                  ? `${reads.length} read${reads.length === 1 ? '' : 's'} — nothing is being saved`
+                  : 'Scan anything. Nothing is saved.'}
+              </Text>
+              {reads.slice(0, 3).map((r) => (
+                <View
+                  key={`${r.code}-${r.at}`}
+                  style={{
+                    flexDirection: 'row', alignItems: 'center', gap: 10,
+                    backgroundColor: 'rgba(0,0,0,0.55)', borderRadius: 10,
+                    paddingHorizontal: 12, paddingVertical: 9, marginTop: 6,
+                  }}
+                >
+                  <Text style={[mono(15, '700'), { color: '#fff', flexShrink: 1 }]} numberOfLines={1}>
+                    {r.code}
+                  </Text>
+                  <Text style={{ color: r.known ? T.bottle : T.amber, fontSize: 12, fontWeight: '700' }}>
+                    {r.known ?? 'not on the fleet'}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          </Scanner>
+        </View>
+      </Modal>
     </Screen>
   );
 }
