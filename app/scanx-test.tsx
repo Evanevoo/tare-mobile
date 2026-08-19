@@ -64,6 +64,15 @@ type Shot = {
   zxMs: number;
   zxWallMs: number;
   size: string;
+  /**
+   * What the camera actually handed back, before any crop or resize.
+   *
+   * On the card because it is the first thing to check when everything returns
+   * nothing: no Size setting can add detail the sensor never captured, so a
+   * small number here means the bottleneck is the capture and nothing
+   * downstream will fix it.
+   */
+  capture: string;
   verdict: Verdict;
   error?: string;
   zxError?: string;
@@ -120,7 +129,12 @@ export default function ScanXTest() {
 
   const [effort, setEffort] = useState<Effort>(0);
   const [preset, setPreset] = useState<(typeof PRESET_KEYS)[number]>('all');
-  const [maxDim, setMaxDim] = useState(720);
+  // 1200, not 720. The bench says a 20-character Code 128 needs ~660 px of
+  // barcode to clear 3 px per narrow bar, and at 720 across the whole frame
+  // that label lands under 2 -- undecodable by anything. Starting below the
+  // floor means the first capture of every session fails for a reason that
+  // has nothing to do with the decoders being compared.
+  const [maxDim, setMaxDim] = useState(1200);
 
   const [shots, setShots] = useState<Shot[]>([]);
   const [tally, setTally] = useState({ ...EMPTY_TALLY });
@@ -171,8 +185,23 @@ export default function ScanXTest() {
       setAutofocus('on');
       await sleep(550);
 
-      const photo = await cam.current.takePictureAsync({ quality: 0.9, skipProcessing: true });
+      /*
+       * NO skipProcessing, AND THE REASON IS WORTH KEEPING.
+       *
+       * It was set for speed. On Android it also skips the step that applies
+       * the sensor's own orientation and, on some devices, hands back a frame
+       * closer to preview resolution than to the sensor's. Three engines
+       * returning nothing at once on a legible label is almost never three
+       * decoder failures -- it is one bad input -- and capture resolution is
+       * the input that decides whether a barcode is readable in principle.
+       * Saving a few milliseconds on a screen whose whole purpose is deciding
+       * whether labels CAN be read is a bad trade, so the processing stays on
+       * and the size that actually came back is now reported on the card
+       * rather than assumed.
+       */
+      const photo = await cam.current.takePictureAsync({ quality: 0.95 });
       if (!photo?.uri) throw new Error('the camera returned no image');
+      const captureSize = `${photo.width ?? 0}×${photo.height ?? 0}`;
 
       /**
        * CROP TO THE RETICLE FIRST — same box, same reason, as src/scanner.tsx's
@@ -225,16 +254,38 @@ export default function ScanXTest() {
         return { cur, curMs, sx, wallMs, zx, zxWallMs };
       };
 
+      /*
+       * CROP WIDER THAN THE BOX THAT WAS DRAWN.
+       *
+       * Every linear symbology requires a QUIET ZONE -- Code 128 wants ten
+       * module widths of blank either side -- and a decoder that cannot see
+       * one refuses the symbol outright rather than reading it short. Cropping
+       * exactly to the reticle guarantees the failure whenever someone fills
+       * the box properly, which is precisely what they were asked to do: the
+       * better the aim, the closer the bars sit to the edge, the more certain
+       * the miss. An aiming guide that punishes good aim is worse than none.
+       *
+       * So the drawn box stays where it is and the crop is taken with a margin
+       * around it. 8% of frame width is comfortably past ten modules for the
+       * labels in this fleet while still excluding the corners, which is where
+       * the stray courier sticker that motivated cropping in the first place
+       * lives.
+       */
+      const PAD = 0.08;
       let uri = photo.uri;
       let cropped = false;
       if (photo.width && photo.height) {
         try {
+          const l = Math.max(0, RETICLE.left - PAD);
+          const t = Math.max(0, RETICLE.top - PAD);
+          const r = Math.min(1, RETICLE.left + RETICLE.width + PAD);
+          const b = Math.min(1, RETICLE.top + RETICLE.height + PAD);
           const c = await manipulateAsync(photo.uri, [{
             crop: {
-              originX: Math.round(photo.width * RETICLE.left),
-              originY: Math.round(photo.height * RETICLE.top),
-              width: Math.round(photo.width * RETICLE.width),
-              height: Math.round(photo.height * RETICLE.height),
+              originX: Math.round(photo.width * l),
+              originY: Math.round(photo.height * t),
+              width: Math.round(photo.width * (r - l)),
+              height: Math.round(photo.height * (b - t)),
             },
           }], { compress: 1 });
           uri = c.uri;
@@ -269,6 +320,7 @@ export default function ScanXTest() {
         zxWallMs: pass.zxWallMs,
         size: (pass.sx.w ? `${pass.sx.sourceW}×${pass.sx.sourceH} → ${pass.sx.w}×${pass.sx.h}` : '—')
           + (usedFallback ? ' · full frame, crop missed' : cropped ? ' · cropped to reticle' : ''),
+        capture: captureSize,
         verdict: judge(currentTexts, scanxTexts),
         error: pass.sx.error,
         zxError: pass.zx.error,
@@ -483,24 +535,43 @@ export default function ScanXTest() {
             onChange={(v) => setPreset(v as (typeof PRESET_KEYS)[number])}
           />
           <View style={{ height: 10 }} />
+          {/*
+            RANGE PICKED FROM A MEASUREMENT, NOT FROM ROUND NUMBERS.
+
+            The old 540/720/900 ladder topped out below what WeldCor's own
+            paperwork needs. A 20-character Code 128 is ~220 modules wide, and
+            the desktop bench put the floor at 2.5-3.0 px per narrow bar on a
+            clean frame and 5-6 on a soft one. At 720 px across a frame the
+            barcode fills a little over half of, that is under 2 px per bar --
+            genuinely undecodable, by any engine, which is exactly what three
+            simultaneous "nothing" results looked like on the floor.
+
+            660 px of barcode is the 3 px/bar line for that label; 1200 clears
+            it with room, 1600 covers the soft-frame case. The cost is real and
+            superlinear under asm.js, so the ladder is offered rather than
+            forced -- but the useful part of it now extends past the floor
+            instead of stopping just short of it.
+          */}
           <Segments
             label="Size"
-            items={[540, 720, 900].map((v) => ({ value: v, label: `${v} px` }))}
+            items={[720, 900, 1200, 1600].map((v) => ({ value: v, label: `${v} px` }))}
             value={maxDim}
             onChange={(v) => setMaxDim(v as number)}
           />
           <Text style={{ color: T.faint, fontSize: 12, marginTop: 11, lineHeight: 18 }}>
-            Narrowing the formats is the biggest speed win there is, and it also removes any
-            chance of a stray Code 39 read off packaging text. Size trades range for time:
-            below about 1.5 pixels per bar nothing decodes, above that the extra pixels
-            mostly cost seconds — and without a JIT they really are seconds.
+            Narrowing the formats is the biggest speed win there is — measured at 10.7× for
+            an identical read rate — and it also removes any chance of a stray Code 39 read
+            off packaging text. Size is the one that decides whether a label can be read at
+            all: a barcode needs about 3 pixels per narrow bar, so a 20-character Code 128
+            has to span roughly 660 px in the frame. Below that nothing decodes, at any
+            effort, in any engine.
           </Text>
-          {(effort === 2 || maxDim === 900) && (
+          {maxDim >= 1200 && (
             <Text style={{ color: T.amber, fontSize: 12, marginTop: 9, lineHeight: 18 }}>
-              Measured on a desktop Hermes build, one retail barcode goes from 0.2 s at
-              Fast / 720 to 0.9 s at Balanced / 900, and a frame with six codes on it takes
-              3.3 s at Balanced / 900. A phone is slower again. Expect this capture to take
-              a while; it is the missing JIT, not the decoder.
+              Above 900 px the decode cost climbs steeply — asm.js under Hermes has no JIT,
+              so these really are seconds rather than milliseconds. Worth it to find out
+              whether a label is readable at all; not a forecast of the native SDK, which
+              measured 0.5 ms on the same decoder.
             </Text>
           )}
         </Rise>
@@ -566,7 +637,14 @@ function LastShot({ shot }: { shot: Shot }) {
         <Text style={{ color: v.tone, fontSize: 14.5, fontWeight: '700', flex: 1 }}>
           {v.label}
         </Text>
-        <Text style={[mono(12, '600'), { color: T.faint }]}>{shot.size}</Text>
+      </View>
+      <View style={{
+        paddingHorizontal: 18, paddingBottom: 11,
+        backgroundColor: wash(0.10, v.tone),
+      }}>
+        <Text style={[mono(11.5, '600'), { color: T.faint }]}>
+          camera {shot.capture} → {shot.size}
+        </Text>
       </View>
       <Hairline />
 
