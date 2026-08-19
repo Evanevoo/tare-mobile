@@ -49,7 +49,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.evanevoo.scanifiedmobile",
-      "buildNumber": "220",
+      "buildNumber": "221",
       "infoPlist": {
         "NSCameraUsageDescription": "Scanified uses the camera to scan asset barcodes when you ship and receive them.",
         "NSLocationWhenInUseUsageDescription": "Scanified records where a scan happened so a delivery can be proven later.",

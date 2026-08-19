@@ -256,7 +256,7 @@ export interface ScannerProps {
 }
 
 export function Scanner({
-  onCode, onDuplicate, accept, types, style, children, reticle = true, onClose, cooldownMs = 2500,
+  onCode, onDuplicate, accept, types, style, children, reticle = true, onClose, cooldownMs = 2000,
   controlsBottomInset = 0, steadyFocus = false,
 }: ScannerProps) {
   const insets = useSafeAreaInsets();
@@ -432,10 +432,26 @@ export function Scanner({
     }
 
     // The double-read confirm. First sighting arms; a second sighting of the
-    // same value within 450ms fires. A different value re-arms — a misread
-    // never gets a partner, so it never fires.
+    // same value fires. A different value re-arms — a misread never gets a
+    // partner, so it never fires.
+    //
+    // WHY THIS WINDOW IS 1200ms AND NOT 450ms.
+    //
+    // The autofocus cycle deliberately drops the lens for 180ms every second
+    // (see refocus() — legacy's numbers, byte for byte). A meaningful share
+    // of frames are therefore soft by design. Legacy accepted a barcode on
+    // ONE good frame with a 175ms hold that only upgraded to a longer
+    // candidate (ScanArea.tsx:181-254). We demanded two byte-identical reads
+    // inside 450ms — which a single focus hunt is enough to break. Same
+    // autofocus code, radically worse outcome, and it presents to the driver
+    // as "the autofocus never lands."
+    //
+    // 1200ms is wide enough that two sightings separated by one focus hunt
+    // still pair, while a stray misread still never finds a partner: a wrong
+    // read has to be wrong the SAME WAY twice to get through, which is what
+    // the confirm was actually protecting against.
     const p = pending.current;
-    if (!p || p.code !== code || now - p.at > 450) {
+    if (!p || p.code !== code || now - p.at > 1200) {
       pending.current = { code, at: now };
       return;
     }
@@ -479,7 +495,10 @@ export function Scanner({
     if (!cam.current || snapBusy) return;
     setSnapBusy(true);
     try {
-      const photo = await cam.current.takePictureAsync({ quality: 0.9, skipProcessing: true });
+      // shutterSound: false — legacy passed this on every capture
+      // (gas-cylinder-mobile ScanArea.tsx:520). Without it the phone plays a
+      // camera shutter in a customer's yard on every Snap.
+      const photo = await cam.current.takePictureAsync({ quality: 0.9, shutterSound: false, skipProcessing: true });
       if (!photo?.uri) return;
 
       /**
@@ -688,7 +707,10 @@ export function Scanner({
     setAiBusy(true);
     setAiMiss(null);
     try {
-      const photo = await cam.current.takePictureAsync({ quality: 0.9, skipProcessing: true });
+      // shutterSound: false — legacy passed this on every capture
+      // (gas-cylinder-mobile ScanArea.tsx:520). Without it the phone plays a
+      // camera shutter in a customer's yard on every Snap.
+      const photo = await cam.current.takePictureAsync({ quality: 0.9, shutterSound: false, skipProcessing: true });
       if (!photo?.uri) return;
 
       /**
@@ -814,13 +836,24 @@ export function Scanner({
    */
   const tapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tapToRead = useCallback(() => {
+    // A TAP REFOCUSES. IT DOES NOT TAKE A PICTURE.
+    //
+    // It used to schedule snap() 380ms later, and that was the single worst
+    // thing in this file. Tapping the preview is the reflex when a picture
+    // looks soft — so the driver's instinct stalled the live camera session
+    // for a full-resolution capture plus up to five decode passes (one of
+    // them asm.js zxing on Hermes, hundreds of ms to seconds), flashed the
+    // preview white and played a shutter sound. Live decoding stopped for
+    // that whole window. That is "the scanner froze."
+    //
+    // Legacy's tap did exactly one thing (gas-cylinder-android ScanArea.tsx
+    // :360-369): toggle autofocus for 180ms. It also explicitly banned the
+    // competing capture during Locate (EnhancedScanScreen.tsx:2431, "it can
+    // interfere with rapid consecutive scans by competing for camera
+    // processing"). We reintroduced the exact thing legacy had learned to
+    // forbid. Snap is still one press away — on the button, deliberately.
     refocus();
-    // Already reading. A second capture would fight the first for the camera
-    // and could only return the same frame twice.
-    if (snapBusy || aiBusy) return;
-    if (tapTimer.current) clearTimeout(tapTimer.current);
-    tapTimer.current = setTimeout(() => { if (alive.current) snap(); }, 380);
-  }, [refocus, snap, snapBusy, aiBusy]);
+  }, [refocus]);
 
   useEffect(() => () => { if (tapTimer.current) clearTimeout(tapTimer.current); }, []);
 
@@ -870,6 +903,10 @@ export function Scanner({
           facing="back"
           enableTorch={torch}
           zoom={zoom}
+          // Legacy set this false (ScanArea.tsx:406). Left at its default
+          // `true` the preview flashes white on every capture — in a dark
+          // yard that reads as the camera glitching.
+          animateShutter={false}
           autofocus={focusOff ? 'off' : 'on'}
           onCameraReady={() => setReady(true)}
           barcodeScannerSettings={BARCODE_SETTINGS}
