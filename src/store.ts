@@ -5,6 +5,7 @@ import { ulid } from './ulid';
 import { loadOutbox, saveOutbox, cacheGet, cacheSet, dbUnavailable as dbFlag } from './db';
 import { fetchBootstrap, postScans, sessionIdentity, SyncRefused, BOOTSTRAP_VERSION, type Bootstrap }
   from './api';
+import { registerPush, deregisterPush } from './notifications';
 
 interface State {
   ready: boolean;
@@ -130,6 +131,10 @@ export const useStore = create<State>((set, get) => ({
    * another driver's login.
    */
   async handOver() {
+    // The push token first, while the session still exists to authorize the
+    // request — after signOut nothing can. Never blocks the hand-over; a
+    // dead zone just leaves a token the send-side prunes on first bounce.
+    await deregisterPush();
     set({
       outbox: empty,
       boot: null,
@@ -156,6 +161,11 @@ export const useStore = create<State>((set, get) => ({
       const boot = await fetchBootstrap();
       await cacheSet('bootstrap', boot);
       set({ boot, online: true, lastError: null });
+      // A successful signed-in bootstrap is the moment this phone provably
+      // belongs to somebody — register it for pushes. Fire-and-forget and
+      // internally guarded (see src/notifications.ts): on builds without
+      // the native module, or with no Firebase config, it is a no-op.
+      registerPush();
     } catch (e: any) {
       set({ online: false, lastError: e?.message ?? 'Offline' });
     }

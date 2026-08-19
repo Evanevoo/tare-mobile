@@ -1,8 +1,11 @@
+import { useEffect, useState } from 'react';
 import { View, Text, ScrollView, Pressable, Alert } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { useStore } from '@/store';
 import { pending } from '@/outbox';
 import { signOut, API_URL } from '@/api';
+import { APP_LOCK_KEY } from '@/guard';
 import { T, Screen, Surface, Btn, Eyebrow, Rise, Hairline, Icon, ICON, mono, tint } from '@/ui';
 import { useTheme, type Pref } from '@/theme';
 import { useUpdates, APP_VERSION, UPDATES_ENABLED, runningBundle } from '@/updates';
@@ -63,6 +66,11 @@ export default function Settings() {
             Dark holds up in a cold shop at six in the morning. Light is the one that
             stays readable outside in full sun.
           </Text>
+        </Rise>
+
+        <Rise delay={110} style={{ marginTop: 22 }}>
+          <Eyebrow style={{ marginBottom: 12 }}>Security</Eyebrow>
+          <LockToggle />
         </Rise>
 
         <Rise delay={130} style={{ marginTop: 22 }}>
@@ -289,6 +297,90 @@ function ThemePicker() {
         })}
       </View>
     </Surface>
+  );
+}
+
+/**
+ * The app lock, opt-in and honest about its edges.
+ *
+ * Turning it ON asks the hardware first: a phone with no biometrics enrolled
+ * gets an explanation instead of a toggle that would either lie or lock the
+ * driver out. On builds older than 220 the module itself is absent, and the
+ * same explanation covers it. No password is stored either way — this locks
+ * OPENING the app, nothing more, which is exactly what a phone left in a
+ * truck cab needs.
+ */
+function LockToggle() {
+  const [on, setOn] = useState(false);
+  useEffect(() => {
+    AsyncStorage.getItem(APP_LOCK_KEY).then((v) => setOn(v === '1')).catch(() => {});
+  }, []);
+
+  async function flip() {
+    if (on) {
+      setOn(false);
+      await AsyncStorage.setItem(APP_LOCK_KEY, '0').catch(() => {});
+      return;
+    }
+    try {
+      const LA = await import('expo-local-authentication');
+      const [hw, enrolled] = await Promise.all([LA.hasHardwareAsync(), LA.isEnrolledAsync()]);
+      if (!hw || !enrolled) {
+        Alert.alert(
+          'Nothing to lock with',
+          'This phone has no fingerprint or face set up. Add one in the phone’s own settings first.',
+        );
+        return;
+      }
+      const r = await LA.authenticateAsync({ promptMessage: 'Confirm to turn the lock on' });
+      if (!r.success) return;
+      setOn(true);
+      await AsyncStorage.setItem(APP_LOCK_KEY, '1').catch(() => {});
+    } catch {
+      Alert.alert(
+        'Not in this version yet',
+        'The lock needs an app update from the store — it will work after the next install.',
+      );
+    }
+  }
+
+  return (
+    <>
+      <Surface>
+        <Pressable
+          onPress={() => { void flip(); }}
+          accessibilityRole="switch"
+          accessibilityState={{ checked: on }}
+          accessibilityLabel="Require fingerprint or face to open Scanified"
+          style={({ pressed }) => ({
+            paddingHorizontal: 18, paddingVertical: 16, minHeight: 56,
+            flexDirection: 'row', alignItems: 'center', gap: 14,
+            backgroundColor: pressed ? tint(0.04) : 'transparent',
+          })}
+        >
+          <Icon name="lock" size={ICON.md} color={on ? T.bottle : T.steel} />
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: T.ink, fontSize: 15, fontWeight: '600' }}>
+              Require fingerprint to open
+            </Text>
+            <Text style={{ color: T.faint, fontSize: 12, marginTop: 2 }}>
+              {on ? 'On — asked on open and after 5 minutes away.' : 'Off'}
+            </Text>
+          </View>
+          <View style={{
+            width: 46, height: 28, borderRadius: 14, padding: 3,
+            backgroundColor: on ? T.bottle : tint(0.12),
+            alignItems: on ? 'flex-end' : 'flex-start', justifyContent: 'center',
+          }}>
+            <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: '#fff' }} />
+          </View>
+        </Pressable>
+      </Surface>
+      <Text style={{ color: T.faint, fontSize: 12, marginTop: 11, lineHeight: 18 }}>
+        No password is ever stored on this phone. This locks opening the app — scans,
+        customers and the queue stay behind it.
+      </Text>
+    </>
   );
 }
 

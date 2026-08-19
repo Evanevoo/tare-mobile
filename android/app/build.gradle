@@ -99,8 +99,8 @@ android {
         // to the other -- 217 is the build that first carries the
         // expo-channel-name meta-data, without which checkForUpdateAsync
         // rejects outright and no OTA can ever reach the device.
-        versionCode 219
-        versionName "1.2.2"
+        versionCode 220
+        versionName "1.2.3"
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
     }

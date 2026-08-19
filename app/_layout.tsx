@@ -11,6 +11,7 @@ import { useTheme } from '@/theme';
 import { useUpdateWatch } from '@/updates';
 import { UpdateBanner } from '@/update-banner';
 import { useAutoSync } from '@/auto-sync';
+import { SessionGuards } from '@/guard';
 
 /**
  * Crash reporting, and only when it has somewhere to report to.
@@ -176,7 +177,10 @@ function RootLayout() {
       {/* The navigator and the update banner are siblings so the banner can
           float above every screen without any of them knowing it exists. It
           renders itself only on the tabs — see update-policy.bannerRoute for
-          why not on the scan modal. */}
+          why not on the scan modal. SessionGuards wraps both: the idle
+          timeout and the opt-in app lock (src/guard.tsx), which have to sit
+          above every screen for the same reason the banner does. */}
+      <SessionGuards>
       <View style={{ flex: 1 }}>
       <Stack
         key={mode}
@@ -247,6 +251,7 @@ function RootLayout() {
       </Stack>
         <UpdateBanner segment={segments[0]} />
       </View>
+      </SessionGuards>
     </SafeAreaProvider>
   );
 }
