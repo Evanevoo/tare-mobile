@@ -9,6 +9,7 @@ import * as Haptics from 'expo-haptics';
 import { T, Icon, ICON, wash } from '@/ui';
 import { useStore } from './store';
 import { candidatesFrom, matchKnown, recognizeText, OcrUnavailable } from './ocr';
+import { decodeBase64Image as zxDecode, type FormatName as ZXFormatName } from './zxing';
 import { key } from './scan-match';
 import { RETICLE, withinReticle } from './reticle';
 
@@ -121,6 +122,36 @@ const FILL = { flexGrow: 1, flexShrink: 1, flexBasis: 'auto', backgroundColor: '
  * Android shapes.
  */
 const POSITION_FILTER = Platform.OS === 'ios';
+
+/**
+ * expo-camera's symbology names to zxing's, for the Snap fallback.
+ *
+ * THE TWO LIBRARIES DISAGREE ON EVERY NAME AND NEITHER WILL SAY SO.
+ * expo wants lowercase `upc_a`; zxing wants `UPC-A`. Hand zxing a name it does
+ * not recognise and it does not throw — the format simply never matches, and
+ * the fallback quietly reads nothing forever. That is the identical failure
+ * shape as the `regionOfInterest` key that sat dead in this file's scanner
+ * settings through two entire codebases, so it gets a real table rather than a
+ * `.toUpperCase()` and a hope.
+ *
+ * `itf14` maps to plain ITF: zxing has no ITF-14 variant, and ITF-14 is an ITF
+ * symbol carrying fourteen digits. Anything unmapped is dropped rather than
+ * guessed at — a narrower format list still reads, a wrong one cannot.
+ */
+const ZX_FORMAT: Partial<Record<string, ZXFormatName>> = {
+  code128: 'Code128', code39: 'Code39', code93: 'Code93', codabar: 'Codabar',
+  itf14: 'ITF', ean13: 'EAN-13', ean8: 'EAN-8', upc_a: 'UPC-A', upc_e: 'UPC-E',
+  qr: 'QRCode', pdf417: 'PDF417', datamatrix: 'DataMatrix', aztec: 'Aztec',
+};
+
+function zxFormatsFor(types: readonly BarcodeType[]): ZXFormatName[] {
+  const out: ZXFormatName[] = [];
+  for (const t of types) {
+    const m = ZX_FORMAT[String(t).toLowerCase()];
+    if (m && !out.includes(m)) out.push(m);
+  }
+  return out;
+}
 
 // Lowercase names are REQUIRED on iOS — uppercase silently matches nothing.
 const DEFAULT_TYPES: BarcodeType[] = [
@@ -455,15 +486,36 @@ export function Scanner({
        * photo reports no dimensions — a wrong-but-honest full-frame Snap
        * beats losing the fallback path entirely.
        */
+      /*
+       * THE CROP TAKES A MARGIN, AND THAT MARGIN IS NOT COSMETIC.
+       *
+       * Every linear symbology needs a QUIET ZONE — Code 128 wants about ten
+       * module widths of blank either side — and a decoder that cannot see one
+       * refuses the symbol outright rather than reading it short. Cropping
+       * exactly to the drawn reticle therefore fails hardest on the driver who
+       * aimed BEST: fill the box as asked, and the bars run to the crop edge
+       * with no quiet zone left. Found on the test screen (2026-08-19) after
+       * three engines returned nothing on a perfectly legible packing slip,
+       * and it has been latent in this path the whole time.
+       *
+       * 8% of the frame either side clears ten modules comfortably for the
+       * labels in this fleet, while still excluding the corners — which is
+       * where the stray courier sticker that motivated cropping at all lives.
+       */
+      const PAD = 0.08;
       let uri = photo.uri;
       if (reticle && photo.width && photo.height) {
         try {
+          const l = Math.max(0, RETICLE.left - PAD);
+          const t = Math.max(0, RETICLE.top - PAD);
+          const r = Math.min(1, RETICLE.left + RETICLE.width + PAD);
+          const b = Math.min(1, RETICLE.top + RETICLE.height + PAD);
           const cropped = await ImageManipulator.manipulateAsync(photo.uri, [{
             crop: {
-              originX: Math.round(photo.width * RETICLE.left),
-              originY: Math.round(photo.height * RETICLE.top),
-              width: Math.round(photo.width * RETICLE.width),
-              height: Math.round(photo.height * RETICLE.height),
+              originX: Math.round(photo.width * l),
+              originY: Math.round(photo.height * t),
+              width: Math.round(photo.width * (r - l)),
+              height: Math.round(photo.height * (b - t)),
             },
           }], { compress: 1 });
           uri = cropped.uri;
@@ -524,6 +576,57 @@ export function Scanner({
           );
           code = await tryScan(big.uri);
         } catch { /* the two passes above were the real attempts */ }
+      }
+
+      /**
+       * LAST RESORT: A DIFFERENT DECODER, NOT A DIFFERENT PICTURE.
+       *
+       * Every pass above is expo-camera's decoder looking at another
+       * rendering of the same frame. When all three fail, more renderings of
+       * the same pixels through the same engine is not where the next read
+       * comes from — a different engine is.
+       *
+       * zxing-cpp, running as asm.js (src/zxing), applies a LOCAL ADAPTIVE
+       * THRESHOLD before decoding, and that is the specific thing this path
+       * has been missing. Measured against replicas of this fleet's own
+       * paperwork: a shadow edge across a Code 128 symbol is unreadable by
+       * expo-camera's decoder at EVERY resolution from 1 to 8 pixels per bar,
+       * and cropping tighter, CLAHE and unsharp masking all fail to recover
+       * it — while thresholding each pixel against its own neighbourhood
+       * recovers it completely. Shadows across paperwork on a truck bed or a
+       * shop bench are not an edge case here; they are most of the day.
+       *
+       * IT IS SLOW, AND THAT IS ACCEPTABLE **HERE AND ONLY HERE**. Hermes has
+       * no JIT, so this costs several hundred milliseconds to a couple of
+       * seconds. It never runs on the live video path, and it only runs after
+       * three faster attempts have already come back empty — at which point
+       * the alternative on offer is not a quicker read, it is typing the
+       * number in by hand.
+       *
+       * Guarded and non-fatal: a decoder that fails to load must degrade Snap
+       * back to exactly what it was, never break it.
+       */
+      if (!code) {
+        try {
+          const small = await ImageManipulator.manipulateAsync(
+            uri,
+            [{ resize: { width: 1400 } }],
+            { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG, base64: true },
+          );
+          if (small.base64) {
+            const zx = await zxDecode(small.base64, {
+              maxDim: 1400,
+              effort: 1,
+              binarize: true,
+              maxResults: 1,
+              // Same symbologies the live decoder was told to look for, so
+              // Snap cannot return a format the caller would have rejected.
+              formats: zxFormatsFor(wanted),
+            });
+            const hit = zx.codes.find((c) => c.text?.trim())?.text?.trim();
+            if (hit) code = hit;
+          }
+        } catch { /* Snap keeps whatever the native passes found */ }
       }
 
       if (code) {
