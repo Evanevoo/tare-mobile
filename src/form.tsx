@@ -98,6 +98,44 @@ export function Chips({
   // Opens typed if the current value is not one of the offered options — which
   // is the case on Edit whenever the record predates the list.
   const [free, setFree] = useState(() => !options.length || (!!value && !known.has(value)));
+  const [q, setQ] = useState('');
+
+  /**
+   * A LONG LIST GETS A SEARCH BOX; A SHORT ONE DOES NOT.
+   *
+   * Callers used to hand this component `.slice(0, 14)` and the rest of the
+   * org's products and locations simply did not exist on the phone. For
+   * WeldCor that was invisible — they have fewer than fourteen of each. For
+   * the next customer up it is a silent data-entry bug: the picker looks
+   * complete, offers the wrong answers, and the free-text escape hatch
+   * quietly fragments the list with near-duplicates of options that were
+   * there all along, fifteenth in the array.
+   *
+   * So the ceiling moves from the CALLER to here, and stops being a ceiling:
+   * past `LONG` options a filter box appears and every option is reachable
+   * by typing. Under it, nothing changes — a search box over six chips is
+   * furniture, and this screen is used in gloves.
+   *
+   * The current selection is always kept in view even when it does not match
+   * the filter, because a picker that hides what you already chose reads as
+   * having lost it.
+   */
+  const LONG = 12;
+  const searchable = options.length > LONG;
+  const shown = useMemo(() => {
+    if (!searchable) return options;
+    const needle = q.trim().toUpperCase();
+    const hits = needle
+      ? options.filter((o) =>
+          o.key.toUpperCase().includes(needle) || (o.sub ?? '').toUpperCase().includes(needle))
+      : options;
+    const head = hits.slice(0, LONG);
+    if (value && !head.some((o) => o.key === value)) {
+      const sel = options.find((o) => o.key === value);
+      if (sel) return [sel, ...head.slice(0, LONG - 1)];
+    }
+    return head;
+  }, [options, q, value, searchable]);
 
   if (free) {
     return (
@@ -112,8 +150,19 @@ export function Chips({
 
   return (
     <View>
+      {searchable && (
+        <View style={{ marginBottom: 10 }}>
+          <TextField
+            value={q}
+            onChangeText={setQ}
+            placeholder={`Search ${options.length}…`}
+            code={false}
+            autoCapitalize="characters"
+          />
+        </View>
+      )}
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 9 }}>
-        {options.map((o) => {
+        {shown.map((o) => {
           const on = value === o.key;
           return (
             <Pressable
@@ -148,6 +197,13 @@ export function Chips({
           );
         })}
       </View>
+      {/* Without this, filtering to nothing looks identical to an org with no
+          products configured — and the answer to each is different. */}
+      {searchable && shown.length === 0 && (
+        <Text style={{ color: T.faint, fontSize: 12.5, marginTop: 4 }}>
+          Nothing matches “{q.trim()}”. Clear the box to see all {options.length}, or use “{freeLabel}”.
+        </Text>
+      )}
       <Toggle label={freeLabel} onPress={() => { setFree(true); onChange(''); }} />
     </View>
   );

@@ -248,9 +248,53 @@ export default function Scan() {
     // unknown — distinguishable by feel alone, without looking at the
     // screen. Duplicates keep only the light tick; a strong buzz there
     // would read as "another one counted", which is exactly wrong.
+    if (kind === 'added' || kind === 'unknown') {
+      // A different code has been read, so the next repeat of whatever was
+      // last flagged as a duplicate is a genuine second visit rather than the
+      // phone still sitting over the same label — let it speak again.
+      lastDupe.current = null;
+    }
+
     if (kind === 'added') { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); Vibration.vibrate(90); playScanAccept(); }
     else if (kind === 'unknown') { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); Vibration.vibrate([0, 130, 90, 130]); playScanAlert(); }
+    else if (kind === 'duplicate') dupe(barcode);
     else Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  }
+
+  /**
+   * A REPEAT READ AND A SECOND SCAN ARE THE SAME EVENT TO THE DECODER AND
+   * COMPLETELY DIFFERENT EVENTS TO THE DRIVER.
+   *
+   * Holding the phone steady over a barcode produces `duplicate` several
+   * times a second, and that is the case the silence above was written for —
+   * a beep on each would be a nuisance and would read as "another one
+   * counted", which is exactly wrong. But the same silence also covers the
+   * case that actually matters: picking a bottle up, scanning it, and
+   * scanning it again a minute later because you lost track. Legacy played a
+   * dedicated duplicate sound, buzzed a double pulse and left a message up
+   * for five seconds; ours said nothing at all, which is why it reads as
+   * "it let me scan it twice" — it did not, it just never said so.
+   *
+   * So: the first repeat of a given barcode within a session speaks up, and
+   * subsequent repeats of that SAME barcode go quiet again until a different
+   * code intervenes. Holding steady stays silent after the first tick.
+   * Coming back to a bottle later is loud, because by then something else
+   * has been scanned in between.
+   *
+   * Deliberately NOT the accept buzz. A double pulse with a gap is what the
+   * legacy app used for duplicates and what a gloved hand can tell apart
+   * from the single solid thump of a real add without looking.
+   */
+  const lastDupe = useRef<string | null>(null);
+  function dupe(barcode: string) {
+    if (lastDupe.current === barcode) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      return;
+    }
+    lastDupe.current = barcode;
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    Vibration.vibrate([0, 60, 70, 60]);
+    playScanAlert();
   }
 
   /**
@@ -275,19 +319,30 @@ export default function Scan() {
    * CALL IT AS `() => finish()`, NEVER `onPress={finish}`. Pressable hands the
    * press event to its handler as the first argument, which would arrive here
    * as a truthy `confirmed` and skip the very dialog this exists to show.
+   *
+   * WHAT CONFIRMATION MEANS HERE CHANGED, AND WHY.
+   *
+   * It used to be an Alert reading "3 shipped, 1 returned." Two numbers are
+   * not a check — they are the same two numbers already on the header pill,
+   * and a driver cannot tell from them whether the bottle they scanned twice
+   * by accident is in there, or whether the one they meant to scan is
+   * missing. Confirming a total you cannot inspect is a formality, and the
+   * legacy app knew better: it showed the line items.
+   *
+   * So Done now opens the review sheet — the itemised list, with what each
+   * barcode actually is — and Submit lives at the bottom of it, next to the
+   * evidence. Same list that was already one tap away behind the count pill;
+   * it was simply in the wrong place for the one moment it matters most.
+   *
+   * An empty order still leaves silently. There is nothing to review, and a
+   * driver who opened this screen by mistake should not have to dismiss a
+   * sheet to get out of it.
    */
   function finish(confirmed = false) {
     const n = c.pending;
 
     if (n && !confirmed) {
-      Alert.alert(
-        'Submit order',
-        `${c.ship} shipped, ${c.ret} returned on ${orderNumber}.\n\nThey upload now if you have signal, and stay safe on this phone if you do not.`,
-        [
-          { text: 'Keep scanning', style: 'cancel' },
-          { text: 'Submit', onPress: () => finish(true) },
-        ],
-      );
+      setReview(true);
       return;
     }
 
@@ -629,7 +684,17 @@ export default function Scan() {
                 <View style={{ width: 3, height: 26, borderRadius: 2, backgroundColor: shipTone(item.mode) }} />
                 <View style={{ flex: 1 }}>
                   <Text style={[mono(15, '600'), { color: T.ink }]}>{item.barcode}</Text>
+                  {/* WHAT IT IS, NOT JUST WHICH WAY IT WENT.
+                      A driver checking an order before submitting it is
+                      checking that the right THINGS are on it, and a column
+                      of barcodes cannot answer that — the numbers are
+                      identical to look at. The product code is the only
+                      thing on the row that says "this is a 60L argon" out
+                      loud. Falls back to the direction alone when the office
+                      has not synced the asset yet, which is exactly when the
+                      UNKNOWN tag beside it is doing the talking. */}
                   <Text style={{ color: T.faint, fontSize: 11.5, marginTop: 2 }}>
+                    {a?.p ? `${a.p} · ` : ''}
                     {item.mode === 'SHIP' ? 'Ship out' : 'Return in'}
                     {item.state !== 'QUEUED' ? ` · ${item.state.toLowerCase()}` : ''}
                   </Text>
@@ -671,15 +736,17 @@ export default function Scan() {
               colors={['transparent', 'rgba(7,9,10,0.92)', T.zinc]}
               style={{ paddingHorizontal: 14, paddingTop: 34, paddingBottom: 34 }}
             >
+              {/* This IS the confirmation now — the sheet above it is the
+                  itemised list a driver is confirming, so pressing here goes
+                  straight through rather than reopening the sheet it is
+                  already sitting in. `finish(true)` skips the review branch;
+                  see the note on finish(). */}
               <Btn
                 label={`Submit order · ${c.total}`}
                 sub={c.total ? `${c.ship} out · ${c.ret} in` : undefined}
                 busy={syncing}
                 disabled={!c.total}
-                // The dialog lives in finish() now, so both this and the
-                // header's "Done" get it. Wrapped rather than passed by
-                // reference on purpose — see the note on finish().
-                onPress={() => finish()}
+                onPress={() => { setReview(false); finish(true); }}
               />
             </LinearGradient>
           </View>

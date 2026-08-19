@@ -98,11 +98,11 @@ export default function BatchAssets() {
   const plural = (boot?.org.assetPlural ?? 'assets').toLowerCase();
 
   const products = useMemo(
-    () => (boot?.products ?? []).slice(0, 14).map((p) => ({ key: p.code, sub: `${p.n} on fleet` })),
+    () => (boot?.products ?? []).map((p) => ({ key: p.code, sub: `${p.n} on fleet` })),
     [boot?.products],
   );
   const locations = useMemo(
-    () => (boot?.locations ?? []).slice(0, 14).map((l) => ({ key: l })),
+    () => (boot?.locations ?? []).map((l) => ({ key: l })),
     [boot?.locations],
   );
 

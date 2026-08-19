@@ -51,11 +51,13 @@ export default function NewAsset() {
 
   const label = boot?.org.assetLabel ?? 'asset';
   const products = useMemo(
-    () => (boot?.products ?? []).slice(0, 14).map((p) => ({ key: p.code, sub: `${p.n} on fleet` })),
+    // No truncation here any more — Chips filters a long list with a search
+    // box rather than the caller silently hiding everything past the 14th.
+    () => (boot?.products ?? []).map((p) => ({ key: p.code, sub: `${p.n} on fleet` })),
     [boot?.products],
   );
   const locations = useMemo(
-    () => (boot?.locations ?? []).slice(0, 14).map((l) => ({ key: l })),
+    () => (boot?.locations ?? []).map((l) => ({ key: l })),
     [boot?.locations],
   );
 

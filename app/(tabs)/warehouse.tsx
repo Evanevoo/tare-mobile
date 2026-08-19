@@ -91,6 +91,41 @@ export default function Locate() {
     if (codes.includes(bc)) { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); return; }
 
     const known = boot?.assets[bc];
+
+    /**
+     * REFUSE AT THE SHELF, NOT AT THE SAVE.
+     *
+     * A barcode the fleet has never heard of used to go into the batch with
+     * an UNKNOWN tag and only get rejected by the server at save — by which
+     * point the worker has walked away from the shelf, and the one thing
+     * they needed to do (find out what that bottle actually is, or write it
+     * down) is now impossible without walking back. The legacy app refused
+     * it out loud at scan time for exactly this reason, and it was right.
+     *
+     * It is a REFUSAL WITH A DOOR, not a wall: a bottle genuinely on the
+     * shelf but not yet synced is a real and common case, so "Add anyway"
+     * keeps it. What changes is that the decision happens while the bottle
+     * is still in hand.
+     *
+     * Deliberately after the duplicate check and before the customer
+     * interlock: an unknown barcode has no customer, so the two can never
+     * both fire, and the cheaper test goes first.
+     */
+    if (boot && !known) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      Vibration.vibrate([0, 130, 90, 130]);
+      playScanAlert();
+      Alert.alert(
+        'Not in the system',
+        `${bc} is not on the downloaded list. It may be new, or the barcode may have misread.\n\nAdding it still records the shelf — the office assigns what it is later.`,
+        [
+          { text: 'Skip it', style: 'cancel' },
+          { text: 'Add anyway', onPress: () => setCodes((c) => [...c, bc]) },
+        ],
+      );
+      return;
+    }
+
     // A bottle still out at a customer is the interesting case: marking it
     // here is what ends that rental, so it is called out rather than accepted
     // in silence.
@@ -98,7 +133,7 @@ export default function Locate() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
       Alert.alert(
         'Still out at a customer',
-        `${bc} is on ${known.c}'s account. Adding it here brings it back in-house and ends that rental.`,
+        `${bc} is on ${known.c}'s account. Adding it here brings it back in-house and ends that rental.\n\nThe usual flow is to scan it empty when it comes back, then full once it has been refilled.`,
         [
           { text: 'Skip', style: 'cancel' },
           { text: 'Add anyway', onPress: () => setCodes((c) => [...c, bc]) },
@@ -146,7 +181,9 @@ export default function Locate() {
       // draft and the live state were two different copies of the same
       // "what's on this shelf" fact, and clearing one was never going to
       // clear the other.
-      setStep(1); setLocation(''); setCustom(false); setState(null); setCodes([]); setTyped('');
+      // Only the shelf clears. Location and state are held so "Next shelf"
+      // below can pick straight up — see the note on that button.
+      setCodes([]); setTyped('');
       // "6 open rentals closed" told nobody WHO stopped being billed — the
       // question that actually gets asked back at the yard. Named, one line
       // per bottle, capped the same way the unknown list is so a 40-bottle
@@ -162,7 +199,28 @@ export default function Locate() {
             : null,
           r.unknown.length ? `${r.unknown.length} not in the system: ${r.unknown.slice(0, 5).join(', ')}${r.unknown.length > 5 ? '…' : ''}` : null,
         ].filter(Boolean).join('\n\n'),
-        [{ text: 'Done', onPress: () => router.replace('/') }],
+        /**
+         * TWO WAYS OUT, BECAUSE A YARD IS SHELF AFTER SHELF.
+         *
+         * "Done" was the only exit, and it dropped the worker on Home — so
+         * the next shelf cost a tab back, a location chip and a Full/Empty
+         * button before a single barcode could be read. Legacy had "Scan
+         * More" for exactly this and kept the location and status; doing
+         * forty shelves it is the difference between two taps and six,
+         * every time.
+         *
+         * Next shelf keeps the location deliberately: a sweep is usually
+         * several passes at ONE location (fulls, then empties), and the
+         * location is the slower of the two to re-pick. Changing it is one
+         * tap on the chip that is already on screen.
+         */
+        [
+          { text: 'Next shelf', onPress: () => { setStep(3); } },
+          { text: 'Done', style: 'cancel', onPress: () => {
+            setStep(1); setLocation(''); setCustom(false); setState(null);
+            router.replace('/');
+          } },
+        ],
       );
     } catch (e: any) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
@@ -337,6 +395,22 @@ export default function Locate() {
                         <Text style={{ color: T.faint, fontSize: 11.5, marginTop: 2 }}>
                           {known ? (known.c ? `was out at ${known.c}` : known.p ?? 'in house') : 'not in the system'}
                         </Text>
+                        {/* WHAT IT IS CHANGING FROM, NOT JUST WHAT IT IS
+                            CHANGING TO.
+                            The row said where the bottle had been and never
+                            what state it was in, so a shelf being marked FULL
+                            looked identical whether every bottle on it was
+                            already full (nothing happening, probably the wrong
+                            shelf) or all empty (the whole point). Legacy
+                            printed `Was: X → Will be: Y` on every staged row.
+                            Only drawn when it is a real change: repeating the
+                            state a bottle is already in is noise on the rows
+                            that need reading least. */}
+                        {known && (known.f ? 'full' : 'empty') !== state && (
+                          <Text style={{ color: T.amber, fontSize: 11, marginTop: 3, fontWeight: '600' }}>
+                            {known.f ? 'FULL' : 'EMPTY'} → {state === 'full' ? 'FULL' : 'EMPTY'}
+                          </Text>
+                        )}
                       </View>
                       {!known && <Tag label="UNKNOWN" tone={T.amber} />}
                       <Pressable
