@@ -12,6 +12,7 @@ import {
   T, Screen, Surface, Btn, Eyebrow, Tag, Rise, Icon, ICON, mono, useBottomInset, tint, wash,
 } from '@/ui';
 import { Scanner } from '@/scanner';
+import { afterModalClose } from '@/nav';
 
 /**
  * Locate — the yard half of the day.
@@ -231,7 +232,10 @@ export default function Locate() {
           { text: 'Next shelf', onPress: () => { setStep(3); } },
           { text: 'Done', style: 'cancel', onPress: () => {
             setStep(1); setLocation(''); setCustom(false); setState(null);
-            router.replace('/');
+            // Leaving from inside a native Alert callback, on a screen that
+            // also owns a scanner Modal. Same teardown race as everywhere
+            // else — see src/nav.ts.
+            afterModalClose(() => router.replace('/'));
           } },
         ],
       );

@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T, shipTone, Surface, Btn, Tag, mono } from '@/ui';
 import { Scanner } from '@/scanner';
 import type { AssetRec } from '@/api';
+import { afterModalClose } from '@/nav';
 
 /**
  * The scan loop.
@@ -436,10 +437,10 @@ export default function Scan() {
     // screen is still mounted would leave it rendering for a frame with no
     // order and no customer — the exact inconsistent state its own guard was
     // once written to bail out of.
-    setTimeout(() => {
+    afterModalClose(() => {
       endDelivery();
       router.replace('/');
-    }, 150);
+    });
   }
 
   /** What this org knows about the thing just scanned, if it knows it. */

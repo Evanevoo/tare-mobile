@@ -7,6 +7,7 @@ import { useScanRoute, explainMiss } from '@/scan-route';
 import { classify } from '@/scan-match';
 import { formatExample, formatNudge } from '@/formats';
 import { T, Screen, Surface, Btn, Eyebrow, Rise, Tag, mono, tint, wash } from '@/ui';
+import { afterModalClose } from '@/nav';
 
 /**
  * Delivery setup: who, and against what document.
@@ -305,7 +306,12 @@ export default function Delivery() {
                   disabled={!canStart}
                   onPress={() => {
                     startDelivery(picked.id, picked.name, order.trim());
-                    router.push('/scan' as never);
+                    // Guarded even though no modal is open on this tap: the
+                    // driver has almost always just closed the scanner sheet
+                    // to get here, and Android's dialog teardown can still be
+                    // in flight. This is the exact screen the 19 Aug "entering
+                    // an order and it froze, grey screen" report came from.
+                    afterModalClose(() => router.push('/scan' as never));
                   }}
                 />
                 <Text
