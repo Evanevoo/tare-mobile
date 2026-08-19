@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { reduce, empty, pending, queued, type Action, type Outbox, type Mode, type QueuedScan }
   from './outbox';
 import { ulid } from './ulid';
-import { loadOutbox, saveOutbox, cacheGet, cacheSet, dbUnavailable as dbFlag } from './db';
+import { loadOutbox, saveOutbox, cacheGet, cacheSet, dbUnavailable as dbFlag, storageMode } from './db';
 import { fetchBootstrap, postScans, sessionIdentity, SyncRefused, BOOTSTRAP_VERSION, type Bootstrap }
   from './api';
 import { registerPush, deregisterPush } from './notifications';
@@ -124,7 +124,11 @@ export const useStore = create<State>((set, get) => ({
       // Set by loadOutbox()'s own call to open() above, so it is current by
       // the time this reads it — an ES module `let` export is a live binding,
       // not a snapshot taken at import time.
-      dbUnavailable: dbFlag,
+      // Not `dbFlag`. That says "SQLite failed", which is true on some phones
+      // and no longer means the scans are at risk — the AsyncStorage fallback
+      // in db.ts holds them. Warning a driver that nothing is being saved
+      // while it IS being saved is how a banner stops being believed.
+      dbUnavailable: storageMode === 'none' ? (dbFlag ?? 'Could not save to this phone.') : null,
       customerListId: job?.customerListId ?? null,
       customerName: job?.customerName ?? null,
       orderNumber: job?.orderNumber ?? null,
@@ -202,7 +206,11 @@ export const useStore = create<State>((set, get) => ({
     // to vanish into an ignored promise. Surfacing it is what lets the screen
     // say so instead of the shift finding out when the app closes.
     saveOutbox(outbox).then((ok) => {
-      if (!ok) set({ dbUnavailable: dbFlag ?? 'Could not save to this phone.' });
+      // `ok` is now true when the AsyncStorage fallback took the write, so a
+      // phone with broken SQLite stops shouting about it. Only a genuine
+      // nowhere-to-write is worth a banner. See storageMode in db.ts.
+      if (!ok) set({ dbUnavailable: 'Could not save to this phone.' });
+      else if (get().dbUnavailable) set({ dbUnavailable: null });
     }).catch(() => {});
   },
 
