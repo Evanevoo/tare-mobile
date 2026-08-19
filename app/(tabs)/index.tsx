@@ -12,6 +12,7 @@ import {
 } from '@/ui';
 import { localDay, today } from '@/when';
 import { Sheet } from '@/sheet';
+import { useLiveData } from '@/live';
 
 /**
  * HOME IS A LAUNCHER AGAIN — AND IT HAS AN OPINION.
@@ -73,6 +74,10 @@ export default function Home() {
   const [busy, setBusy] = useState(false);
   const [scanning, setScanning] = useState(false);
   const route = useScanRoute();
+  /* Keeps this screen current on focus, on return to the foreground, and on a
+     cheap 45s stamp check — so the numbers on the custody bar are not last
+     time somebody remembered to swipe. */
+  const refreshNow = useLiveData();
   const unsent = pending(outbox).length;
 
   if (!ready) {
@@ -191,10 +196,12 @@ export default function Home() {
     <Screen>
       <ScrollView
         contentContainerStyle={{ paddingHorizontal: 18, paddingTop: 14, paddingBottom: 40 }}
+        /* Still here, and now it means "now" rather than being the only way
+           this screen ever finds anything out — see src/live.ts. */
         refreshControl={
           <RefreshControl
             refreshing={busy} tintColor={T.steel}
-            onRefresh={async () => { setBusy(true); await refresh(); setBusy(false); }}
+            onRefresh={async () => { setBusy(true); await refreshNow(); setBusy(false); }}
           />
         }
       >

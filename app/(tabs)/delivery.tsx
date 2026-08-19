@@ -8,6 +8,7 @@ import { classify } from '@/scan-match';
 import { formatExample, formatNudge } from '@/formats';
 import { T, Screen, Surface, Btn, Eyebrow, Rise, Tag, mono, tint, wash } from '@/ui';
 import { Sheet } from '@/sheet';
+import { useLiveData } from '@/live';
 
 /**
  * Delivery setup: who, and against what document.
@@ -23,6 +24,10 @@ export default function Delivery() {
   // driver off to that customer's screen in the middle of setting a job up.
   const route = useScanRoute({ customerScreen: false });
   const { boot, startDelivery } = useStore();
+  // The customer list this screen searches is only as good as the last time
+  // somebody thought to refresh it. Now it refreshes itself — an account added
+  // in the office at 09:00 is searchable in the cab without anyone swiping.
+  useLiveData();
   const [q, setQ] = useState('');
   const [picked, setPicked] = useState<{ id: string; name: string } | null>(null);
   const [order, setOrder] = useState('');

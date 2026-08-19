@@ -182,6 +182,30 @@ export async function fetchBootstrap(): Promise<Bootstrap> {
   return res.json();
 }
 
+/**
+ * "Has anything changed?" — a couple of hundred bytes instead of 700 KB.
+ *
+ * The handset polls this while a screen is open and only pulls the real
+ * bootstrap when the answer moves, which is what lets the app keep itself
+ * current without a driver swiping down and without eating their data plan.
+ * See src/live.ts for the schedule and the server route for what the stamp
+ * does and does not cover.
+ */
+export interface BootstrapStamp {
+  /** Newest assets.updatedAt in the org, or null on an empty fleet. */
+  at: string | null;
+  assets: number;
+  customers: number;
+}
+
+export async function fetchBootstrapStamp(): Promise<BootstrapStamp> {
+  const res = await fetch(`${API_URL}/api/mobile/bootstrap/version`, {
+    headers: { ...(await authHeader()) },
+  });
+  if (!res.ok) throw new Error(`Stamp failed (${res.status})`);
+  return res.json();
+}
+
 /** The most orders one page may ask for, and what it asks for by default. */
 export const HISTORY_PAGE = 50;
 export const HISTORY_MAX = 100;

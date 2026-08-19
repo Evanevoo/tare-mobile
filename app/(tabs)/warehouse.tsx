@@ -13,6 +13,7 @@ import {
 } from '@/ui';
 import { Scanner } from '@/scanner';
 import { Sheet } from '@/sheet';
+import { useLiveData } from '@/live';
 
 /**
  * Locate — the yard half of the day.
@@ -36,6 +37,10 @@ export default function Locate() {
   const router = useRouter();
   const { boot, refresh, outbox } = useStore();
   const bottom = useBottomInset(24);
+  // Locate refuses barcodes it does not know and warns on open rentals, so it
+  // is the screen where a stale fleet does the most damage — it can tell a
+  // driver a real cylinder does not exist. It keeps itself current now.
+  useLiveData();
 
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [location, setLocation] = useState('');
