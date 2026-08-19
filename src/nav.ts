@@ -24,14 +24,41 @@
  * scanner modal will otherwise reintroduce it — and because when a fifth case
  * turns up, this is the single place to lengthen the wait.
  *
- * 150ms, not a bare requestAnimationFrame: what is being waited on is native
- * dialog teardown plus, usually, a camera release, not a JS paint. A driver
- * cannot perceive it, and the failure it prevents costs a phone call from a
- * yard.
+ * A delay rather than a bare requestAnimationFrame: what is being waited on is
+ * a native dialog animating out plus, usually, a camera release — not a JS
+ * paint. A driver cannot perceive it, and the failure it prevents costs a
+ * phone call from a yard.
+ */
+
+/**
+ * 150ms WAS NOT ENOUGH, AND THE REASON IS THE ANIMATION.
+ *
+ * The first version of this waited 150ms and the grey screen came back on the
+ * very next delivery. The number was picked to cover "a frame or two of native
+ * teardown", which was the wrong model. Every one of these sheets is declared
+ * `animationType="slide"`, and a slide-out on Android runs for roughly 300ms.
+ * Navigating at 150ms lands squarely IN the dismiss animation — the dialog
+ * window is still on screen and still owns the touch surface, so tearing its
+ * owner down orphans it exactly as if nothing had been awaited at all.
+ *
+ * 350ms clears the animation with margin. It is not a guess dressed up as a
+ * fix: the failure mode is specifically "navigated before the window was
+ * gone", and the window is gone when its animation ends.
+ *
+ * This is a delay, and a delay is a weaker guarantee than an event. React
+ * Native's Modal exposes `onDismiss` only on iOS — which is the platform that
+ * never had this bug — so on Android there is nothing to await. If this ever
+ * fails again, the answer is not a longer number: it is to stop navigating out
+ * from under a Modal at all, and render these sheets as ordinary absolutely-
+ * positioned views inside the screen instead. That is a bigger change and it
+ * is what to reach for next.
  */
 export function afterModalClose(go: () => void): void {
-  setTimeout(go, 150);
+  setTimeout(go, MODAL_TEARDOWN_MS);
 }
 
-/** How long the app waits, exported so a caller can match it if it must. */
-export const MODAL_TEARDOWN_MS = 150;
+/**
+ * How long the app waits. Must exceed the Modal's slide animation (~300ms on
+ * Android), not merely a frame or two of teardown.
+ */
+export const MODAL_TEARDOWN_MS = 350;
