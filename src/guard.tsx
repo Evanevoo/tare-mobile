@@ -3,6 +3,7 @@ import { Alert, AppState, Pressable, Text, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase, signOut } from './api';
 import { useStore } from './store';
+import { hasNativeModule } from './notifications';
 import { T } from './ui';
 
 /**
@@ -87,6 +88,9 @@ export function SessionGuards({ children }: { children: React.ReactNode }) {
     if (checking.current) return;
     checking.current = true;
     try {
+      // See notifications.ts: a bare `await import()` of an absent native
+      // module is FATAL under Metro, try/catch or not. Probe first.
+      if (!hasNativeModule('ExpoLocalAuthentication')) { setLocked(false); return; }
       const LA = await import('expo-local-authentication');
       const [hw, enrolled] = await Promise.all([
         LA.hasHardwareAsync(), LA.isEnrolledAsync(),

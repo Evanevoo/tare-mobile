@@ -23,6 +23,22 @@ import { API_URL, supabase } from './api';
 
 const TOKEN_KEY = 'pushToken';
 
+/**
+ * True only if the named native module is actually linked into THIS binary.
+ * requireOptionalNativeModule returns null rather than throwing, so nothing
+ * reaches ErrorUtils and nothing can become a fatal. Wrapped again because
+ * expo-modules-core itself is absent on truly ancient builds.
+ */
+export function hasNativeModule(name: string): boolean {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const core = require('expo-modules-core');
+    return !!core?.requireOptionalNativeModule?.(name);
+  } catch {
+    return false;
+  }
+}
+
 async function authHeader(): Promise<Record<string, string>> {
   const { data } = await supabase.auth.getSession();
   const t = data.session?.access_token;
@@ -32,6 +48,15 @@ async function authHeader(): Promise<Record<string, string>> {
 /** Fire-and-forget after a signed-in bootstrap. Never throws. */
 export async function registerPush(): Promise<void> {
   try {
+    // A try/catch around `await import()` is NOT enough. Metro's
+    // guardedLoadModule reports a module that throws while EVALUATING to
+    // ErrorUtils as a FATAL error before the promise ever rejects, so on a
+    // build without these native modules the app red-screens/crashes even
+    // though the code "handles" it. Ask expo-modules-core first: it returns
+    // null instead of throwing. Confirmed by SCANIFIED-MOBILE-1 (12 crashes,
+    // 'Cannot find native module ExpoDevice', build 219).
+    if (!hasNativeModule('ExpoDevice') || !hasNativeModule('ExpoPushTokenManager')) return;
+
     const Device = await import('expo-device');
     if (!Device.isDevice) return; // simulators have no push identity
 

@@ -6,6 +6,7 @@ import { useStore } from '@/store';
 import { pending } from '@/outbox';
 import { signOut, API_URL } from '@/api';
 import { APP_LOCK_KEY } from '@/guard';
+import { hasNativeModule } from '@/notifications';
 import { T, Screen, Surface, Btn, Eyebrow, Rise, Hairline, Icon, ICON, mono, tint } from '@/ui';
 import { useTheme, type Pref } from '@/theme';
 import { useUpdates, APP_VERSION, UPDATES_ENABLED, runningBundle } from '@/updates';
@@ -323,6 +324,15 @@ function LockToggle() {
       return;
     }
     try {
+      // See notifications.ts: importing an absent native module is fatal
+      // under Metro even inside try/catch. Probe before importing.
+      if (!hasNativeModule('ExpoLocalAuthentication')) {
+        Alert.alert(
+          'Not in this version yet',
+          'The lock needs an app update from the store — it will work after the next install.',
+        );
+        return;
+      }
       const LA = await import('expo-local-authentication');
       const [hw, enrolled] = await Promise.all([LA.hasHardwareAsync(), LA.isEnrolledAsync()]);
       if (!hw || !enrolled) {
