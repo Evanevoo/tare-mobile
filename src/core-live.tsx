@@ -1,9 +1,9 @@
+
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, Pressable, ActivityIndicator } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
-import { RETICLE } from '@/reticle';
-import { decodeBase64Image as coreDecode } from '@/scanx-core';
+import { decodeBase64Image as coreDecode, warmUp, version } from '@/scanx-core';
 import { T, Btn, mono } from '@/ui';
 
 /**
@@ -21,17 +21,25 @@ import { T, Btn, mono } from '@/ui';
  * scanx-core.
  *
  * HOW IT IS "LIVE" WHEN THE ENGINE READS STILLS. It captures on a loop:
- * photograph, crop to the reticle, decode, show, repeat. At roughly two
- * seconds a pass that is closer to a fast shutter than a video scanner, and
- * that is the honest shape of this engine today — asm.js under Hermes, which
- * has no WebAssembly and therefore no JIT. Native would be 10–100× faster and
+ * photograph, shrink, decode, show, repeat. A pass takes a couple of seconds,
+ * which is closer to a fast shutter than a video scanner, and that is the
+ * honest shape of this engine today — asm.js under Hermes, which has no
+ * WebAssembly and therefore no JIT. Native would be 10-100x faster and
  * genuinely live. Sweeping a rack at this speed is not the point; pointing it
  * at ONE bad label and watching what it does is.
+ *
+ * WHY THERE IS NO CROP HERE ANY MORE. There was, and it was the bug: the
+ * reticle's fractions describe the PREVIEW, which is full-bleed and roughly
+ * 19.5:9, while the photo is about 4:3. The same numbers point at different
+ * parts of the two images, so the crop landed beside the label and the screen
+ * span forever reading nothing. Guessing where the label is was the wrong job
+ * for this file. The decoder now sweeps bands down the frame itself and skips
+ * the empty ones, so it gets the whole picture and finds the label in it.
  *
  * WHAT TO WATCH. `module` is the measured width of one narrow bar in pixels.
  * Under 2 is past the floor every other engine in this app shares, so a read
  * there is the entire reason this engine exists. `margin` is how far the
- * weakest character beat its nearest rival — the mechanism that keeps misreads
+ * weakest character beat its nearest rival - the mechanism that keeps misreads
  * at zero, and the difference between a read and a confident guess.
  */
 
@@ -44,19 +52,50 @@ export interface CoreRead {
   at: number;
 }
 
+/**
+ * The long edge handed to the decoder.
+ *
+ * Not the raw photo: a 12-megapixel still is mostly a picture of a warehouse,
+ * and every one of those pixels is paid for three times over - JPEG decode,
+ * base64 across the bridge, and the band sweep itself. At 1200 a label filling
+ * half the frame still lands near four pixels per narrow bar, which is
+ * comfortably inside what this engine reads, so nothing is being given away.
+ */
+const LONG_EDGE = 1200;
+
 export function CoreLiveTest({ onClose }: { onClose: () => void }) {
   const [perm, requestPerm] = useCameraPermissions();
   const cam = useRef<CameraView | null>(null);
 
   const [running, setRunning] = useState(true);
-  const [busy, setBusy] = useState(false);
   const [torch, setTorch] = useState(false);
   const [reads, setReads] = useState<CoreRead[]>([]);
   const [attempts, setAttempts] = useState(0);
   const [lastMiss, setLastMiss] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  // Loading the engine is a visible event, not a detail. It is a 262KB asm.js
+  // module and Hermes has to evaluate all of it before the first decode; a
+  // screen that just says "Reading..." through those seconds is indisputably
+  // lying about what it is doing, and that is precisely how the last version
+  // looked broken when it was merely slow.
+  const [engine, setEngine] = useState<string | null>(null);
+  const [engineError, setEngineError] = useState<string | null>(null);
 
   const alive = useRef(true);
   useEffect(() => () => { alive.current = false; }, []);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        await warmUp();
+        const v = await version();
+        if (alive.current) setEngine(v);
+      } catch (e: any) {
+        if (alive.current) setEngineError(e?.message ? String(e.message) : 'engine did not start');
+      }
+    })();
+  }, []);
 
   /**
    * Periodic refocus, the same trick src/scanner.tsx uses.
@@ -64,7 +103,7 @@ export function CoreLiveTest({ onClose }: { onClose: () => void }) {
    * Continuous autofocus on a lot of Android hardware locks onto whatever the
    * lens first settled on and never re-evaluates. Without a pulse of its own
    * every capture here comes back focused wherever the camera happened to land
-   * at mount — usually not on a label a few inches away — and the engine gets
+   * at mount - usually not on a label a few inches away - and the engine gets
    * blamed for the lens.
    */
   const [focusOff, setFocusOff] = useState(false);
@@ -74,52 +113,49 @@ export function CoreLiveTest({ onClose }: { onClose: () => void }) {
       setTimeout(() => { if (alive.current) setFocusOff(false); }, 180);
     };
     const first = setTimeout(cycle, 600);
-    const iv = setInterval(cycle, 2000);
+    const iv = setInterval(cycle, 2500);
     return () => { clearTimeout(first); clearInterval(iv); };
   }, []);
 
+  /**
+   * `busy` is BOTH a ref and a state, on purpose.
+   *
+   * The ref is the guard the capture loop reads; the state is only there to
+   * drive the spinner. Guarding on the state instead meant the loop's effect
+   * re-ran on every flip of it, tearing down and rebuilding the loop twice per
+   * capture and leaving a torn-down copy still awaiting a decode. The ref does
+   * not change identity, so the loop below starts exactly once.
+   */
+  const busyRef = useRef(false);
+
   const once = useCallback(async () => {
-    if (!cam.current || busy) return;
+    if (!cam.current || busyRef.current) return;
+    busyRef.current = true;
     setBusy(true);
     try {
+      /**
+       * NO `skipProcessing`. It skips EXIF rotation, so on Android the buffer
+       * can come back landscape - and while the band sweep no longer cares
+       * WHERE in the frame the label is, it very much cares which axis the
+       * bars run across, because the profile is taken along image X.
+       */
       const photo = await cam.current.takePictureAsync({
-        quality: 0.9, shutterSound: false, skipProcessing: true,
+        quality: 0.9, shutterSound: false,
       });
       if (!photo?.uri) return;
 
-      /**
-       * Crop to the reticle with a margin, exactly as the app's Snap path
-       * does. The margin is not optional: Code 128 requires a quiet zone of
-       * ten module widths either side, and a decoder that cannot see one
-       * refuses the symbol outright. Cropping tight to the drawn box punishes
-       * good aim.
-       */
-      const PAD = 0.08;
-      let b64: string | undefined;
-      try {
-        const l = Math.max(0, RETICLE.left - PAD);
-        const t = Math.max(0, RETICLE.top - PAD);
-        const r = Math.min(1, RETICLE.left + RETICLE.width + PAD);
-        const b = Math.min(1, RETICLE.top + RETICLE.height + PAD);
-        const out = await manipulateAsync(
-          photo.uri,
-          [{
-            crop: {
-              originX: Math.round(photo.width * l),
-              originY: Math.round(photo.height * t),
-              width: Math.round(photo.width * (r - l)),
-              height: Math.round(photo.height * (b - t)),
-            },
-          }],
-          { base64: true, compress: 0.95, format: SaveFormat.JPEG },
-        );
-        b64 = out.base64 ?? undefined;
-      } catch {
-        b64 = photo.base64 ?? undefined;   // crop failed: try the whole frame
-      }
-      if (!b64) return;
+      const shrunk = await manipulateAsync(
+        photo.uri,
+        [{ resize: photo.width >= photo.height
+            ? { width: LONG_EDGE }
+            : { height: LONG_EDGE } }],
+        { base64: true, compress: 0.92, format: SaveFormat.JPEG },
+      );
+      if (!shrunk.base64) { setLastMiss('could not read the photo'); return; }
 
-      const res = await coreDecode(b64, { maxDim: 1400, minMargin: 0 });
+      // maxDim above the image we just made, so the decoder does not shrink it
+      // a second time - the resize above already chose the resolution.
+      const res = await coreDecode(shrunk.base64, { maxDim: 2000, minMargin: 0 });
       if (!alive.current) return;
 
       setAttempts((n) => n + 1);
@@ -131,28 +167,41 @@ export function CoreLiveTest({ onClose }: { onClose: () => void }) {
           ...prev,
         ].slice(0, 40));
       } else {
-        setLastMiss(res.failure ?? res.error ?? 'no read');
+        // The frame size and the time are reported next to the reason. Without
+        // them "no barcode found" is unfalsifiable: it reads the same whether
+        // the decoder failed, the photo was blank, or the engine never ran.
+        setLastMiss(
+          `${res.failure ?? res.error ?? 'no read'} · ${res.w}x${res.h} · ${res.ms} ms`,
+        );
       }
-    } catch {
-      /* a dropped frame is not worth interrupting a test for */
+    } catch (e: any) {
+      if (alive.current) {
+        setLastMiss(e?.message ? String(e.message) : 'camera did not return a frame');
+      }
     } finally {
+      busyRef.current = false;
       if (alive.current) setBusy(false);
     }
-  }, [busy]);
+  }, []);
 
-  // The loop. Deliberately sequential — a second capture while the first is
-  // still decoding would fight for the camera and measure nothing useful.
+  // The loop. Deliberately sequential - a second capture while the first is
+  // still decoding would fight for the camera and measure nothing useful. It
+  // does not start until the engine is actually loaded, so the first pass is
+  // not silently paying for module evaluation on top of a decode.
+  const runningRef = useRef(running);
+  useEffect(() => { runningRef.current = running; }, [running]);
+
   useEffect(() => {
-    if (!running) return;
+    if (!engine) return;
     let stop = false;
     (async () => {
       while (!stop && alive.current) {
-        await once();
+        if (runningRef.current) await once();
         await new Promise((r) => setTimeout(r, 250));
       }
     })();
     return () => { stop = true; };
-  }, [running, once]);
+  }, [engine, once]);
 
   if (!perm?.granted) {
     return (
@@ -167,6 +216,12 @@ export function CoreLiveTest({ onClose }: { onClose: () => void }) {
   }
 
   const last = reads[0];
+
+  const status = engineError ? engineError
+    : !engine ? 'Starting the decoder…'
+    : busy ? 'Reading…'
+    : !running ? 'Paused.'
+    : 'Hold the label level and fill the width.';
 
   return (
     <View style={{ flex: 1, backgroundColor: '#000' }}>
@@ -184,16 +239,16 @@ export function CoreLiveTest({ onClose }: { onClose: () => void }) {
           scanx-core is reading these frames.
         */
       >
-        {/* the reticle, drawn where the crop is taken */}
+        {/*
+          An aiming guide, not a crop. The decoder reads the whole frame now,
+          so this is only here to get the label roughly level and roughly
+          filling the width - which is what actually decides pixels per bar.
+        */}
         <View
           pointerEvents="none"
           style={{
-            position: 'absolute',
-            left: `${RETICLE.left * 100}%`,
-            top: `${RETICLE.top * 100}%`,
-            width: `${RETICLE.width * 100}%`,
-            height: `${RETICLE.height * 100}%`,
-            borderWidth: 2, borderColor: T.amber, borderRadius: 12,
+            position: 'absolute', left: '6%', right: '6%', top: '42%', height: '16%',
+            borderWidth: 2, borderColor: 'rgba(255,255,255,0.45)', borderRadius: 10,
           }}
         />
 
@@ -228,16 +283,15 @@ export function CoreLiveTest({ onClose }: { onClose: () => void }) {
               )}
             </>
           ) : (
-            <Text style={{ color: '#fff', fontSize: 15, opacity: 0.85 }}>
-              {busy ? 'Reading…' : 'Point at a label. Nothing is saved.'}
+            <Text style={{ color: engineError ? T.amber : '#fff', fontSize: 15, opacity: 0.9 }}>
+              {status}
             </Text>
           )}
 
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 12 }}>
-            {busy && <ActivityIndicator color="#fff" />}
-            <Text style={{ color: 'rgba(255,255,255,0.72)', fontSize: 12 }}>
-              {reads.length} read · {attempts} tried
-              {lastMiss && !busy ? ` · ${lastMiss}` : ''}
+            {(busy || !engine) && !engineError && <ActivityIndicator color="#fff" />}
+            <Text style={{ color: 'rgba(255,255,255,0.72)', fontSize: 12, flexShrink: 1 }}>
+              {reads.length} read · {attempts} tried{lastMiss ? ` · ${lastMiss}` : ''}
             </Text>
             <Pressable onPress={() => setRunning((r) => !r)} hitSlop={12}
                        style={{ marginLeft: 'auto', minHeight: 44, justifyContent: 'center' }}>
