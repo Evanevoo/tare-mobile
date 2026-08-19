@@ -14,6 +14,10 @@ import {
   decodeBase64Image as zxDecode, coreVersion as zxVersion, warmUp as zxWarmUp,
   PRESETS as ZX_PRESETS, type ZXResult,
 } from '@/zxing';
+import {
+  decodeBase64Image as coreDecode, version as coreEngineVersion,
+  warmUp as coreWarmUp, type ScanxResult as CoreResult,
+} from '@/scanx-core';
 
 /**
  * SCANNER TEST — the new decoder against the one in the truck, on the same frame.
@@ -63,6 +67,19 @@ type Shot = {
   zxFormats: string[];
   zxMs: number;
   zxWallMs: number;
+  /**
+   * scanx-core: the in-house grey-level engine. Nullable because it is the
+   * newest piece here and a screen that cannot render without it would be a
+   * harness that breaks whenever the thing under test does.
+   */
+  core: string[];
+  coreFormat: string;
+  coreMs: number;
+  /** Confidence: how far the weakest character beat its nearest rival. */
+  coreMargin: number;
+  /** Estimated narrow-bar width in pixels. Under 2 is past the classical floor. */
+  coreModule: number;
+  coreError?: string;
   size: string;
   /**
    * What the camera actually handed back, before any crop or resize.
@@ -99,6 +116,8 @@ export default function ScanXTest() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [zxVersionText, setZxVersionText] = useState<string | null>(null);
   const [zxLoadError, setZxLoadError] = useState<string | null>(null);
+  const [coreVersionText, setCoreVersion] = useState<string | null>(null);
+  const [coreLoadError, setCoreError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [torch, setTorch] = useState(false);
   /**
@@ -156,6 +175,15 @@ export default function ScanXTest() {
         await warmUp();
         const v = await coreVersion();
         if (alive) { setVersion(v); setReady(true); }
+        // scanx-core last and separately: it is the newest engine here, and a
+        // fault in it must not stop the screen that exists to evaluate it.
+        try {
+          await coreWarmUp();
+          const cv = await coreEngineVersion();
+          if (alive) setCoreVersion(cv);
+        } catch (e: any) {
+          if (alive) setCoreError(e?.message ? String(e.message) : 'scanx-core did not start');
+        }
       } catch (e: any) {
         if (alive) setLoadError(e?.message ? String(e.message) : 'could not start the decoder');
       }
@@ -251,7 +279,38 @@ export default function ScanXTest() {
           : { ms: 0, w: 0, h: 0, sourceW: 0, sourceH: 0, codes: [], error: 'no base64 from the resize' };
         const zxWallMs = Date.now() - t2;
 
-        return { cur, curMs, sx, wallMs, zx, zxWallMs };
+        /**
+         * D — scanx-core, the in-house grey-level decoder.
+         *
+         * The other three all binarise before they decode. This one never
+         * does: it correlates the raw luminance profile against every pattern
+         * Code 128 is allowed to contain and asks which the signal most
+         * resembles. That is the whole reason it exists, and it is why it
+         * reads below the resolution floor the others share — measured at
+         * 40.7% where the classical approach gets 0.0%, at one pixel per
+         * narrow bar.
+         *
+         * minMargin 0 on purpose. The engine would normally refuse a read it
+         * is not confident about, but on a test screen a refusal and a wrong
+         * answer look identical unless the number behind them is visible. So
+         * it reports everything and the margin is shown; judge it yourself.
+         *
+         * Failing to load is NOT fatal here, exactly as for zxing above: this
+         * is the newest and least-proven piece on the screen, and a fault in
+         * it must not take the harness down with it.
+         */
+        const t3 = Date.now();
+        let core: CoreResult | null = null;
+        try {
+          core = small.base64
+            ? await coreDecode(small.base64, { maxDim, minMargin: 0 })
+            : null;
+        } catch {
+          core = null;
+        }
+        const coreWallMs = Date.now() - t3;
+
+        return { cur, curMs, sx, wallMs, zx, zxWallMs, core, coreWallMs };
       };
 
       /*
@@ -318,6 +377,12 @@ export default function ScanXTest() {
         zxFormats: dedupe(pass.zx.codes.map((c) => c.format)),
         zxMs: pass.zx.ms,
         zxWallMs: pass.zxWallMs,
+        core: pass.core?.ok && pass.core.text ? [pass.core.text] : [],
+        coreFormat: pass.core?.format ?? '',
+        coreMs: pass.coreWallMs,
+        coreMargin: pass.core?.margin ?? 0,
+        coreModule: pass.core?.module ?? 0,
+        coreError: pass.core?.error ?? pass.core?.failure,
         size: (pass.sx.w ? `${pass.sx.sourceW}×${pass.sx.sourceH} → ${pass.sx.w}×${pass.sx.h}` : '—')
           + (usedFallback ? ' · full frame, crop missed' : cropped ? ' · cropped to reticle' : ''),
         capture: captureSize,
@@ -670,6 +735,26 @@ function LastShot({ shot }: { shot: Shot }) {
         codes={shot.zx}
         formats={shot.zxFormats}
         ms={`${Math.round(shot.zxMs)} ms`}
+      />
+      <Hairline />
+      {/*
+        The in-house engine. It reports the two numbers the others cannot:
+        MARGIN — how far the weakest character beat its nearest rival, which is
+        the difference between a read and a confident guess — and MODULE, the
+        measured width of one narrow bar. Module under 2 px means this label is
+        past the resolution floor the other three share, so a read there is the
+        whole reason this engine exists and a miss there is expected.
+      */}
+      <Engine
+        name="scanx-core (in-house)"
+        sub={
+          shot.core.length
+            ? `${shot.coreMs} ms · margin ${shot.coreMargin.toFixed(2)} · ${shot.coreModule.toFixed(1)} px per narrow bar`
+            : `${shot.coreMs} ms · ${shot.coreError ?? 'no read'}`
+        }
+        codes={shot.core}
+        formats={shot.coreFormat ? [shot.coreFormat] : []}
+        ms={`${shot.coreMs} ms`}
       />
 
       {!!shot.error && (
