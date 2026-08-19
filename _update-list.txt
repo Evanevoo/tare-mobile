@@ -1,0 +1,84 @@
+﻿
+Branch:
+Name  production
+ID    019feeef-d44b-7bde-98d6-31ee801bbe10
+
+Recent update groups:
+
+Platforms                 android, ios
+Runtime Version           1.2.3
+Message                   "Idle sign-out after an hour, optional fingerprint lock, push-ready device registration (guarded on older builds)" (32 minutes ago by evanevoo)
+Code Signing Key          N/A
+Is Roll Back to Embedded  No
+Rollout Percentage        N/A
+Group ID                  9ca9c14a-0d05-4279-a895-787a2a2a52ba
+
+ΓÇöΓÇöΓÇö
+
+Platforms                 android, ios
+Runtime Version           1.2.3
+Message                   "Asset attributes with one-pick fill, Locate history tab, smarter rental warning, barcode edit + server lookup, quota warnings, camera controls out of the viewfinder" (49 minutes ago by evanevoo)
+Code Signing Key          N/A
+Is Roll Back to Embedded  No
+Rollout Percentage        N/A
+Group ID                  5166130d-2e9d-4b6b-8bad-c52e0a2ed62e
+
+ΓÇöΓÇöΓÇö
+
+Platforms                 android, ios
+Runtime Version           1.2.3
+Message                   "Done shows line items; audible duplicates; Locate refuses unknowns, shows state change, keeps going; searchable pickers" (3 hours ago by evanevoo)
+Code Signing Key          N/A
+Is Roll Back to Embedded  No
+Rollout Percentage        N/A
+Group ID                  c4c1aeb9-f80f-47dc-a859-a010b5432338
+
+ΓÇöΓÇöΓÇö
+
+Platforms                 android, ios
+Runtime Version           1.2.3
+Message                   "zxing in the Snap fallback; ITF fix; quiet-zone crop margin" (4 hours ago by evanevoo)
+Code Signing Key          N/A
+Is Roll Back to Embedded  No
+Rollout Percentage        N/A
+Group ID                  2f278795-8adc-4cf6-a07e-add5adb76dd6
+
+ΓÇöΓÇöΓÇö
+
+Platforms                 android, ios
+Runtime Version           1.2.3
+Message                   "Scanner test: quiet-zone crop margin, larger sizes, full-res capture" (6 hours ago by evanevoo)
+Code Signing Key          N/A
+Is Roll Back to Embedded  No
+Rollout Percentage        N/A
+Group ID                  d424fa99-2357-4c6d-b653-70a1ed4fa9ca
+
+ΓÇöΓÇöΓÇö
+
+Platforms                 android, ios
+Runtime Version           1.2.3
+Message                   "Scanner test: add zxing-cpp as third engine" (7 hours ago by evanevoo)
+Code Signing Key          N/A
+Is Roll Back to Embedded  No
+Rollout Percentage        N/A
+Group ID                  25fac44b-4d61-4cbc-8917-b449ef6dc566
+
+ΓÇöΓÇöΓÇö
+
+Platforms                 android, ios
+Runtime Version           1.2.3
+Message                   "ScanX test: crop to reticle, add aim guide" (8 hours ago by evanevoo)
+Code Signing Key          N/A
+Is Roll Back to Embedded  No
+Rollout Percentage        N/A
+Group ID                  edf8b493-3938-4ee3-ba06-de8a8d58f820
+
+ΓÇöΓÇöΓÇö
+
+Platforms                 android, ios
+Runtime Version           1.2.3
+Message                   "ScanX test: fix camera never focusing before capture" (8 hours ago by evanevoo)
+Code Signing Key          N/A
+Is Roll Back to Embedded  No
+Rollout Percentage        N/A
+Group ID                  9aeaf8e3-2a6a-43b7-ae9e-c1419290ee37

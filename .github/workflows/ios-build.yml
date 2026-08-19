@@ -1,0 +1,163 @@
+# Forge — iOS build on a rented Mac.
+#
+# Windows cannot compile an iOS app: that needs Xcode, which needs macOS. This
+# workflow rents one by the minute from GitHub instead of buying hardware. You
+# trigger it from Forge (or the Actions tab), it produces a signed .ipa, and
+# optionally sends it straight to TestFlight.
+#
+# ─── Secrets this needs ───────────────────────────────────────────────────
+# Repository → Settings → Secrets and variables → Actions → New repository secret
+#
+#   IOS_CERT_P12          your Apple *distribution* certificate, base64
+#                         export it from Keychain as .p12, then:
+#                         certutil -encode cert.p12 cert.txt   (Windows)
+#   IOS_CERT_PASSWORD     the password you set when exporting the .p12
+#   IOS_PROFILE           the provisioning profile (.mobileprovision), base64
+#   IOS_TEAM_ID           10-character Apple team id, e.g. FA8UQ322NZ
+#   KEYCHAIN_PASSWORD     any random string; scopes a throwaway keychain
+#
+# Only if you tick "upload to TestFlight":
+#   ASC_KEY_ID            App Store Connect API key id
+#   ASC_ISSUER_ID         the issuer id from the same page
+#   ASC_PRIVATE_KEY       the .p8 file's contents, base64
+#
+# ─── What it costs ────────────────────────────────────────────────────────
+# macOS runners bill at 10x the Linux rate. The free tier's 2,000 minutes are
+# therefore ~200 macOS minutes, and an RN build takes 15-25 of them. Budget
+# roughly 8-13 free builds a month.
+
+name: iOS build
+
+on:
+  workflow_dispatch:
+    inputs:
+      configuration:
+        description: Build configuration
+        type: choice
+        options: [Release, Debug]
+        default: Release
+      upload_testflight:
+        description: Upload to TestFlight when it succeeds
+        type: boolean
+        default: false
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      # Only regenerates ios/ if it isn't committed. Committing it is better:
+      # it keeps native changes in code review instead of in a CI black box.
+      - name: Ensure the iOS project exists
+        run: |
+          if [ ! -d ios ]; then
+            npx expo prebuild --platform ios --no-install
+          fi
+
+      - name: Install CocoaPods
+        working-directory: ios
+        run: pod install --repo-update
+
+      # A throwaway keychain, so the certificate never touches the runner's
+      # default one and dies with the job.
+      - name: Set up signing
+        env:
+          IOS_CERT_P12: ${{ secrets.IOS_CERT_P12 }}
+          IOS_CERT_PASSWORD: ${{ secrets.IOS_CERT_PASSWORD }}
+          IOS_PROFILE: ${{ secrets.IOS_PROFILE }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN=$RUNNER_TEMP/forge.keychain-db
+
+          echo "$IOS_CERT_P12" | base64 --decode > $RUNNER_TEMP/cert.p12
+          echo "$IOS_PROFILE"  | base64 --decode > $RUNNER_TEMP/profile.mobileprovision
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN
+          security set-keychain-settings -lut 21600 $KEYCHAIN
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN
+          security import $RUNNER_TEMP/cert.p12 -P "$IOS_CERT_PASSWORD" \
+            -A -t cert -f pkcs12 -k $KEYCHAIN
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" $KEYCHAIN
+          security list-keychain -d user -s $KEYCHAIN
+
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          cp $RUNNER_TEMP/profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/
+
+          # Read the profile's own name and UUID rather than hard-coding them.
+          security cms -D -i $RUNNER_TEMP/profile.mobileprovision > $RUNNER_TEMP/profile.plist
+          echo "PROFILE_NAME=$(/usr/libexec/PlistBuddy -c 'Print :Name' $RUNNER_TEMP/profile.plist)" >> $GITHUB_ENV
+          echo "BUNDLE_ID=$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' $RUNNER_TEMP/profile.plist | cut -d. -f2-)" >> $GITHUB_ENV
+
+      - name: Archive
+        working-directory: ios
+        run: |
+          set -euo pipefail
+          SCHEME=$(xcodebuild -list -json -workspace *.xcworkspace | node -e "
+            let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{
+              const w=JSON.parse(s).workspace; console.log(w.schemes.find(x=>!/Tests|Pods/.test(x))||w.schemes[0]);})")
+          echo "Building scheme $SCHEME"
+          xcodebuild -workspace *.xcworkspace \
+            -scheme "$SCHEME" \
+            -configuration ${{ inputs.configuration }} \
+            -archivePath $RUNNER_TEMP/app.xcarchive \
+            -destination 'generic/platform=iOS' \
+            DEVELOPMENT_TEAM=${{ secrets.IOS_TEAM_ID }} \
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
+            CODE_SIGN_STYLE=Manual \
+            archive
+
+      - name: Export .ipa
+        run: |
+          set -euo pipefail
+          cat > $RUNNER_TEMP/ExportOptions.plist <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>teamID</key><string>${{ secrets.IOS_TEAM_ID }}</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>provisioningProfiles</key>
+            <dict><key>$BUNDLE_ID</key><string>$PROFILE_NAME</string></dict>
+          </dict></plist>
+          PLIST
+          xcodebuild -exportArchive \
+            -archivePath $RUNNER_TEMP/app.xcarchive \
+            -exportPath $RUNNER_TEMP/export \
+            -exportOptionsPlist $RUNNER_TEMP/ExportOptions.plist
+
+      - name: Upload the .ipa as an artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa
+          path: ${{ runner.temp }}/export/*.ipa
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Send to TestFlight
+        if: ${{ inputs.upload_testflight }}
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/private_keys
+          echo "$ASC_PRIVATE_KEY" | base64 --decode > ~/private_keys/AuthKey_$ASC_KEY_ID.p8
+          xcrun altool --upload-app -f "$RUNNER_TEMP"/export/*.ipa -t ios \
+            --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
+
+      - name: Clean up the keychain
+        if: always()
+        run: security delete-keychain $RUNNER_TEMP/forge.keychain-db || true

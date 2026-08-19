@@ -5,7 +5,6 @@ import { useRouter } from 'expo-router';
 import { useStore } from '@/store';
 import { playScanAccept } from './sound';
 import { classify, type ScanTarget } from './scan-match';
-import { afterModalClose } from './nav';
 
 /**
  * The navigation half of "what did I just scan".
@@ -61,17 +60,18 @@ export function useScanRoute(opts?: ScanRouteOptions) {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     Vibration.vibrate(90);
     playScanAccept();
-    // EVERY CALLER OF THIS IS INSIDE AN OPEN SCANNER MODAL, so both of these
+    // Every caller of this is inside an open scanner sheet, so both of these
     // navigations happen in the same tick as the caller's setScanning(null).
-    // On Android that orphans the dialog window and freezes the app — see
-    // src/nav.ts for the full mechanism and the three reports that found it.
+    // That used to orphan an Android dialog window and freeze the app; the
+    // sheets are ordinary views now (src/sheet.tsx), so there is no window to
+    // orphan and these can go straight through.
     if (t.kind === 'asset') {
-      afterModalClose(() => router.push(`/asset/${encodeURIComponent(t.barcode)}` as never));
+      router.push(`/asset/${encodeURIComponent(t.barcode)}` as never);
     }
     // The ACCOUNT NUMBER, not the uuid — see the note in app/customer/[id].tsx
     // for why that screen has to answer to both.
     if (t.kind === 'customer' && toCustomer) {
-      afterModalClose(() => router.push(`/customer/${encodeURIComponent(t.id)}` as never));
+      router.push(`/customer/${encodeURIComponent(t.id)}` as never);
     }
     return t;
   }, [boot, router, toCustomer]);

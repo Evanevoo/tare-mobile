@@ -1,5 +1,5 @@
 import {
-  View, Text, Pressable, ScrollView, RefreshControl, ActivityIndicator, Modal, Alert,
+  View, Text, Pressable, ScrollView, RefreshControl, ActivityIndicator, Alert,
 } from 'react-native';
 import { useState } from 'react';
 import { useRouter } from 'expo-router';
@@ -11,6 +11,7 @@ import {
   T, Screen, Surface, Edge, Dot, Eyebrow, Rise, Icon, ICON, mono, tint, wash,
 } from '@/ui';
 import { localDay, today } from '@/when';
+import { Sheet } from '@/sheet';
 
 /**
  * HOME IS A LAUNCHER AGAIN — AND IT HAS AN OPINION.
@@ -400,12 +401,7 @@ export default function Home() {
           own backdrop is white and it is visible for the whole slide-in, and
           a Scanner with no height lays out at zero pixels over it. That
           combination is what "tapping scan shows a white screen" was. */}
-      <Modal
-        visible={scanning}
-        animationType="slide"
-        presentationStyle="fullScreen"
-        onRequestClose={() => setScanning(false)}
-      >
+      <Sheet visible={scanning} onRequestClose={() => setScanning(false)}>
         <View style={{ flex: 1, backgroundColor: '#000' }}>
           <Scanner
             /**
@@ -437,7 +433,7 @@ export default function Home() {
             </View>
           </Scanner>
         </View>
-      </Modal>
+      </Sheet>
     </Screen>
   );
 }

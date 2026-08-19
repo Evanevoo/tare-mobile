@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  View, Text, Pressable, FlatList, Alert, TextInput, Modal, ActivityIndicator, Animated, Vibration,
+  View, Text, Pressable, FlatList, Alert, TextInput, ActivityIndicator, Animated, Vibration,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
@@ -14,7 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T, shipTone, Surface, Btn, Tag, mono } from '@/ui';
 import { Scanner } from '@/scanner';
 import type { AssetRec } from '@/api';
-import { afterModalClose } from '@/nav';
+import { Sheet } from '@/sheet';
 
 /**
  * The scan loop.
@@ -67,6 +67,17 @@ export default function Scan() {
   // moved into a sheet a driver opens on purpose — see the "Order · N" pill
   // in the header below. Closing it changes nothing about the order; it is
   // a review surface, not a step in the loop.
+  /**
+   * ON THE WAY OUT: CAMERA AND SHEET DOWN FIRST, NAVIGATE SECOND.
+   *
+   * Not cosmetic. The render that sets this true is the render that unmounts a
+   * live CameraView and the review sheet; the effect below runs only after
+   * React has committed it. So by the time anything navigates, there is
+   * demonstrably nothing left on this screen for the teardown to race with —
+   * which is what the three timing fixes were all trying and failing to
+   * guarantee with a number.
+   */
+  const [leaving, setLeaving] = useState(false);
   const [review, setReview] = useState(false);
   // The bottom overlay (readout + SHIP/RETURN) is measured, not guessed, so
   // Scanner's own torch/zoom/Snap/Read-text stack (bottom-right, see
@@ -375,55 +386,44 @@ export default function Scan() {
     setRemoved(null);
 
     /**
-     * DISMISS THE SHEET BEFORE LEAVING THE SCREEN. THIS LINE IS THE BUG FIX.
+     * FIVE REPORTS, THREE TIMING FIXES, AND THE TIMING WAS NEVER THE PROBLEM.
      *
-     * Reported 19 Aug 2026, twice, from a real delivery to Flatstone
-     * Construction: "scanned a delivery, then clicked Done, Submit, and the
-     * screen went grey and froze. Closed the app, and the scan is gone."
+     * First reported 18 Aug 2026 from a real delivery to Flatstone
+     * Construction — "clicked Done, Submit, and the screen went grey and
+     * froze. Closed the app, and the scan is gone." Reported again after each
+     * of the next three fixes.
      *
-     * Submit lives INSIDE this Modal, so pressing it ran the whole of finish()
-     * with `review` still true. `router.replace('/')` then tore this screen
-     * down while a visible Modal was still mounted on it. On Android a Modal
-     * is a real platform dialog window, not a view in the tree: unmounting its
-     * owner without lowering `visible` first leaves that window orphaned on
-     * top of the app. It renders as a grey sheet over the new screen and
-     * swallows every touch, and there is no way back — the only exit is force
-     * closing the app. Exactly what was reported, both times.
+     * The mechanism was diagnosed correctly the first time: on Android a
+     * `Modal` is a platform dialog window the OS owns, `setReview(false)` only
+     * SCHEDULES its dismissal, and tearing this screen down inside that
+     * ~300ms window orphans the dialog on top of the app, where it renders as
+     * a grey sheet and swallows every touch. What was wrong was the remedy.
+     * Waiting 0ms, then 150ms, then 350ms are all guesses about how long
+     * somebody else's animation takes on hardware we do not own, and all three
+     * came back.
      *
-     * `onRequestClose` was the only place that ever set this false, which is
-     * the Android back button — so the one path a driver actually uses to
-     * finish a delivery was the one path that never dismissed the sheet.
+     * The review sheet is not a Modal any more (src/sheet.tsx). There is no
+     * second window to orphan, so nothing here has to be timed.
      *
-     * The data loss is the second half and is fixed separately, in the outbox:
-     * force-closing during the sync this function kicks off used to strand
-     * every row in UPLOADING for ever. See RECOVER_INFLIGHT.
+     * What IS still ordered, and deliberately:
+     *
+     *   1. The sync goes first. Whatever the UI does next the scans are
+     *      already on their way, and if the process dies mid-flight
+     *      RECOVER_INFLIGHT puts them back in the queue at next launch. Data
+     *      safety must not depend on navigation succeeding — that assumption
+     *      is what cost the Flatstone delivery.
+     *   2. `leaving` unmounts the camera and the sheet. The effect that
+     *      navigates is keyed on it, so it runs AFTER React has committed a
+     *      render in which neither is on screen. That is a fact about this
+     *      app's own render cycle rather than a bet on a native animation,
+     *      which is the whole difference from the three fixes before it.
+     *   3. endDelivery() happens over there too. Clearing the job while this
+     *      screen is still mounted would leave it rendering for a frame with
+     *      no order and no customer — the inconsistent state its own guard
+     *      was once written to bail out of.
      */
     setReview(false);
 
-    /**
-     * AND THEN LET THE SHEET ACTUALLY CLOSE BEFORE LEAVING.
-     *
-     * Dismissing the Modal and calling router.replace in the same synchronous
-     * block fixed the grey frozen screen and produced a BLACK one instead —
-     * reported on the very next delivery. Both are the same underlying race.
-     * `setReview(false)` does not close an Android dialog window; it schedules
-     * a React re-render which then asks the platform to close it, and that
-     * takes a frame. Tearing the owning screen down inside that frame — while
-     * the dialog is mid-dismiss and a live CameraView is being unmounted on
-     * the same commit — leaves the app showing this screen's own black
-     * background with nothing left mounted on it.
-     *
-     * One frame of patience removes the race entirely. 150ms rather than a
-     * bare requestAnimationFrame because the work being waited on is native
-     * dialog teardown plus camera release, not a JS paint, and a driver cannot
-     * perceive the difference.
-     *
-     * THE SYNC IS KICKED OFF FIRST, DELIBERATELY. Whatever the UI does next,
-     * the scans are already on their way, and if this process dies mid-flight
-     * RECOVER_INFLIGHT puts them back in the queue at next launch. Data
-     * safety must not depend on the navigation succeeding — that assumption
-     * is what cost the Flatstone delivery.
-     */
     if (n) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       // The order going out deserves the most confident buzz of all — one
@@ -433,15 +433,22 @@ export default function Scan() {
       sync().catch(() => {});
     }
 
-    // Both together, on the far side of the wait. Clearing the job while this
-    // screen is still mounted would leave it rendering for a frame with no
-    // order and no customer — the exact inconsistent state its own guard was
-    // once written to bail out of.
-    afterModalClose(() => {
-      endDelivery();
-      router.replace('/');
-    });
+    setLeaving(true);
   }
+
+  /**
+   * The far side of the wait — except there is no wait, only an ordering.
+   *
+   * This effect cannot run until React has committed the render in which
+   * `leaving` is true, and that render draws the "Order sent" card and nothing
+   * else: no camera, no sheet. So the screen is already quiet before anything
+   * is torn down, which is the guarantee the timers could never make.
+   */
+  useEffect(() => {
+    if (!leaving) return;
+    endDelivery();
+    router.replace('/');
+  }, [leaving]);
 
   /** What this org knows about the thing just scanned, if it knows it. */
   const rec = last ? boot?.assets[last.barcode] : undefined;
@@ -468,6 +475,25 @@ export default function Scan() {
    */
   const oddStatus = rec ? (rec.s !== 'available' && rec.s !== 'rented') : false;
   const needsFullCard = last ? (last.kind !== 'added' || oddStatus) : false;
+
+  /**
+   * The last frame this screen ever draws.
+   *
+   * A driver pressing Submit in a yard wants one thing confirmed and does not
+   * care what happens after, so this says it plainly and gets out of the way.
+   * Its real job is structural: rendering it is what takes the camera and the
+   * sheet off screen before the effect above navigates.
+   */
+  if (leaving) {
+    return (
+      <View style={{ flex: 1, backgroundColor: T.zinc, alignItems: 'center', justifyContent: 'center', padding: 32 }}>
+        <Text style={{ color: T.ink, fontSize: 20, fontWeight: '800' }}>Order sent</Text>
+        <Text style={{ color: T.faint, fontSize: 13.5, marginTop: 8, textAlign: 'center', lineHeight: 20 }}>
+          Uploading in the background. It is safe to close the app.
+        </Text>
+      </View>
+    );
+  }
 
   return (
     <View style={{ flex: 1, backgroundColor: '#000' }}>
@@ -754,7 +780,7 @@ export default function Scan() {
           underneath a small boxed camera. Opening or closing this changes
           nothing about the order — scanning behind it works exactly the
           same whether it is open or closed. */}
-      <Modal visible={review} animationType="slide" onRequestClose={() => setReview(false)}>
+      <Sheet visible={review} onRequestClose={() => setReview(false)} background={T.zinc}>
         <View style={{ flex: 1, backgroundColor: T.zinc }}>
           <View style={{
             flexDirection: 'row', alignItems: 'center', paddingTop: 54,
@@ -859,11 +885,11 @@ export default function Scan() {
             </LinearGradient>
           </View>
         </View>
-      </Modal>
+      </Sheet>
 
       {/* ── manual entry ── */}
-      <Modal visible={manual} transparent animationType="fade" onRequestClose={() => setManual(false)}>
-        <View style={{ flex: 1, backgroundColor: 'rgba(3,5,6,0.78)', justifyContent: 'center', padding: 22 }}>
+      <Sheet visible={manual} onRequestClose={() => setManual(false)} background="rgba(3,5,6,0.78)">
+        <View style={{ flex: 1, justifyContent: 'center', padding: 22 }}>
           <Surface level={3}>
             <View style={{ padding: 20 }}>
               <Text style={{ color: T.ink, fontSize: 18.5, fontWeight: '700', marginBottom: 5 }}>
@@ -946,7 +972,7 @@ export default function Scan() {
             </View>
           </Surface>
         </View>
-      </Modal>
+      </Sheet>
     </View>
   );
 }

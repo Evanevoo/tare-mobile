@@ -1,0 +1,70 @@
+Resolved "production" environment for the build. Learn more: https://docs.expo.dev/eas/environment-variables/#setting-the-environment-for-your-builds
+No environment variables with visibility "Plain text" and "Sensitive" found for the "production" environment on EAS.
+Environment variables loaded from the "production" build profile "env" configuration: EXPO_PUBLIC_SENTRY_DSN, EXPO_PUBLIC_API_URL, EXPO_PUBLIC_SUPABASE_URL, EXPO_PUBLIC_SUPABASE_ANON_KEY, SENTRY_DISABLE_AUTO_UPLOAD.
+
+
+
+🤖 Android build
+✔ Using remote Android credentials (Expo server)
+✔ Using Keystore from configuration: Build Credentials GDP3wQe-18 (default)
+
+Compressing project files and uploading to EAS Build. Learn more: https://expo.fyi/eas-build-archive
+- Compressing project files
+Your project archive is 280 MB. You can reduce its size and the time it takes to upload by excluding files that are unnecessary for the build process in .easignore file. Learn more: https://expo.fyi/eas-build-archive
+- Uploading to EAS Build (0 / 280 MB)
+✔ Uploaded to EAS 12s
+- Computing project fingerprint
+✔ Computed project fingerprint
+Resolved "production" environment for the build. Learn more: https://docs.expo.dev/eas/environment-variables/#setting-the-environment-for-your-builds
+No environment variables with visibility "Plain text" and "Sensitive" found for the "production" environment on EAS.
+Environment variables loaded from the "production" build profile "env" configuration: EXPO_PUBLIC_SENTRY_DSN, EXPO_PUBLIC_API_URL, EXPO_PUBLIC_SUPABASE_URL, EXPO_PUBLIC_SUPABASE_ANON_KEY, SENTRY_DISABLE_AUTO_UPLOAD.
+
+
+🍏 iOS build
+✔ Using remote iOS credentials (Expo server)
+
+Distribution Certificate is not validated for non-interactive builds.
+Using App Store Connect API Key from EAS credentials service.
+- Fetching Apple provisioning profiles
+[16:00:59]
+[16:00:59] Auth error: 'm', 'Apple 401 detected - You are either not logged in, your account doesn't have access to the requested data, or the page doesn't exist
+Authentication credentials are missing or invalid. - Provide a properly configured and signed bearer token, and make sure that it has not expired. Learn more about Generating Tokens for API Requests https://developer.apple.com/go/?id=api-generating-tokens'. Login in again (remaining: 3)
+[16:00:59]
+Log in to your Apple Developer account to continue
+✖ Failed to fetch Apple provisioning profiles
+Skipping Provisioning Profile validation on Apple servers due to an unexpected validation error. Continuing with local validation result.
+
+Project Credentials Configuration
+
+Project                   @evanevoo/scanified
+Bundle Identifier         com.evanevoo.scanifiedmobile
+                          
+App Store Configuration   
+                          
+Distribution Certificate  
+Serial Number             526893C83F2567326B16839FCA2B68F3
+Expiration Date           Tue, 10 Aug 2027 21:42:07 CST
+Apple Team                FA8UQ322NZ (Evan Korial (Individual))
+Updated                   6 days ago
+                          
+Provisioning Profile      
+Developer Portal ID       K49QKBGF69
+Status                    active
+Expiration                Tue, 10 Aug 2027 21:42:07 CST
+Apple Team                FA8UQ322NZ (Evan Korial (Individual))
+Updated                   6 days ago
+                          
+All credentials are ready to build @evanevoo/scanified (com.evanevoo.scanifiedmobile)
+
+
+Compressing project files and uploading to EAS Build. Learn more: https://expo.fyi/eas-build-archive
+- Compressing project files
+Your project archive is 280 MB. You can reduce its size and the time it takes to upload by excluding files that are unnecessary for the build process in .easignore file. Learn more: https://expo.fyi/eas-build-archive
+- Uploading to EAS Build (0 / 280 MB)
+✔ Uploaded to EAS 13s
+- Computing project fingerprint
+✔ Computed project fingerprint
+
+See 🤖 Android logs: https://expo.dev/accounts/evanevoo/projects/scanified/builds/035253d1-f255-4192-a39b-1fd07fcaebe5
+See 🍏 iOS logs: https://expo.dev/accounts/evanevoo/projects/scanified/builds/f022b2d9-33d3-4498-8470-7139b36f4494
+

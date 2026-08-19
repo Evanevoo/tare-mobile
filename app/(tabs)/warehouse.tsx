@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { View, Text, TextInput, Pressable, ScrollView, Alert, Modal } from 'react-native';
+import { View, Text, TextInput, Pressable, ScrollView, Alert } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { Vibration } from 'react-native';
 import { playScanAccept, playScanAlert, playSubmitSuccess } from '@/sound';
@@ -12,7 +12,7 @@ import {
   T, Screen, Surface, Btn, Eyebrow, Tag, Rise, Icon, ICON, mono, useBottomInset, tint, wash,
 } from '@/ui';
 import { Scanner } from '@/scanner';
-import { afterModalClose } from '@/nav';
+import { Sheet } from '@/sheet';
 
 /**
  * Locate — the yard half of the day.
@@ -232,10 +232,10 @@ export default function Locate() {
           { text: 'Next shelf', onPress: () => { setStep(3); } },
           { text: 'Done', style: 'cancel', onPress: () => {
             setStep(1); setLocation(''); setCustom(false); setState(null);
-            // Leaving from inside a native Alert callback, on a screen that
-            // also owns a scanner Modal. Same teardown race as everywhere
-            // else — see src/nav.ts.
-            afterModalClose(() => router.replace('/'));
+            // The scanner on this screen is a plain view now (src/sheet.tsx),
+            // so leaving from inside a native Alert callback no longer has an
+            // Android dialog window to orphan on the way out.
+            router.replace('/');
           } },
         ],
       );
@@ -473,12 +473,7 @@ export default function Locate() {
           changing distances, which is exactly the case the periodic Android
           refocus exists for. Consistent does not mean identical where the job
           genuinely differs — it means the same component and the same shell. */}
-      <Modal
-        visible={scanning}
-        animationType="slide"
-        presentationStyle="fullScreen"
-        onRequestClose={() => setScanning(false)}
-      >
+      <Sheet visible={scanning} onRequestClose={() => setScanning(false)}>
         <View style={{ flex: 1, backgroundColor: '#000' }}>
           <Scanner
             onCode={add}
@@ -497,7 +492,7 @@ export default function Locate() {
             </View>
           </Scanner>
         </View>
-      </Modal>
+      </Sheet>
     </Screen>
   );
 }

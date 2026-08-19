@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { View, Text, ScrollView, Pressable, Alert, Modal } from 'react-native';
+import { View, Text, ScrollView, Pressable, Alert } from 'react-native';
 import { CoreLiveTest } from '@/core-live';
+import { Sheet } from '@/sheet';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { useStore } from '@/store';
@@ -198,28 +199,15 @@ export default function Settings() {
 
       {/*
         LIVE SCANNER TRIAL — a deliberate copy of Delivery's scanning sheet.
-        Same Modal shape, same fullScreen presentation, same black floor for
-        the same reason (a Modal's own backdrop is white, and it is visible
-        for the whole slide-in before the camera's first frame arrives — a
-        white flash in a dark cab at 06:10).
-
-        Copied rather than shared because the point is to test what drivers
-        run: if this diverged from Delivery, a clean result here would prove
-        nothing about the screen that matters.
+        Same Sheet, same black floor, for the same reason: the point is to
+        test what drivers run, and if this diverged from Delivery a clean
+        result here would prove nothing about the screen that matters.
 
         NOT `steadyFocus`. Delivery's setup fields read a printed receipt held
         still; this is for sweeping a rack of cylinders, which is the scan
         loop's case, so it gets the scan loop's periodic refocus.
-
-        Nothing here navigates, so no afterModalClose is needed — see
-        src/nav.ts for why that would matter if it did.
       */}
-      <Modal
-        visible={testing}
-        animationType="slide"
-        presentationStyle="fullScreen"
-        onRequestClose={() => setTesting(false)}
-      >
+      <Sheet visible={testing} onRequestClose={() => setTesting(false)}>
         {/*
           NOT the shared Scanner component, deliberately.
           Scanner's live reads come from expo-camera's onBarcodeScanned, which
@@ -230,7 +218,7 @@ export default function Settings() {
           every code on that screen was read by our engine and nothing else.
         */}
         <CoreLiveTest onClose={() => setTesting(false)} />
-      </Modal>
+      </Sheet>
     </Screen>
   );
 }

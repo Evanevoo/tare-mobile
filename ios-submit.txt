@@ -1,0 +1,42 @@
+
+EAS Submit is experiencing a partial outage.
+Reason: iOS Submissions hanging on App Store Connect build uploads.
+All information on service status and incidents available at https://status.expo.dev/
+
+Using App Store Connect API Key from EAS credentials service.
+[16:46:59]
+[16:46:59] Auth error: 'm', 'Apple 401 detected - You are either not logged in, your account doesn't have access to the requested data, or the page doesn't exist
+Authentication credentials are missing or invalid. - Provide a properly configured and signed bearer token, and make sure that it has not expired. Learn more about Generating Tokens for API Requests https://developer.apple.com/go/?id=api-generating-tokens'. Login in again (remaining: 3)
+[16:46:59]
+Log in to your Apple Developer account to continue
+Skipping TestFlight group setup: Error: Input is required, but Expo CLI is in non-interactive mode.
+Pass your Apple ID using the EXPO_APPLE_ID environment variable
+Looking up credentials configuration for com.evanevoo.scanifiedmobile...
+✔ App Store Connect API Key already set up.
+Using Api Key ID: C4Q53CS33Y ([Expo] EAS Submit _xbKeb0ivh)
+
+ASC App ID:                 6749334978
+Project ID:                 fad89b31-ae33-4bff-9011-af88c8268844
+App Store Connect API Key:  
+    Key Name  :  [Expo] EAS Submit _xbKeb0ivh
+    Key ID    :  C4Q53CS33Y
+    Key Source:  EAS servers
+Build:                      
+    Build ID    :  f022b2d9-33d3-4498-8470-7139b36f4494
+    Build Date  :  8/17/2026, 4:01:17 PM
+    App Version :  1.2.2
+    Build number:  211
+
+- Scheduling iOS submission
+✔ Scheduled iOS submission
+
+Submission details: https://expo.dev/accounts/evanevoo/projects/scanified/submissions/8571354a-f2e1-4dfe-99db-7b475cc07b6e
+
+Waiting for submission to complete. You can press Ctrl+C to exit.
+- Submitting
+✔ Submitted your app to Apple App Store Connect!
+
+Your binary has been successfully uploaded to App Store Connect!
+- It is now being processed by Apple - you will receive an email when the processing finishes.
+- It usually takes about 5-10 minutes depending on how busy Apple servers are.
+- When it's done, you can see your build here: https://appstoreconnect.apple.com/apps/6749334978/testflight/ios

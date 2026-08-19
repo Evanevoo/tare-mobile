@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import { View, Text, TextInput, Pressable, FlatList, Modal } from 'react-native';
+import { View, Text, TextInput, Pressable, FlatList } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useStore } from '@/store';
 import { Scanner } from '@/scanner';
@@ -7,7 +7,7 @@ import { useScanRoute, explainMiss } from '@/scan-route';
 import { classify } from '@/scan-match';
 import { formatExample, formatNudge } from '@/formats';
 import { T, Screen, Surface, Btn, Eyebrow, Rise, Tag, mono, tint, wash } from '@/ui';
-import { afterModalClose } from '@/nav';
+import { Sheet } from '@/sheet';
 
 /**
  * Delivery setup: who, and against what document.
@@ -306,12 +306,12 @@ export default function Delivery() {
                   disabled={!canStart}
                   onPress={() => {
                     startDelivery(picked.id, picked.name, order.trim());
-                    // Guarded even though no modal is open on this tap: the
-                    // driver has almost always just closed the scanner sheet
-                    // to get here, and Android's dialog teardown can still be
-                    // in flight. This is the exact screen the 19 Aug "entering
-                    // an order and it froze, grey screen" report came from.
-                    afterModalClose(() => router.push('/scan' as never));
+                    // Straight through. The scanner sheet the driver just
+                    // closed is an ordinary view now, not an Android dialog
+                    // window, so there is no teardown left in flight to race
+                    // with — which is what froze this exact screen on 19 Aug
+                    // ("entering an order and it froze, grey screen").
+                    router.push('/scan' as never);
                   }}
                 />
                 <Text
@@ -365,15 +365,15 @@ export default function Delivery() {
         )}
       />
 
-      <Modal
+      {/* NOT A MODAL. Reading an order barcode here navigates straight to the
+          scan loop, and doing that while an Android dialog window is still
+          dismissing is what froze the app on "just tried entering an order
+          again" — the same grey screen as Submit, from the other end of the
+          job. See src/sheet.tsx. */}
+      <Sheet
         visible={scanning !== null}
-        animationType="slide"
-        presentationStyle="fullScreen"
         onRequestClose={() => setScanning(null)}
       >
-        {/* The black floor is not decoration. A Modal's own backdrop is white,
-            and it is visible for the whole slide-in before the camera's first
-            frame arrives — a white flash in a dark cab at 06:10. */}
         <View style={{ flex: 1, backgroundColor: '#000' }}>
           <Scanner
             onCode={handleCode}
@@ -426,7 +426,7 @@ export default function Delivery() {
             </View>
           </Scanner>
         </View>
-      </Modal>
+      </Sheet>
     </Screen>
   );
 }
