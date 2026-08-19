@@ -195,6 +195,13 @@ export default function AssetDetail() {
                 <Row label="Last known location" value={a.l} />
               </>
             ) : null}
+            {/* The columns 017 restored. Only the ones with something to say
+                — a record is not a form, and four dashes teach nothing. */}
+            {a.gt ? (<><Hairline /><Row label="Gas type" value={a.gt} /></>) : null}
+            {a.cat ? (<><Hairline /><Row label="Category" value={a.cat} /></>) : null}
+            {a.grp ? (<><Hairline /><Row label="Group" value={a.grp} /></>) : null}
+            {a.ds ? (<><Hairline /><Row label="Description" value={a.ds} /></>) : null}
+            {a.sup ? (<><Hairline /><Row label="Belongs to" value={a.sup} /></>) : null}
           </Surface>
         </Rise>
 

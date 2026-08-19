@@ -4,7 +4,9 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useStore } from '@/store';
-import { fetchHistory, HISTORY_PAGE } from '@/api';
+import {
+  fetchHistory, fetchFillHistory, HISTORY_PAGE, type FillHistoryEntry,
+} from '@/api';
 import { cacheGet, cacheSet } from '@/db';
 import {
   appendPage, mergeHistory, offlineNotice,
@@ -42,9 +44,60 @@ import { whenLabel } from '@/when';
  * screen never claims to be current when it is not, and it never puts a status
  * code in front of a driver.
  */
+/** A run of Locate saves that happened together: same shelf, same state,
+    same person, no more than a couple of minutes apart. Legacy batched its
+    fill history this way and it is the right grain — a driver puts away a
+    STACK, and forty identical rows is a list, not an answer. */
+interface LocateBatch {
+  key: string;
+  location: string;
+  state: string;
+  filledBy: string | null;
+  at: string;
+  barcodes: string[];
+  /** was → is, when every bottle in the run agreed on the "was". */
+  from: string | null;
+}
+
+function batchLocate(entries: FillHistoryEntry[]): LocateBatch[] {
+  const out: LocateBatch[] = [];
+  for (const e of entries) {
+    const last = out[out.length - 1];
+    const close = last
+      && last.location === e.location
+      && last.state === e.state
+      && last.filledBy === e.filledBy
+      && Math.abs(+new Date(last.at) - +new Date(e.filledAt)) < 120_000;
+    if (close) {
+      last.barcodes.push(e.barcode);
+      if (last.from !== (e.previousState ?? null)) last.from = null;
+    } else {
+      out.push({
+        key: e.id,
+        location: e.location,
+        state: e.state,
+        filledBy: e.filledBy,
+        at: e.filledAt,
+        barcodes: [e.barcode],
+        from: e.previousState ?? null,
+      });
+    }
+  }
+  return out;
+}
+
+interface CachedFills {
+  entries: FillHistoryEntry[];
+  before: string | null;
+  fetchedAt: string | null;
+}
+
 export default function History() {
   const router = useRouter();
   const { boot, outbox, email } = useStore();
+
+  /** Which half of the day: deliveries, or the yard. */
+  const [mode, setMode] = useState<'orders' | 'locate'>('orders');
 
   /** The server's page, as far as it has been scrolled. */
   const [orders, setOrders] = useState<ServerOrder[]>([]);
@@ -135,6 +188,75 @@ export default function History() {
     }
   }, [nextBefore, paging, refreshing]);
 
+  /** ── the Locate half: same cache-then-network shape, its own cursor ── */
+  const [fills, setFills] = useState<FillHistoryEntry[]>([]);
+  const [fillBefore, setFillBefore] = useState<string | null>(null);
+  const [fillFetchedAt, setFillFetchedAt] = useState<string | null>(null);
+  const [fillLoaded, setFillLoaded] = useState(false);
+  const [fillPaging, setFillPaging] = useState(false);
+
+  const loadFills = useCallback(async (pull: boolean) => {
+    if (pull) setRefreshing(true);
+    try {
+      const page = await fetchFillHistory({ limit: 50 });
+      if (!alive.current) return;
+      const fresh: CachedFills = {
+        entries: page.entries ?? [],
+        before: page.before ?? null,
+        fetchedAt: new Date().toISOString(),
+      };
+      setFills(fresh.entries);
+      setFillBefore(fresh.before);
+      setFillFetchedAt(fresh.fetchedAt);
+      setOffline(false);
+      cacheSet('fill-history', fresh).catch(() => {});
+    } catch {
+      if (alive.current) setOffline(true);
+    } finally {
+      if (alive.current) { setRefreshing(false); setFillLoaded(true); }
+    }
+  }, []);
+
+  /** Lazily, on the first switch — most opens never leave Orders, and the
+      yard tab should not cost every open a second request. */
+  useEffect(() => {
+    if (mode !== 'locate' || fillLoaded) return;
+    let live = true;
+    (async () => {
+      const cached = await cacheGet<CachedFills>('fill-history');
+      if (live && cached && Array.isArray(cached.entries)) {
+        setFills(cached.entries);
+        setFillBefore(cached.before ?? null);
+        setFillFetchedAt(cached.fetchedAt ?? null);
+      }
+      if (live) await loadFills(false);
+    })();
+    return () => { live = false; };
+  }, [mode, fillLoaded, loadFills]);
+
+  const moreFills = useCallback(async () => {
+    if (fillPaging || refreshing || !fillBefore) return;
+    setFillPaging(true);
+    try {
+      const page = await fetchFillHistory({ limit: 50, before: fillBefore });
+      if (!alive.current) return;
+      // Same duplicate rule as orders: a timestamp cursor can hand back a row
+      // already on screen if one landed mid-scroll.
+      setFills((have) => {
+        const seen = new Set(have.map((e) => e.id));
+        return [...have, ...(page.entries ?? []).filter((e) => !seen.has(e.id))];
+      });
+      setFillBefore(page.before ?? null);
+      setOffline(false);
+    } catch {
+      if (alive.current) setOffline(true);
+    } finally {
+      if (alive.current) setFillPaging(false);
+    }
+  }, [fillBefore, fillPaging, refreshing]);
+
+  const locateRows = useMemo(() => batchLocate(fills), [fills]);
+
   const names = useMemo(
     () => new Map((boot?.customers ?? []).map((c) => [c.customerListId, c.name] as const)),
     [boot?.customers],
@@ -147,21 +269,65 @@ export default function History() {
 
   const unsent = outbox.scans.filter((s) => s.state !== 'SENT').length;
 
+  /** The two halves of the day, as a segmented control under the title. */
+  const segment = (
+    <View style={{
+      flexDirection: 'row', gap: 8, marginTop: 14,
+      flexWrap: 'wrap', rowGap: 8,
+    }}>
+      {([['orders', 'Orders'], ['locate', 'Locate']] as const).map(([m, lab]) => {
+        const on = mode === m;
+        return (
+          <Pressable
+            key={m}
+            onPress={() => setMode(m)}
+            accessibilityRole="button"
+            accessibilityState={{ selected: on }}
+            accessibilityLabel={`Show ${lab.toLowerCase()} history`}
+            style={{
+              minHeight: 40, paddingHorizontal: 18, justifyContent: 'center',
+              borderRadius: T.radiusSm, borderWidth: 1,
+              borderColor: on ? T.brandLit : tint(0.12),
+              backgroundColor: on ? tint(0.1) : 'transparent',
+            }}
+          >
+            <Text style={{ color: on ? T.brandLit : T.faint, fontSize: 14, fontWeight: '700' }}>
+              {lab}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+
   const header = (
     <Rise>
       <Text style={{ color: T.ink, fontSize: 30, fontWeight: '700', letterSpacing: -1 }}>
         History
       </Text>
-      <Text style={{ color: T.faint, fontSize: 13, marginTop: 4 }}>
-        {rows.length} order{rows.length === 1 ? '' : 's'} · last 24 hours, everybody
-        {unsent ? ` · ${unsent} scan${unsent === 1 ? '' : 's'} still on this phone` : ''}
-      </Text>
-      <Text style={{ color: T.faint, fontSize: 12, marginTop: 6, lineHeight: 17 }}>
-        The whole company&apos;s scans from the last 24 hours, with anything this phone
-        has not uploaded merged in and marked. Tap one to change what went out, what came
-        back, the order number or the customer.
-      </Text>
-      {offline && <Note icon="wifi-off" tone={T.amber} text={offlineNotice(fetchedAt)} />}
+      {segment}
+      {mode === 'orders' ? (
+        <>
+          <Text style={{ color: T.faint, fontSize: 13, marginTop: 12 }}>
+            {rows.length} order{rows.length === 1 ? '' : 's'} · last 24 hours, everybody
+            {unsent ? ` · ${unsent} scan${unsent === 1 ? '' : 's'} still on this phone` : ''}
+          </Text>
+          <Text style={{ color: T.faint, fontSize: 12, marginTop: 6, lineHeight: 17 }}>
+            The whole company&apos;s scans from the last 24 hours, with anything this phone
+            has not uploaded merged in and marked. Tap one to change what went out, what came
+            back, the order number or the customer.
+          </Text>
+        </>
+      ) : (
+        <Text style={{ color: T.faint, fontSize: 12, marginTop: 12, lineHeight: 17 }}>
+          Every Locate save, everybody, newest first — what was put where, full or empty,
+          and what it was before. Tap a barcode to open the record.
+        </Text>
+      )}
+      {offline && (
+        <Note icon="wifi-off" tone={T.amber}
+              text={offlineNotice(mode === 'orders' ? fetchedAt : fillFetchedAt)} />
+      )}
     </Rise>
   );
 
@@ -217,6 +383,7 @@ export default function History() {
   return (
     <Screen intensity={0.7}>
       <View style={{ flex: 1, paddingHorizontal: 18, paddingTop: 14 }}>
+        {mode === 'orders' ? (
         <FlatList
           data={rows}
           keyExtractor={(g) => g.orderNumber}
@@ -325,6 +492,108 @@ export default function History() {
             );
           }}
         />
+        ) : (
+        <FlatList
+          data={locateRows}
+          keyExtractor={(b) => b.key}
+          ListHeaderComponent={header}
+          ListEmptyComponent={
+            <View style={{ marginTop: 26 }}>
+              {!fillLoaded ? (
+                <ActivityIndicator color={T.brandLit} />
+              ) : (
+                <>
+                  <Text style={{ color: T.ink, fontSize: 15, fontWeight: '600' }}>
+                    Nothing put away yet
+                  </Text>
+                  <Text style={{ color: T.faint, fontSize: 13, marginTop: 6, lineHeight: 19 }}>
+                    The moment anybody saves a shelf in Locate it lands here — where it went,
+                    full or empty, and what it was before.
+                  </Text>
+                </>
+              )}
+            </View>
+          }
+          ListFooterComponent={locateRows.length ? (
+            <View style={{ paddingVertical: 22, alignItems: 'center' }}>
+              {fillPaging ? (
+                <ActivityIndicator color={T.brandLit} />
+              ) : fillBefore ? (
+                <Pressable
+                  onPress={() => { void moreFills(); }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Show older Locate saves"
+                  style={{
+                    minHeight: 48, paddingHorizontal: 18, justifyContent: 'center',
+                    borderRadius: T.radiusSm, borderWidth: 1, borderColor: tint(0.12),
+                    backgroundColor: tint(0.05),
+                  }}
+                >
+                  <Text style={{ color: T.brandLit, fontSize: 14, fontWeight: '700' }}>
+                    Show older saves
+                  </Text>
+                </Pressable>
+              ) : null}
+            </View>
+          ) : null}
+          contentContainerStyle={{ paddingBottom: 44 }}
+          onEndReached={() => { void moreFills(); }}
+          onEndReachedThreshold={0.6}
+          ItemSeparatorComponent={() => (
+            <View style={{ height: 1, backgroundColor: tint(0.05) }} />
+          )}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => { void loadFills(true); }}
+              tintColor={T.brandLit}
+              colors={[T.brandLit]}
+              progressBackgroundColor={T.panelBot}
+            />
+          }
+          renderItem={({ item: b }) => (
+            <View style={{ paddingVertical: 14, paddingHorizontal: 4 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+                <Text style={{ color: T.ink, fontSize: 15.5, fontWeight: '700', flexShrink: 1 }}>
+                  {b.barcodes.length === 1 ? '1 put away' : `${b.barcodes.length} put away`} · {b.location}
+                </Text>
+                <Text style={[mono(12), { color: T.steel, marginLeft: 'auto' }]}>
+                  {whenLabel(b.at)}
+                </Text>
+              </View>
+              <Text style={{ color: T.faint, fontSize: 12.5, marginTop: 3 }}>
+                {b.from && b.from !== b.state ? `${b.from} → ${b.state}` : b.state}
+                {b.filledBy ? ` · by ${b.filledBy}` : ''}
+              </Text>
+              {/* The barcodes themselves, tappable. Capped on screen —
+                  a forty-bottle stack is a count, not a reading list. */}
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: 8, flexWrap: 'wrap', rowGap: 8 }}>
+                {b.barcodes.slice(0, 8).map((bc) => (
+                  <Pressable
+                    key={bc}
+                    onPress={() => router.push(`/asset/${encodeURIComponent(bc)}` as never)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Open ${bc}`}
+                    hitSlop={4}
+                    style={({ pressed }) => ({
+                      minHeight: 44, paddingHorizontal: 12, justifyContent: 'center',
+                      borderRadius: T.radiusSm, borderWidth: 1, borderColor: tint(0.12),
+                      backgroundColor: pressed ? tint(0.06) : 'transparent',
+                    })}
+                  >
+                    <Text style={[mono(12.5, '600'), { color: T.steel }]}>{bc}</Text>
+                  </Pressable>
+                ))}
+                {b.barcodes.length > 8 && (
+                  <Text style={{ color: T.faint, fontSize: 12, alignSelf: 'center' }}>
+                    +{b.barcodes.length - 8} more
+                  </Text>
+                )}
+              </View>
+            </View>
+          )}
+        />
+        )}
       </View>
     </Screen>
   );

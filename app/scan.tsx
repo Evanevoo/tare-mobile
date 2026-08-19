@@ -10,6 +10,7 @@ import { useStore } from '@/store';
 import { forOrder, counts, type QueuedScan } from '@/outbox';
 import { classify } from '@/scan-match';
 import { playScanAccept, playScanAlert, playSubmitSuccess } from '@/sound';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T, shipTone, Surface, Btn, Tag, mono } from '@/ui';
 import { Scanner } from '@/scanner';
 import type { AssetRec } from '@/api';
@@ -29,6 +30,7 @@ import type { AssetRec } from '@/api';
  */
 export default function Scan() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const {
     orderNumber, customerName, customerListId, mode, setMode,
     outbox, addScan, dispatch, endDelivery, boot, sync, syncing, dbUnavailable,
@@ -409,7 +411,11 @@ export default function Scan() {
         {/* ── header ── */}
         <LinearGradient
           colors={['rgba(0,0,0,0.82)', 'rgba(0,0,0,0.34)', 'transparent']}
-          style={{ position: 'absolute', top: 0, left: 0, right: 0, paddingTop: 54,
+          // Measured, not guessed: `paddingTop: 54` was one phone's status
+          // bar. On a Dynamic Island it crowded the notch; on a small status
+          // bar it floated too low — "not lined up". The inset IS the answer.
+          style={{ position: 'absolute', top: 0, left: 0, right: 0,
+                   paddingTop: insets.top + 12,
                    paddingHorizontal: 18, paddingBottom: 30 }}
         >
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
@@ -438,12 +444,12 @@ export default function Scan() {
               hitSlop={10}
               accessibilityRole="button"
               accessibilityLabel={`Review this order. ${c.total} scanned`}
-              style={{
-                marginRight: 12, minWidth: 34, minHeight: 30, paddingHorizontal: 9,
-                borderRadius: 15, backgroundColor: 'rgba(255,255,255,0.16)',
+              style={({ pressed }) => ({
+                marginRight: 12, minWidth: 38, minHeight: 34, paddingHorizontal: 10,
+                borderRadius: 17, backgroundColor: pressed ? 'rgba(255,255,255,0.28)' : 'rgba(255,255,255,0.16)',
                 borderWidth: 1, borderColor: 'rgba(255,255,255,0.3)',
                 alignItems: 'center', justifyContent: 'center',
-              }}
+              })}
             >
               <Text style={[mono(13, '800'), { color: '#fff' }]}>{c.total}</Text>
             </Pressable>

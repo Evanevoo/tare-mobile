@@ -82,6 +82,12 @@ export default function BatchAssets() {
   const [location, setLocation] = useState('');
   const [full, setFull] = useState<boolean | null>(null);
   const [requal, setRequal] = useState('');
+  // Pallet facts, like the four above: one supplier, one kind of gas.
+  const [gas, setGas] = useState('');
+  const [category, setCategory] = useState('');
+  const [group, setGroup] = useState('');
+  const [desc, setDesc] = useState('');
+  const [owner, setOwner] = useState('');
 
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<BulkCreateResult | null>(null);
@@ -143,6 +149,23 @@ export default function BatchAssets() {
 
   const dateOk = !requal || isRealDate(requal);
   const whyNot = whyNotReady(rows, { productCode: product, isFull: full, dateOk });
+
+  /** Legacy's one-pick rule — same as asset/new.tsx. */
+  function pickProduct(code: string) {
+    setProduct(code);
+    const t = boot?.types?.find((x) => x.code === code);
+    if (t) {
+      setGas(t.gasType ?? '');
+      setCategory(t.category ?? '');
+      setGroup(t.groupName ?? '');
+      setDesc(t.description ?? '');
+    }
+  }
+
+  /** Warned before forty scans, not after — the server refuses whole pallets. */
+  const limit = boot?.limits?.maxAssets ?? null;
+  const overLimit = limit !== null
+    && (boot?.stats.total ?? 0) + created.length + rows.length > limit;
 
   /**
    * The same nudge the single screen shows, moved one step earlier.
@@ -306,6 +329,11 @@ export default function BatchAssets() {
         isFull: full === true,
         nextRequalOn: requal || null,
         status: 'available',
+        gasType: gas.trim() || null,
+        category: category.trim() || null,
+        groupName: group.trim() || null,
+        description: desc.trim() || null,
+        owner: owner.trim() || null,
       });
       setResult(r);
       // Carry the serials across too, not just the barcodes — they are on the
@@ -331,7 +359,12 @@ export default function BatchAssets() {
       // be created. It is a billing answer, not a fault with the phone or the
       // scan, and saying "error 402" to a driver in a yard sends them looking
       // for the wrong problem.
-      if (e instanceof ApiError && e.status === 402) {
+      if (e instanceof ApiError && e.status === 409 && e.body?.conflictOn === 'quota') {
+        // The whole pallet was refused for capacity, nothing was written, and
+        // every row is still on this phone. The server's message already says
+        // how many would fit and who can raise the number.
+        Alert.alert('Account at its limit', e.message);
+      } else if (e instanceof ApiError && e.status === 402) {
         Alert.alert(
           'This account cannot add anything right now',
           `The office has this organisation set to read-only, so nothing was created. `
@@ -401,6 +434,17 @@ export default function BatchAssets() {
               once, at the bottom. Nothing is added until you save.
             </Text>
           </Rise>
+
+          {/* Said before the scanning starts, not at Save — the server
+              refuses a pallet that does not fit WHOLE, so every scan past
+              the line would be wasted work. */}
+          {overLimit && (
+            <Note
+              icon="alert-triangle"
+              tone={T.amber}
+              text={`This account allows ${limit!.toLocaleString()} ${plural} and this batch would go past that. The server will refuse the save until the office raises the limit.`}
+            />
+          )}
 
           {/* ── the loop: scan, serial, confirm, again ── */}
           <Rise delay={50}>
@@ -745,7 +789,7 @@ export default function BatchAssets() {
                 <Chips
                   options={products}
                   value={product}
-                  onChange={setProduct}
+                  onChange={pickProduct}
                   placeholder="Product code"
                 />
               </Field>
@@ -773,6 +817,31 @@ export default function BatchAssets() {
 
               <Field label="Next requalification" hint="Optional. The date they next have to be tested.">
                 <DateField value={requal} onChange={setRequal} />
+              </Field>
+
+              {/* One pick of the product code fills these four; the whole
+                  pallet gets them. Editable, optional, and saving them once
+                  teaches the pick list for next time. */}
+              <Field
+                label="Type details"
+                hint={boot?.types?.some((t) => t.code === product)
+                  ? 'Filled from the product code — correct anything that is wrong.'
+                  : 'Optional. The whole pallet gets these.'}
+              >
+                <TextField value={gas} onChangeText={setGas} placeholder="Gas type — Oxygen, Acetylene…" />
+                <View style={{ height: 8 }} />
+                <TextField value={category} onChangeText={setCategory} placeholder="Category — Industrial, Medical…" />
+                <View style={{ height: 8 }} />
+                <TextField value={group} onChangeText={setGroup} placeholder="Group — High-Pressure, Cryo…" />
+                <View style={{ height: 8 }} />
+                <TextField value={desc} onChangeText={setDesc} placeholder="Description" />
+              </Field>
+
+              <Field
+                label="Belong to"
+                hint="Optional. A supplier label — WeldCor, Linde. Does NOT change billing."
+              >
+                <TextField value={owner} onChangeText={setOwner} placeholder="Ours — leave blank" />
               </Field>
             </Rise>
           )}

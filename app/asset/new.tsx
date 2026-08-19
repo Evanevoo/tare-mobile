@@ -45,6 +45,13 @@ export default function NewAsset() {
   const [location, setLocation] = useState('');
   const [full, setFull] = useState<boolean | null>(null);
   const [requal, setRequal] = useState('');
+  // The descriptive columns 017 restored, plus the supplier label. Pallet
+  // facts — they stay put between saves like everything else shared.
+  const [gas, setGas] = useState('');
+  const [category, setCategory] = useState('');
+  const [group, setGroup] = useState('');
+  const [desc, setDesc] = useState('');
+  const [owner, setOwner] = useState('');
   const [scanning, setScanning] = useState(false);
   const [busy, setBusy] = useState(false);
   const [added, setAdded] = useState<string[]>([]);
@@ -62,6 +69,27 @@ export default function NewAsset() {
   );
 
   const existing = barcode ? boot?.assets[barcode] : undefined;
+
+  /**
+   * Legacy's one-pick rule: choosing the product code fills gas type,
+   * category, group and description together from the catalogue the server
+   * ships (`types`, learned from previous writes). Overwrites what was there
+   * — the pick IS the statement — and everything stays editable after.
+   */
+  function pickProduct(code: string) {
+    setProduct(code);
+    const t = boot?.types?.find((x) => x.code === code);
+    if (t) {
+      setGas(t.gasType ?? '');
+      setCategory(t.category ?? '');
+      setGroup(t.groupName ?? '');
+      setDesc(t.description ?? '');
+    }
+  }
+
+  /** The quota, pre-warned. The server still enforces it — this is courtesy. */
+  const limit = boot?.limits?.maxAssets ?? null;
+  const atLimit = limit !== null && (boot?.stats.total ?? 0) + added.length >= limit;
 
   /**
    * A barcode that does not look like the fleet's other barcodes.
@@ -107,6 +135,11 @@ export default function NewAsset() {
       isFull: full === true,
       nextRequalOn: requal || null,
       status: 'available',
+      gasType: gas.trim() || null,
+      category: category.trim() || null,
+      groupName: group.trim() || null,
+      description: desc.trim() || null,
+      owner: owner.trim() || null,
     };
 
     try {
@@ -123,7 +156,11 @@ export default function NewAsset() {
       setScanning(true);
     } catch (e: unknown) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      if (e instanceof ApiError && e.status === 409 && e.body?.existing) {
+      if (e instanceof ApiError && e.status === 409 && e.body?.conflictOn === 'quota') {
+        // The record was fine; the ACCOUNT is full. Different problem,
+        // different person fixes it — the server's message already says so.
+        Alert.alert('Account at its limit', e.message);
+      } else if (e instanceof ApiError && e.status === 409 && e.body?.existing) {
         const bc = barcode;
         Alert.alert(
           'Already on the fleet',
@@ -169,6 +206,16 @@ export default function NewAsset() {
               their order, not a form.
             </Text>
           </Rise>
+
+          {/* The account is full. Said BEFORE forty barcodes are scanned, not
+              after — the server will refuse anyway; this saves the walk. */}
+          {atLimit && (
+            <Note
+              icon="alert-triangle"
+              tone={T.amber}
+              text={`This account is at its limit of ${limit!.toLocaleString()} ${boot?.org.assetPlural?.toLowerCase() ?? 'assets'}. New ones will be refused until the office raises it.`}
+            />
+          )}
 
           {/* ── the barcode leads ── */}
           <Rise delay={50}>
@@ -261,7 +308,7 @@ export default function NewAsset() {
                 <Chips
                   options={products}
                   value={product}
-                  onChange={setProduct}
+                  onChange={pickProduct}
                   placeholder="Product code"
                 />
               </Field>
@@ -301,6 +348,32 @@ export default function NewAsset() {
                 hint="Optional. The date it next has to be tested."
               >
                 <DateField value={requal} onChange={setRequal} />
+              </Field>
+
+              {/* One pick above fills these four together; they stay editable
+                  because an individual cylinder is allowed to disagree with
+                  its catalogue entry. All optional, all pallet facts — they
+                  hold their values between saves. */}
+              <Field
+                label="Type details"
+                hint={boot?.types?.some((t) => t.code === product)
+                  ? 'Filled from the product code — correct anything that is wrong.'
+                  : 'Optional. Saving these once teaches the pick list for next time.'}
+              >
+                <TextField value={gas} onChangeText={setGas} placeholder="Gas type — Oxygen, Acetylene…" />
+                <View style={{ height: 8 }} />
+                <TextField value={category} onChangeText={setCategory} placeholder="Category — Industrial, Medical…" />
+                <View style={{ height: 8 }} />
+                <TextField value={group} onChangeText={setGroup} placeholder="Group — High-Pressure, Cryo…" />
+                <View style={{ height: 8 }} />
+                <TextField value={desc} onChangeText={setDesc} placeholder="Description — what a new hire should know" />
+              </Field>
+
+              <Field
+                label="Belongs to"
+                hint="Optional. A supplier label — WeldCor, Linde. This does NOT change billing."
+              >
+                <TextField value={owner} onChangeText={setOwner} placeholder="Ours — leave blank" />
               </Field>
             </Rise>
           )}

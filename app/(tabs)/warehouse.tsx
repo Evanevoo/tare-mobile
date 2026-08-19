@@ -6,6 +6,7 @@ import { playScanAccept, playScanAlert, playSubmitSuccess } from '@/sound';
 import { useRouter } from 'expo-router';
 import { useStore } from '@/store';
 import { postFill } from '@/api';
+import { locateWarning, hasLocalReturn } from '@/interlock';
 import { cacheGet, cacheSet } from '@/db';
 import {
   T, Screen, Surface, Btn, Eyebrow, Tag, Rise, Icon, ICON, mono, useBottomInset, tint, wash,
@@ -32,7 +33,7 @@ const DRAFT_KEY = 'locateDraft';
 
 export default function Locate() {
   const router = useRouter();
-  const { boot, refresh } = useStore();
+  const { boot, refresh, outbox } = useStore();
   const bottom = useBottomInset(24);
 
   const [step, setStep] = useState<1 | 2 | 3>(1);
@@ -128,12 +129,15 @@ export default function Locate() {
 
     // A bottle still out at a customer is the interesting case: marking it
     // here is what ends that rental, so it is called out rather than accepted
-    // in silence.
-    if (state === 'full' && known?.c) {
+    // in silence. THREE-WAY now (src/interlock.ts): the record must name a
+    // customer AND an open rental must actually exist AND nothing on this
+    // phone has already returned it — `c` alone is a stale snapshot, and
+    // warning off it warned on exactly the case legacy learned to suppress.
+    if (state === 'full' && locateWarning(known, hasLocalReturn(outbox.scans, bc))) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
       Alert.alert(
         'Still out at a customer',
-        `${bc} is on ${known.c}'s account. Adding it here brings it back in-house and ends that rental.\n\nThe usual flow is to scan it empty when it comes back, then full once it has been refilled.`,
+        `${bc} is on ${known?.c}'s account with an open rental. Adding it here brings it back in-house and ends that rental.\n\nThe usual flow is to scan it empty when it comes back, then full once it has been refilled.`,
         [
           { text: 'Skip', style: 'cancel' },
           { text: 'Add anyway', onPress: () => setCodes((c) => [...c, bc]) },
@@ -190,6 +194,11 @@ export default function Locate() {
       // sweep doesn't turn this into a wall of text.
       const namedClosures = r.closedCustomers.slice(0, 6)
         .map((c) => `${c.barcode} — ${c.customerName}`).join('\n');
+      // Per-bottle outcomes (v7 servers). One refused bottle must not hide
+      // inside "updated 19" — legacy reported line by line and was right to.
+      const failures = (r.results ?? []).filter((x) => !x.ok);
+      const failureLines = failures.slice(0, 5)
+        .map((f) => `${f.barcode} — ${f.reason ?? 'refused'}`).join('\n');
       Alert.alert(
         'Saved',
         [
@@ -197,7 +206,11 @@ export default function Locate() {
           r.closed
             ? `${r.closed} open rental${r.closed === 1 ? '' : 's'} closed — those customers stop being charged.\n${namedClosures}${r.closedCustomers.length > 6 ? `\n…and ${r.closedCustomers.length - 6} more` : ''}`
             : null,
-          r.unknown.length ? `${r.unknown.length} not in the system: ${r.unknown.slice(0, 5).join(', ')}${r.unknown.length > 5 ? '…' : ''}` : null,
+          failures.length
+            ? `${failures.length} not saved:\n${failureLines}${failures.length > 5 ? `\n…and ${failures.length - 5} more` : ''}`
+            : r.unknown.length
+              ? `${r.unknown.length} not in the system: ${r.unknown.slice(0, 5).join(', ')}${r.unknown.length > 5 ? '…' : ''}`
+              : null,
         ].filter(Boolean).join('\n\n'),
         /**
          * TWO WAYS OUT, BECAUSE A YARD IS SHELF AFTER SHELF.

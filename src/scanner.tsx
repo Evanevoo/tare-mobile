@@ -274,6 +274,22 @@ export function Scanner({
       below on both platforms — see PERIODIC REFOCUS. */
   const [focusOff, setFocusOff] = useState(false);
   const [mounted, setMounted] = useState(Platform.OS !== 'android');
+  /**
+   * EMBEDDED OR FULL-SCREEN — measured, not declared.
+   *
+   * This one component serves two rooms: the full-bleed modal camera
+   * (scan.tsx, Locate, Home) and a ~260px box inside a form (Add, Batch,
+   * Search). The safe-area insets and the vertical control stack are right
+   * for the first and actively wrong for the second — inside a form box
+   * there is no notch or gesture bar to clear, so adding insets.bottom
+   * shoved torch/zoom INTO the middle of the little viewfinder, right where
+   * the driver was aiming ("the buttons are in the way"). No phone renders
+   * a full-screen camera under 420px tall, and no form box here is over
+   * 260, so the frame's own measured height is the honest answer. State set
+   * at most once per mount (onLayout fires once for a fixed-height box), so
+   * the native camera never remounts over it.
+   */
+  const [embedded, setEmbedded] = useState(false);
 
   const cam = useRef<CameraView | null>(null);
   /**
@@ -834,7 +850,11 @@ export function Scanner({
       // The camera fills this View exactly, and the reticle is positioned
       // against it, so this one measurement is the frame both the outline and
       // the position check are talking about.
-      onLayout={(e) => { viewSize.current = e.nativeEvent.layout; }}
+      onLayout={(e) => {
+        viewSize.current = e.nativeEvent.layout;
+        const isSmall = e.nativeEvent.layout.height > 0 && e.nativeEvent.layout.height < 420;
+        if (isSmall !== embedded) setEmbedded(isSmall);
+      }}
     >
       {!mounted ? (
         // Deferred-mount window (Android only, ~150ms) — see the effect above.
@@ -906,7 +926,15 @@ export function Scanner({
           does for every other floating footer in this app — this is the one
           surface that never went through it, because a full-screen Modal has
           no navigator chrome to make the omission obvious in a simulator. */}
-      <View style={{ position: 'absolute', right: 10, bottom: 10 + insets.bottom + controlsBottomInset, gap: 8, alignItems: 'flex-end' }}>
+      <View
+        style={embedded
+          // A form box: no OS chrome to clear, and every pixel of preview is
+          // precious — so one horizontal row hugging the bottom-right corner,
+          // BELOW the reticle (which ends at 57% of the frame). Hints are
+          // dropped here; there is no room to whisper in.
+          ? { position: 'absolute', right: 8, bottom: 8, flexDirection: 'row', gap: 8, alignItems: 'center' }
+          : { position: 'absolute', right: 12, bottom: 12 + insets.bottom + controlsBottomInset, gap: 10, alignItems: 'flex-end' }}
+      >
         {/*
           SNAP IS ALWAYS OFFERED NOW, AND THAT IS THE FIX.
           It used to be gated on a native module that was never in the build,
@@ -920,7 +948,7 @@ export function Scanner({
         {struggling && (
           <Ctl
             label={snapBusy ? 'Reading…' : 'Snap'}
-            hint="photo read for damaged labels"
+            hint={embedded ? undefined : 'photo read for damaged labels'}
             active={snapBusy}
             onPress={snap}
           />
@@ -937,7 +965,7 @@ export function Scanner({
         {struggling && (
           <Ctl
             label={aiBusy ? 'Reading…' : 'Read text'}
-            hint={aiMiss ?? 'reads the printed number on the label'}
+            hint={embedded ? undefined : (aiMiss ?? 'reads the printed number on the label')}
             active={aiBusy}
             onPress={readText}
           />
@@ -964,11 +992,16 @@ export function Scanner({
           onPress={close}
           accessibilityRole="button"
           accessibilityLabel="Stop scanning"
-          style={{
-            position: 'absolute', right: 10, top: 10 + insets.top,
-            paddingHorizontal: 14, minHeight: 36, borderRadius: 10,
+          hitSlop={8}
+          style={({ pressed }) => ({
+            // Embedded boxes have no status bar to duck under — the same
+            // measurement that moved the bottom controls (see `embedded`).
+            position: 'absolute', right: embedded ? 8 : 12,
+            top: embedded ? 8 : 12 + insets.top,
+            paddingHorizontal: 16, minHeight: 44, borderRadius: 12,
             backgroundColor: 'rgba(0,0,0,0.62)', justifyContent: 'center',
-          }}
+            opacity: pressed ? 0.7 : 1,
+          })}
         >
           <Text style={{ color: '#fff', fontWeight: '700', fontSize: 13.5 }}>Stop</Text>
         </Pressable>
@@ -994,14 +1027,21 @@ function Ctl({
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={label ?? icon}
-      style={{
-        minHeight: 40, minWidth: 40, borderRadius: 11,
-        paddingHorizontal: label ? 13 : 0,
+      accessibilityHint={hint}
+      // 44pt is the floor for gloves, and the glass around these buttons is
+      // dead camera anyway — hitSlop costs nothing and misses cost a rescan.
+      hitSlop={6}
+      style={({ pressed }) => ({
+        minHeight: 44, minWidth: 44, borderRadius: 12,
+        paddingHorizontal: label ? 14 : 0,
         alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6,
         backgroundColor: active ? wash(0.85) : 'rgba(0,0,0,0.62)',
         borderWidth: glow ? 1.5 : 0,
         borderColor: glow ? T.amber : 'transparent',
-      }}
+        // Pressed feedback on glass-over-camera, where a ripple can't draw:
+        // opacity is the one channel that always reads. (Was: none at all.)
+        opacity: pressed ? 0.7 : 1,
+      })}
     >
       {icon && <Icon name={icon} size={ICON.sm} color={active ? T.onBrand : glow ? T.amber : '#fff'} />}
       {label && (
@@ -1009,7 +1049,13 @@ function Ctl({
           <Text style={{ color: active ? T.onBrand : '#fff', fontWeight: '800', fontSize: 12.5 }}>
             {label}
           </Text>
-          {hint && <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 8.5 }}>{hint}</Text>}
+          {/* 8.5px was decoration pretending to be information. 10px with
+              real line-height is the smallest honest whisper. */}
+          {hint && (
+            <Text style={{ color: 'rgba(255,255,255,0.75)', fontSize: 10, lineHeight: 13 }}>
+              {hint}
+            </Text>
+          )}
         </View>
       )}
     </Pressable>

@@ -5,7 +5,7 @@ import {
 import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useStore } from '@/store';
-import { updateAsset, ApiError, type AssetDraft } from '@/api';
+import { updateAsset, getAsset, ApiError, type AssetDraft, type AssetRec } from '@/api';
 import {
   T, Screen, Btn, Rise, Tag, mono, useBottomInset,
 } from '@/ui';
@@ -43,7 +43,17 @@ export default function EditAsset() {
   const { boot, refresh } = useStore();
   const bottom = useBottomInset(24);
 
-  const asset = boot?.assets[barcode];
+  /**
+   * The record can come from two places: the phone's downloaded copy, or —
+   * when the last bootstrap has never heard of this barcode — the server,
+   * fetched on demand. "Not on this phone" used to be a dead end that sent
+   * people to Add, where the server would then 409 them; the lookup is the
+   * door out.
+   */
+  const cached = boot?.assets[barcode];
+  const [fetched, setFetched] = useState<(AssetRec & { barcode: string }) | null>(null);
+  const [looking, setLooking] = useState(false);
+  const asset = cached ?? (fetched && fetched.barcode === barcode ? fetched : undefined);
   const label = boot?.org.assetLabel ?? 'asset';
 
   const [product, setProduct] = useState(asset?.p ?? '');
@@ -56,7 +66,55 @@ export default function EditAsset() {
     asset && asset.s !== 'rented' ? (asset.s as Status) : 'available',
   );
   const [requal, setRequal] = useState(asset?.rq ?? '');
+  // The 017 columns plus the supplier label, same vocabulary as Add.
+  const [gas, setGas] = useState(asset?.gt ?? '');
+  const [category, setCategory] = useState(asset?.cat ?? '');
+  const [group, setGroup] = useState(asset?.grp ?? '');
+  const [desc, setDesc] = useState(asset?.ds ?? '');
+  const [owner, setOwner] = useState(asset?.sup ?? '');
+  /**
+   * The barcode itself, editable at last. Starts as what the route was
+   * opened with; a change is confirmed twice (here and on the server's
+   * uniqueness check) because the whole history hangs on this string.
+   */
+  const [newCode, setNewCode] = useState(barcode);
   const [busy, setBusy] = useState(false);
+
+  /** A server record arriving after first render has to land in the form. */
+  function seed(a: AssetRec) {
+    setProduct(a.p ?? '');
+    setSerial(a.sn ?? '');
+    setLocation(a.l ?? '');
+    setFull(a.f === 1);
+    setStatus(a.s !== 'rented' ? (a.s as Status) : 'available');
+    setRequal(a.rq ?? '');
+    setGas(a.gt ?? '');
+    setCategory(a.cat ?? '');
+    setGroup(a.grp ?? '');
+    setDesc(a.ds ?? '');
+    setOwner(a.sup ?? '');
+    setNewCode(barcode);
+  }
+
+  async function lookup() {
+    setLooking(true);
+    try {
+      const r = await getAsset(barcode);
+      if (!r.asset) {
+        Alert.alert(
+          'Not on the fleet either',
+          `The server has never heard of ${barcode}. If it is real, add it as a new ${label.toLowerCase()}.`,
+        );
+      } else {
+        setFetched(r.asset);
+        seed(r.asset);
+      }
+    } catch (e: unknown) {
+      Alert.alert('Could not look it up', e instanceof Error ? e.message : 'Try again with signal.');
+    } finally {
+      setLooking(false);
+    }
+  }
 
   const products = useMemo(
     () => (boot?.products ?? []).map((p) => ({ key: p.code, sub: `${p.n} on fleet` })),
@@ -81,23 +139,52 @@ export default function EditAsset() {
     if (full !== (asset.f === 1)) d.isFull = full;
     if (status !== asset.s && !(asset.s === 'rented' && status === 'available')) d.status = status;
     if ((requal || null) !== (asset.rq || null)) d.nextRequalOn = requal || null;
+    if ((gas.trim() || null) !== (asset.gt ?? null)) d.gasType = gas.trim() || null;
+    if ((category.trim() || null) !== (asset.cat ?? null)) d.category = category.trim() || null;
+    if ((group.trim() || null) !== (asset.grp ?? null)) d.groupName = group.trim() || null;
+    if ((desc.trim() || null) !== (asset.ds ?? null)) d.description = desc.trim() || null;
+    if ((owner.trim() || null) !== (asset.sup ?? null)) d.owner = owner.trim() || null;
     return d;
-  }, [asset, product, serial, location, full, status, requal]);
+  }, [asset, product, serial, location, full, status, requal, gas, category, group, desc, owner]);
 
-  const count = Object.keys(changes).length;
-  const ready = count > 0 && !!product.trim() && dateOk && !busy;
+  /** The barcode, treated apart from the draft: it is the identity, not a field. */
+  const cleanCode = newCode.replace(/\s+/g, '').toUpperCase();
+  const codeChanged = !!cleanCode && cleanCode !== barcode;
 
-  async function save(confirmCloseRentals = false) {
+  const count = Object.keys(changes).length + (codeChanged ? 1 : 0);
+  const ready = count > 0 && !!product.trim() && dateOk && !!cleanCode && !busy;
+
+  async function save(confirmCloseRentals = false, confirmBarcode = false) {
     if (!ready && !confirmCloseRentals) return;
+
+    // The two-step for the one field everything else hangs on. Asked before
+    // the request, so a fat-fingered scan-into-the-wrong-box never reaches
+    // the server at all.
+    if (codeChanged && !confirmBarcode) {
+      Alert.alert(
+        'Change the barcode?',
+        `${barcode} becomes ${cleanCode}. Every scan and rental it has ever had comes with it — but any label still printed with the old number stops matching this record.`,
+        [
+          { text: 'Keep the old one', style: 'cancel', onPress: () => setNewCode(barcode) },
+          { text: `Use ${cleanCode}`, onPress: () => { void save(confirmCloseRentals, true); } },
+        ],
+      );
+      return;
+    }
+
     setBusy(true);
     try {
-      const r = await updateAsset(barcode, { ...changes, confirmCloseRentals });
+      const r = await updateAsset(barcode, {
+        ...changes,
+        ...(codeChanged ? { newBarcode: cleanCode } : {}),
+        confirmCloseRentals,
+      });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       await refresh().catch(() => {});
       Alert.alert(
         'Saved',
         [
-          `${barcode} updated.`,
+          codeChanged ? `${barcode} is now ${cleanCode}.` : `${barcode} updated.`,
           r.closed
             ? `${r.closed} open rental${r.closed === 1 ? '' : 's'} closed — that customer stops being charged for it.`
             : null,
@@ -118,7 +205,9 @@ export default function EditAsset() {
             {
               text: 'End it and save',
               style: 'destructive',
-              onPress: () => { void save(true); },
+              // confirmBarcode too — that question was already answered on
+              // the way in, and asking it twice in one save reads as a loop.
+              onPress: () => { void save(true, true); },
             },
           ],
         );
@@ -138,12 +227,20 @@ export default function EditAsset() {
             Not on this phone
           </Text>
           <Text style={{ color: T.faint, fontSize: 14, marginTop: 8, lineHeight: 21 }}>
-            {barcode} is not in the copy this phone downloaded. Sync and try again, or add
-            it as a new {label.toLowerCase()}.
+            {barcode} is not in the copy this phone downloaded. It may still be on the
+            fleet — added from another handset since the last sync, or under a corrected
+            barcode. Ask the server before assuming it is new.
           </Text>
           <Btn
-            label="Add it instead"
+            label={looking ? 'Asking the server…' : 'Look it up'}
+            busy={looking}
             style={{ marginTop: 22 }}
+            onPress={() => { void lookup(); }}
+          />
+          <Btn
+            label="Add it as new instead"
+            variant="ghost"
+            style={{ marginTop: 10 }}
             onPress={() => router.replace('/asset/new' as never)}
           />
         </View>
@@ -190,6 +287,18 @@ export default function EditAsset() {
           )}
 
           <Rise delay={50}>
+            <Field
+              label="Barcode"
+              hint="Editable at last — for relabelled bottles and mistyped adds. You will be asked to confirm."
+            >
+              <TextField
+                value={newCode}
+                onChangeText={(v) => setNewCode(v.replace(/\s+/g, ''))}
+                placeholder={barcode}
+                code
+              />
+            </Field>
+
             <Field label="What kind">
               <Chips
                 options={products}
@@ -254,6 +363,26 @@ export default function EditAsset() {
               <DateField value={requal} onChange={setRequal} />
             </Field>
 
+            <Field
+              label="Type details"
+              hint="Optional. Gas type, category, group, description — corrections here also teach the pick list."
+            >
+              <TextField value={gas} onChangeText={setGas} placeholder="Gas type — Oxygen, Acetylene…" />
+              <View style={{ height: 8 }} />
+              <TextField value={category} onChangeText={setCategory} placeholder="Category — Industrial, Medical…" />
+              <View style={{ height: 8 }} />
+              <TextField value={group} onChangeText={setGroup} placeholder="Group — High-Pressure, Cryo…" />
+              <View style={{ height: 8 }} />
+              <TextField value={desc} onChangeText={setDesc} placeholder="Description" />
+            </Field>
+
+            <Field
+              label="Belongs to"
+              hint="A supplier label — WeldCor, Linde. Blank means ours. This does NOT change billing."
+            >
+              <TextField value={owner} onChangeText={setOwner} placeholder="Ours — leave blank" />
+            </Field>
+
             {asset.own === 1 && (
               <Note
                 icon="lock"
@@ -279,7 +408,7 @@ export default function EditAsset() {
         >
           <Btn
             label={`Save ${count} change${count === 1 ? '' : 's'}`}
-            sub={Object.keys(changes).map(prettyField).join(' · ')}
+            sub={[...(codeChanged ? ['barcode'] : []), ...Object.keys(changes).map(prettyField)].join(' · ')}
             busy={busy}
             disabled={!ready}
             onPress={() => { void save(false); }}
@@ -299,6 +428,11 @@ function prettyField(k: string): string {
     case 'location': return 'location';
     case 'status': return 'condition';
     case 'nextRequalOn': return 'requal';
+    case 'gasType': return 'gas type';
+    case 'category': return 'category';
+    case 'groupName': return 'group';
+    case 'description': return 'description';
+    case 'owner': return 'belongs to';
     default: return k;
   }
 }

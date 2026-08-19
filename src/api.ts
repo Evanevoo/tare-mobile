@@ -76,6 +76,31 @@ export interface AssetRec {
   lc?: string | null;
   /** The day it came back, YYYY-MM-DD. */
   rt?: string | null;
+  /** Gas type, category, group, description — the columns 017 restored. */
+  gt?: string | null;
+  cat?: string | null;
+  grp?: string | null;
+  ds?: string | null;
+  /**
+   * The supplier label (assets.owner): "WeldCor", "Linde". Deliberately NOT
+   * `own`, which is the customer-owned BILLING flag — one is a catalogue
+   * label, the other stops rental accruing.
+   */
+  sup?: string | null;
+  /**
+   * 1 = an open rental exists on this asset right now. The third leg of the
+   * Locate interlock: a stale `c` alone must not warn — see interlock.ts.
+   */
+  or?: 0 | 1;
+}
+
+/** One catalogue row: pick the code, the other four fill in together. */
+export interface TypeRec {
+  code: string;
+  gasType: string | null;
+  category: string | null;
+  groupName: string | null;
+  description: string | null;
 }
 
 export interface CustomerRec {
@@ -111,7 +136,15 @@ export interface ProductRec {
 // would just go on drawing a bottle that left this morning exactly like one
 // that never moved, which is the whole defect. Being quietly wrong for one
 // more sync is worse than a refetch on the wifi they leave from.
-export const BOOTSTRAP_VERSION = 5;
+//
+// 7: assets carry `gt/cat/grp/ds/sup` (the descriptive columns migration 017
+// restored), `or` (an open rental exists — the Locate interlock's third
+// leg), plus the `types` catalogue and `limits.maxAssets`. 6 and 7 were cut
+// server-side in the same release and no handset ever saw a 6, so the app
+// goes straight to 7. A v5 cache has none of it: Add would offer no picks,
+// Locate would warn off one stale field, and the quota warning would never
+// fire — refetch instead.
+export const BOOTSTRAP_VERSION = 7;
 
 export interface Bootstrap {
   /** Shape version. A cache without this is from an older app and is discarded. */
@@ -129,6 +162,10 @@ export interface Bootstrap {
   formats?: { barcode?: string; customerNumber?: string; orderNumber?: string };
   /** Commonest first. Drives the product picker when adding something new. */
   products: ProductRec[];
+  /** The attribute catalogue — one pick fills four fields. Empty until writes teach it. */
+  types?: TypeRec[];
+  /** The cylinder quota, for warning BEFORE the server refuses. Null = unlimited. */
+  limits?: { maxAssets: number | null };
   stats: {
     total: number; out: number; inHouse: number; full: number; customers: number;
   };
@@ -241,6 +278,49 @@ export interface FillResult {
   /** Who those closed rentals belonged to — one entry per closed rental. */
   closedCustomers: { barcode: string; customerName: string }[];
   unknown: string[];
+  /**
+   * One line per barcode sent — what actually happened to each. Legacy
+   * reported per-bottle failures; aggregates alone meant one refused bottle
+   * hid inside "updated 19". Optional: an older server omits it and the
+   * screen falls back to the aggregates.
+   */
+  results?: { barcode: string; ok: boolean; reason?: string }[];
+}
+
+/** One Locate save, as the server remembers it (fill_records, 018). */
+export interface FillHistoryEntry {
+  id: string;
+  barcode: string;
+  location: string;
+  state: 'full' | 'empty';
+  previousState: 'full' | 'empty' | null;
+  previousLocation: string | null;
+  filledBy: string | null;
+  filledAt: string;
+}
+
+export interface FillHistoryPage {
+  entries: FillHistoryEntry[];
+  /** Cursor for the next page; null when this is the end. */
+  before: string | null;
+}
+
+/**
+ * What this yard put where — the durable record POST /fill now writes.
+ * Same fallback contract as fetchHistory: a failure is not an emergency,
+ * the caller shows its cache and says so.
+ */
+export async function fetchFillHistory(
+  opts: { limit?: number; before?: string | null } = {},
+): Promise<FillHistoryPage> {
+  const q = new URLSearchParams({ limit: String(Math.min(100, Math.max(1, opts.limit ?? 50))) });
+  if (opts.before) q.set('before', opts.before);
+  const res = await fetch(`${API_URL}/api/mobile/fill-history?${q.toString()}`, {
+    headers: { ...(await authHeader()) },
+  });
+  if (res.status === 401) throw new Error('Your session expired. Sign in again.');
+  if (!res.ok) throw new Error('The server could not be reached.');
+  return res.json();
 }
 
 /**
@@ -342,6 +422,13 @@ export interface AssetDraft {
   customerOwned?: boolean;
   lastRequalOn?: string | null;
   nextRequalOn?: string | null;
+  /** The 017 columns. Usually filled together from one `types` pick. */
+  gasType?: string | null;
+  category?: string | null;
+  groupName?: string | null;
+  description?: string | null;
+  /** Supplier label — NOT the customer-owned billing switch. */
+  owner?: string | null;
 }
 
 /**
@@ -400,6 +487,12 @@ export interface BulkAssetCreate {
   isFull: boolean;
   nextRequalOn?: string | null;
   status?: 'available';
+  /** Pallet-level, like productCode: forty bottles from one supplier. */
+  gasType?: string | null;
+  category?: string | null;
+  groupName?: string | null;
+  description?: string | null;
+  owner?: string | null;
 }
 
 /**
@@ -429,10 +522,33 @@ export function createAssets(items: BatchItem[], details: BulkAssetCreate) {
  * back 409 with how many rentals are open, the driver is told what ending them
  * means, and only then does the same call go again with the flag set.
  */
-export function updateAsset(barcode: string, draft: Partial<AssetDraft> & { confirmCloseRentals?: boolean }) {
+export function updateAsset(
+  barcode: string,
+  draft: Partial<AssetDraft> & { confirmCloseRentals?: boolean; newBarcode?: string },
+) {
   return send(`/api/mobile/assets/${encodeURIComponent(barcode)}`, 'PATCH', draft) as Promise<{
     asset: any; closed: number; changed: string[];
   }>;
+}
+
+/**
+ * One asset, from the ledger instead of this phone's cache.
+ *
+ * The lookup path for a record the last bootstrap has never heard of — a
+ * bottle added from another handset an hour ago, or one whose barcode was
+ * just corrected. "Not on this phone" used to be a dead end; this is the
+ * door out of it. Needs signal, and says so plainly when there is none.
+ */
+export async function getAsset(barcode: string): Promise<{
+  asset: (AssetRec & { barcode: string }) | null;
+}> {
+  const res = await fetch(`${API_URL}/api/mobile/assets/${encodeURIComponent(barcode)}`, {
+    headers: { ...(await authHeader()) },
+  });
+  if (res.status === 401) throw new Error('Your session expired. Sign in again.');
+  if (res.status === 404) return { asset: null };
+  if (!res.ok) throw new Error('The server could not be reached.');
+  return res.json();
 }
 
 /**
@@ -446,6 +562,11 @@ export interface BulkAssetPatch {
   productCode?: string;
   location?: string | null;
   customerOwned?: boolean;
+  gasType?: string | null;
+  category?: string | null;
+  groupName?: string | null;
+  description?: string | null;
+  owner?: string | null;
 }
 export function bulkUpdateAssets(barcodes: string[], patch: BulkAssetPatch) {
   return send('/api/mobile/assets/bulk', 'PATCH', { barcodes, ...patch }) as Promise<{
