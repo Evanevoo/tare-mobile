@@ -15,6 +15,7 @@ import {
 import { Scanner } from '@/scanner';
 import { formatNudge } from '@/formats';
 import { useAttributeOptions } from '@/attributes';
+import { useLiveDuplicateCheck } from '@/live-dupe-check';
 
 /**
  * Adding something to the fleet.
@@ -76,6 +77,19 @@ export default function NewAsset() {
   const existing = barcode ? boot?.assets[barcode] : undefined;
 
   /**
+   * THE SAME QUESTION, ASKED OF THE SERVER RATHER THAN LAST SYNC.
+   *
+   * `existing` above only knows what this phone downloaded at its last
+   * bootstrap. Skipped once `existing` already answered locally — no reason
+   * to ask twice — and skipped on an empty barcode. See live-dupe-check.ts
+   * for why a failed or slow check is silent rather than shown.
+   */
+  const { found: liveDupe, checking: checkingLive } = useLiveDuplicateCheck(barcode, !barcode || !!existing);
+  /** Whichever check found it first. Same shape either way: `c` and `l`. */
+  const knownElsewhere = existing
+    ?? (liveDupe ? { c: liveDupe.customerListId, l: liveDupe.location } : undefined);
+
+  /**
    * Legacy's one-pick rule: choosing the product code fills gas type,
    * category, group and description together from the catalogue the server
    * ships (`types`, learned from previous writes). Overwrites what was there
@@ -106,12 +120,12 @@ export default function NewAsset() {
    * here would stop the yard working and nobody in the yard can change the
    * setting — but the odd one out is still worth pointing at.
    */
-  const barcodeNudge = existing
+  const barcodeNudge = knownElsewhere
     ? null
     : formatNudge(barcode, boot?.formats?.barcode, `${label.toLowerCase()} barcodes`);
 
   const dateOk = !requal || isRealDate(requal);
-  const ready = !!barcode && !existing && !!product.trim() && full !== null && dateOk;
+  const ready = !!barcode && !knownElsewhere && !!product.trim() && full !== null && dateOk;
 
   // Dedupe and misread-rejection live inside Scanner; this only lands the
   // accepted value in the form.
@@ -282,19 +296,32 @@ export default function NewAsset() {
           </Rise>
 
           {/* The one thing this screen must never do: let somebody fill out a
-              whole form for a barcode that already exists. */}
-          {!!existing && (
+              whole form for a barcode that already exists — whether this
+              phone already knew that at last sync, or another phone only
+              just made it true (see live-dupe-check.ts). */}
+          {!!knownElsewhere && (
             <Note
               icon="alert-triangle"
               tone={T.amber}
               text={
                 `${barcode} is already on the fleet` +
-                (existing.c ? `, out at ${existing.c}.` : `${existing.l ? `, at ${existing.l}.` : '.'}`) +
+                (knownElsewhere.c ? `, out at ${knownElsewhere.c}.` : `${knownElsewhere.l ? `, at ${knownElsewhere.l}.` : '.'}`) +
                 ' Nothing here will be saved.'
               }
               action="Open the record"
               onAction={() => router.push(`/asset/${encodeURIComponent(barcode)}` as never)}
             />
+          )}
+
+          {/* The one moment there is something to say and nothing to warn
+              about yet: the local check is clear and the live one is still
+              in flight. Quiet and easy to miss on purpose — most of the time
+              this resolves to nothing, and the driver should not have to
+              wait on it to keep filling in the form. */}
+          {!scanning && checkingLive && !knownElsewhere && (
+            <Text style={{ color: T.faint, fontSize: 12, marginTop: 8 }}>
+              Checking the fleet for this barcode…
+            </Text>
           )}
 
           {/* Not while the viewfinder is open — the camera fills this space and
@@ -304,7 +331,7 @@ export default function NewAsset() {
           )}
 
           {/* ── the rest only matters once the barcode is new ── */}
-          {!!barcode && !existing && (
+          {!!barcode && !knownElsewhere && (
             <Rise delay={40}>
               <Field
                 label="What kind"
