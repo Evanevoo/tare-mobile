@@ -102,10 +102,31 @@ export function formatNudge(
   value: string,
   pattern: string | null | undefined,
   label: string,
+  /**
+   * Is the person still typing into this field right now?
+   *
+   * THE SUPPRESSION BELOW HAS TO END SOMEWHERE, AND IT DID NOT.
+   *
+   * "Quieter than the shortest match" is right mid-keystroke and wrong the
+   * moment somebody moves on: a value SHORTER than the rule can accept was
+   * the one case that could never produce a warning, at any point, ever. A
+   * five-digit order rule and a three-digit order typed in full read as "not
+   * finished yet" straight through Start scanning and into the outbox —
+   * reported from the field on 20 Aug as "it accepted an order number that is
+   * only 3 digits when I selected a format".
+   *
+   * Too-short is not a different kind of wrong from mistyped, it just arrives
+   * looking like progress. So the length grace applies while the field has
+   * focus and stops when it does not.
+   *
+   * Defaults to true so every existing caller keeps today's behaviour until it
+   * opts in; passing `false` is what makes a settled field speak up.
+   */
+  typing = true,
 ): string | null {
   const v = value.trim();
   if (!v) return null;
-  if (v.length < shortestMatch(pattern)) return null;
+  if (typing && v.length < shortestMatch(pattern)) return null;
   if (matchesFormat(value, pattern)) return null;
   const eg = formatExample(pattern);
   return eg

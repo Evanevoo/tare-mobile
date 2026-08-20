@@ -31,6 +31,8 @@ export default function Delivery() {
   const [q, setQ] = useState('');
   const [picked, setPicked] = useState<{ id: string; name: string } | null>(null);
   const [order, setOrder] = useState('');
+  /** Focus, not keystrokes: it gates only the nudge's length grace. */
+  const [orderTyping, setOrderTyping] = useState(true);
   /**
    * WHICH FIELD ASKED FOR THE CAMERA.
    *
@@ -173,7 +175,7 @@ export default function Delivery() {
    * common than a typo, and a driver in a yard cannot edit the org's settings.
    */
   const orderPattern = boot?.formats?.orderNumber;
-  const orderNudge = formatNudge(order, orderPattern, 'order numbers');
+  const orderNudge = formatNudge(order, orderPattern, 'order numbers', orderTyping);
   const orderHint = formatExample(orderPattern);
 
   /**
@@ -285,6 +287,15 @@ export default function Delivery() {
                 <View>
                   <TextInput
                     value={order} onChangeText={(v) => setOrder(v.toUpperCase())}
+                    /*
+                      The nudge's length grace lasts exactly as long as this
+                      focus does. While the field is live, a half-typed number
+                      is progress and must not be shouted at; the moment it is
+                      left alone, a number shorter than the rule can accept is
+                      simply wrong and has to say so. See formats.ts.
+                    */
+                    onFocus={() => setOrderTyping(true)}
+                    onBlur={() => setOrderTyping(false)}
                     placeholder={orderHint || 'INV-9001'} placeholderTextColor={T.faint}
                     autoCapitalize="characters" autoCorrect={false} autoFocus
                     style={[
