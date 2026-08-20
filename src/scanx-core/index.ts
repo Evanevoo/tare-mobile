@@ -175,7 +175,33 @@ export async function decodeBase64Image(
       m._scanx_decode(ptr, bytes.length, maxDim, Math.round(minMargin * 1000)),
     );
     const parsed = JSON.parse(raw) as Omit<ScanxResult, 'ms'>;
-    return { ...blank, ...parsed, ms: Date.now() - started };
+    /**
+     * THE SPREAD IS NOT A DEFAULT — IT ONLY FILLS IN *MISSING* KEYS.
+     *
+     * `{...blank, ...parsed}` looks like it guarantees numbers, and it does
+     * not: a key that is PRESENT and null overrides the zero underneath it.
+     * The C side serialises a double, and the natural JSON spelling of a NaN
+     * is `null` — which a zero-variance luminance profile produces honestly,
+     * because the confidence ratio it divides is 0/0. The value then reaches
+     * core-live.tsx's `last.margin.toFixed(2)`, which is called unguarded in
+     * render, so the failure is a TypeError thrown from a render function: a
+     * red box in dev and an unhandled exception on the scan screen in release.
+     * `res.ok && res.text` does not protect it — that says nothing about the
+     * measurement fields.
+     *
+     * Coerce numerically at the boundary, once, where the untrusted JSON
+     * arrives, rather than at each of the call sites that formats it.
+     */
+    const num = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+    return {
+      ...blank,
+      ...parsed,
+      margin: num(parsed.margin),
+      module: num(parsed.module),
+      w: num(parsed.w),
+      h: num(parsed.h),
+      ms: Date.now() - started,
+    };
   } catch (e: any) {
     return { ...blank, ms: Date.now() - started,
              error: e?.message ? String(e.message) : 'decode failed' };

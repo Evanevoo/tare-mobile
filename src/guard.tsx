@@ -49,6 +49,14 @@ export function SessionGuards({ children }: { children: React.ReactNode }) {
    */
   const [heldBack, setHeldBack] = useState<number | null>(null);
   const [sending, setSending] = useState(false);
+  /**
+   * Why the send failed, in the driver's words. Without it the overlay says
+   * "still to send" forever and gives no clue whether the answer is "walk
+   * outside" or "phone the office" — and a driver who cannot tell the two
+   * apart tries the same button until the battery dies.
+   */
+  const [sendErr, setSendErr] = useState<string | null>(null);
+  const [tries, setTries] = useState(0);
   const sync = useStore((s) => s.sync);
   const unsentNow = useStore((s) => pending(s.outbox).length);
 
@@ -56,6 +64,15 @@ export function SessionGuards({ children }: { children: React.ReactNode }) {
   const warned = useRef(false);
   const bgAt = useRef<number | null>(null);
   const checking = useRef(false);
+  /**
+   * The overlay's own state, readable from inside the interval without making
+   * the interval depend on it. Re-entering the hand-over while the overlay is
+   * already up is not harmless: it fires a full upload attempt every 30s
+   * forever against a server that has already refused, which flattens the
+   * battery of the phone holding the only copy of the work.
+   */
+  const held = useRef(false);
+  useEffect(() => { held.current = heldBack !== null; }, [heldBack]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSignedIn(!!data.session));
@@ -75,6 +92,9 @@ export function SessionGuards({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!signedIn) return;
     const t = setInterval(() => {
+      // Already blocked and already told. Asking again every 30s changes
+      // nothing except how long the battery lasts.
+      if (held.current) return;
       const idle = Date.now() - lastActive.current;
       if (idle >= IDLE_MS) {
         /**
@@ -188,14 +208,30 @@ export function SessionGuards({ children }: { children: React.ReactNode }) {
             that would have thrown this work away. Nothing is lost — it is saved here.
             {'\n\n'}Find signal and send it, then hand the phone over.
           </Text>
+          {sendErr && (
+            <Text style={{ color: T.amber, fontSize: 13, marginTop: 14, textAlign: 'center', lineHeight: 19 }}>
+              Last try: {sendErr}
+            </Text>
+          )}
           <Pressable
             onPress={() => {
               setSending(true);
               void (async () => {
-                try { await sync(); } catch { /* the count below tells the story */ }
+                try {
+                  await sync();
+                  setSendErr(null);
+                } catch (e: any) {
+                  setSendErr(e?.message ? String(e.message) : 'could not reach the office');
+                }
                 // Only stand down when there is genuinely nothing left. Clearing
                 // on a failed send is how this becomes the bug it replaced.
-                if (pending(useStore.getState().outbox).length === 0) setHeldBack(null);
+                if (pending(useStore.getState().outbox).length === 0) {
+                  setHeldBack(null);
+                  setTries(0);
+                  setSendErr(null);
+                } else {
+                  setTries((n) => n + 1);
+                }
                 setSending(false);
               })();
             }}
@@ -212,6 +248,45 @@ export function SessionGuards({ children }: { children: React.ReactNode }) {
               {sending ? 'Sending…' : 'Send now'}
             </Text>
           </Pressable>
+          {/*
+            THE WAY OUT, AND WHY THERE HAS TO BE ONE.
+
+            Everything above assumes the send eventually succeeds. When it
+            cannot — a read-only account (402), an expired refresh token (401),
+            one barcode the server rejects outright (400) — the queue never
+            drains, so the overlay never clears, so the phone is a brick with a
+            "Send now" button that will fail identically forever. The only
+            other exit was Settings, which this overlay covers at elevation 32.
+            A driver in that state has to wipe app data to use the phone again,
+            which destroys the exact scans this screen exists to protect: the
+            guard becomes a worse version of the bug it replaced.
+
+            So: after a failed try, the driver can dismiss it and carry on. That
+            gives up the automatic sign-out for this session — correctly, because
+            the alternative was giving up the work — and resets the clock, so it
+            asks again in another idle hour instead of never or every 30s.
+          */}
+          {tries > 0 && !sending && (
+            <Pressable
+              onPress={() => { touch(); setHeldBack(null); }}
+              accessibilityRole="button"
+              accessibilityLabel="Keep using this phone and send the scans later"
+              style={{
+                marginTop: 14, minHeight: 48, paddingHorizontal: 22, borderRadius: 10,
+                alignItems: 'center', justifyContent: 'center',
+                borderWidth: 1, borderColor: T.rule,
+              }}
+            >
+              <Text style={{ color: T.steel, fontSize: 14, fontWeight: '700' }}>
+                Keep using this phone
+              </Text>
+            </Pressable>
+          )}
+          {tries > 0 && (
+            <Text style={{ color: T.faint, fontSize: 12, marginTop: 12, textAlign: 'center', lineHeight: 18 }}>
+              The scans stay saved on this phone either way.
+            </Text>
+          )}
         </View>
       )}
       {locked && (

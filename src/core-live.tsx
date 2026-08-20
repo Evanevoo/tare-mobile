@@ -4,7 +4,43 @@ import { View, Text, Pressable, ActivityIndicator, Platform } from 'react-native
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { decodeBase64Image as coreDecode, warmUp, version } from '@/scanx-core';
+import { discard } from './tmpfiles';
 import { T, Btn, mono } from '@/ui';
+
+/**
+ * NOTHING IN THE LOOP IS ALLOWED TO HANG FOREVER.
+ *
+ * The capture loop is strictly sequential: `while (...) { await once() }`. A
+ * promise that never settles therefore does not slow it down, it ENDS it —
+ * `busyRef` stays true, the loop never reaches its next iteration, the spinner
+ * says "Reading…" indefinitely, `attempts` freezes, and Pause/Resume are inert
+ * because the loop is parked inside the await rather than at the check that
+ * reads them. The only way out is closing the screen, and nothing is logged.
+ *
+ * That is not hypothetical: "says reading and keeps spinning" is the reported
+ * symptom this screen was opened to debug, and a camera session that dies
+ * without rejecting — precisely the Android failure the deferred mount and the
+ * onCameraReady gate exist to work around — produces it exactly.
+ *
+ * So every await in the loop gets a deadline. A timeout surfaces as an
+ * ordinary miss with a reason attached, the loop takes its next frame, and a
+ * transient stall costs one capture instead of the session. 12s is far longer
+ * than the slowest honest pass measured here (asm.js under Hermes, ~2s) and
+ * short enough that a person watching does not conclude the app is dead.
+ */
+const STALL_MS = 12_000;
+
+function deadline<T>(p: Promise<T>, what: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  return Promise.race([
+    p,
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${what} (gave up after ${STALL_MS / 1000}s)`)), STALL_MS);
+    }),
+    // Clearing the timer matters: without it every capture leaves a pending
+    // 12s timeout behind, and the loop makes one every few seconds.
+  ]).finally(() => clearTimeout(timer)) as Promise<T>;
+}
 
 /**
  * LIVE TEST — scanx-core ALONE, with every other decoder removed.
@@ -145,13 +181,25 @@ export function CoreLiveTest({ onClose }: { onClose: () => void }) {
    */
   const [focusOff, setFocusOff] = useState(false);
   useEffect(() => {
+    /**
+     * The inner timer is TRACKED, and scanner.tsx:388 explains why: without
+     * this the 180ms timer outlives the component, and on a fast close/reopen
+     * the stale one lands in the new session and knocks focus off at random.
+     * This file was written from that one and did not copy the fix.
+     */
+    let inner: ReturnType<typeof setTimeout> | null = null;
     const cycle = () => {
       setFocusOff(true);
-      setTimeout(() => { if (alive.current) setFocusOff(false); }, 180);
+      if (inner) clearTimeout(inner);
+      inner = setTimeout(() => { if (alive.current) setFocusOff(false); }, 180);
     };
     const first = setTimeout(cycle, 600);
     const iv = setInterval(cycle, 2500);
-    return () => { clearTimeout(first); clearInterval(iv); };
+    return () => {
+      clearTimeout(first);
+      clearInterval(iv);
+      if (inner) clearTimeout(inner);
+    };
   }, []);
 
   /**
@@ -169,6 +217,7 @@ export function CoreLiveTest({ onClose }: { onClose: () => void }) {
     if (!cam.current || busyRef.current) return;
     busyRef.current = true;
     setBusy(true);
+    const scratch: string[] = [];
     try {
       /**
        * NO `skipProcessing`. It skips EXIF rotation, so on Android the buffer
@@ -176,23 +225,28 @@ export function CoreLiveTest({ onClose }: { onClose: () => void }) {
        * WHERE in the frame the label is, it very much cares which axis the
        * bars run across, because the profile is taken along image X.
        */
-      const photo = await cam.current.takePictureAsync({
+      const photo = await deadline(cam.current.takePictureAsync({
         quality: 0.9, shutterSound: false,
-      });
+      }), 'the camera did not return a frame');
       if (!photo?.uri) return;
+      scratch.push(photo.uri);
 
-      const shrunk = await manipulateAsync(
+      const shrunk = await deadline(manipulateAsync(
         photo.uri,
         [{ resize: photo.width >= photo.height
             ? { width: LONG_EDGE }
             : { height: LONG_EDGE } }],
         { base64: true, compress: 0.92, format: SaveFormat.JPEG },
-      );
+      ), 'resizing the photo did not finish');
+      scratch.push(shrunk.uri);
       if (!shrunk.base64) { setLastMiss('could not read the photo'); return; }
 
       // maxDim above the image we just made, so the decoder does not shrink it
       // a second time - the resize above already chose the resolution.
-      const res = await coreDecode(shrunk.base64, { maxDim: 2000, minMargin: 0 });
+      const res = await deadline(
+        coreDecode(shrunk.base64, { maxDim: 2000, minMargin: 0 }),
+        'the decoder did not come back',
+      );
       if (!alive.current) return;
 
       setAttempts((n) => n + 1);
@@ -218,6 +272,7 @@ export function CoreLiveTest({ onClose }: { onClose: () => void }) {
     } finally {
       busyRef.current = false;
       if (alive.current) setBusy(false);
+      discard(...scratch);
     }
   }, []);
 

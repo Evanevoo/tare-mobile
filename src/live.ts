@@ -80,27 +80,56 @@ export function useLiveData(enabled = true) {
           if (seen.current === key) return;   // nothing moved; do not spend 700 KB
           seen.current = key;
         }
-      } else {
-        // A forced refresh invalidates what we think we know, so the next
-        // cheap check compares against whatever the payload actually was
-        // rather than a stamp from before it.
-        seen.current = null;
       }
 
       lastFull.current = Date.now();
       await refresh();
+
+      if (force) {
+        /**
+         * Re-stamp AFTER a forced pull, rather than clearing the stamp before
+         * it.
+         *
+         * Clearing was the obvious-looking move and it cost a second full
+         * payload every single time: with seen=null the next cheap check found
+         * `seen !== key` by construction and downloaded the same 700 KB again,
+         * 45 seconds after every pull-to-refresh and every foreground. Asking
+         * the stamp endpoint what we just downloaded costs a couple of hundred
+         * bytes and makes the next check a real comparison.
+         *
+         * A failure here leaves the stamp stale, which degrades to exactly the
+         * old behaviour — one redundant refresh — and never to a missed update.
+         */
+        const after = await fetchBootstrapStamp().catch(() => null);
+        seen.current = after
+          ? `${after.at ?? ''}|${after.assets}|${after.customers}`
+          : null;
+      }
     } finally {
       busy.current = false;
     }
   }, [enabled, refresh, sync]);
 
-  // 1 + 3: on focus, then on a slow beat for as long as the screen is open.
-  // The interval is torn down on blur, so a phone sitting on a passenger seat
-  // with the app backgrounded is not polling anything.
+  /**
+   * 1 + 3: on focus, then on a slow beat for as long as the screen is open
+   * AND THE APP IS ACTUALLY IN FRONT.
+   *
+   * The AppState check is not belt-and-braces. useFocusEffect fires on SCREEN
+   * blur — navigating away — not on app background, so without it a phone
+   * sitting in a cradle with Scanified behind the maps app still has this
+   * screen "focused" and keeps firing every 45s all day: a sync, a stamp
+   * fetch, and on any change a 700 KB payload, on the driver's data. The
+   * interval is left running rather than torn down so that coming back to the
+   * app does not have to wait for a remount; the AppState listener below
+   * forces a refresh on foreground anyway, which is the tick that matters.
+   */
   useFocusEffect(
     useCallback(() => {
       void tick();
-      const iv = setInterval(() => { void tick(); }, POLL_MS);
+      const iv = setInterval(() => {
+        if (AppState.currentState !== 'active') return;
+        void tick();
+      }, POLL_MS);
       return () => clearInterval(iv);
     }, [tick]),
   );

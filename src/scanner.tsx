@@ -12,6 +12,7 @@ import { candidatesFrom, matchKnown, recognizeText, OcrUnavailable } from './ocr
 import { decodeBase64Image as zxDecode, type FormatName as ZXFormatName } from './zxing';
 import { key } from './scan-match';
 import { RETICLE, withinReticle } from './reticle';
+import { discard } from './tmpfiles';
 
 /**
  * The one camera surface.
@@ -523,12 +524,16 @@ export function Scanner({
   const snap = useCallback(async () => {
     if (!cam.current || snapBusy) return;
     setSnapBusy(true);
+    const scratch: string[] = [];
     try {
       // shutterSound: false — legacy passed this on every capture
       // (gas-cylinder-mobile ScanArea.tsx:520). Without it the phone plays a
       // camera shutter in a customer's yard on every Snap.
       const photo = await cam.current.takePictureAsync({ quality: 0.9, shutterSound: false, skipProcessing: true });
       if (!photo?.uri) return;
+      // Every URI below is a real file in the cache directory. See tmpfiles.ts
+      // for what happens to a warehouse handset when nobody deletes them.
+      scratch.push(photo.uri);
 
       /**
        * CROP TO THE RETICLE BEFORE ML KIT EVER SEES THE FRAME.
@@ -583,6 +588,7 @@ export function Scanner({
             },
           }], { compress: 1 });
           uri = cropped.uri;
+          scratch.push(cropped.uri);
         } catch { /* fall through with the uncropped photo */ }
       }
 
@@ -638,6 +644,7 @@ export function Scanner({
             [{ resize: { width: Math.round(photo.width * 2) } }],
             { compress: 1 },
           );
+          scratch.push(big.uri);
           code = await tryScan(big.uri);
         } catch { /* the two passes above were the real attempts */ }
       }
@@ -677,6 +684,7 @@ export function Scanner({
             [{ resize: { width: 1400 } }],
             { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG, base64: true },
           );
+          scratch.push(small.uri);
           if (small.base64) {
             const zx = await zxDecode(small.base64, {
               maxDim: 1400,
@@ -711,6 +719,9 @@ export function Scanner({
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     } finally {
       if (alive.current) setSnapBusy(false);
+      // After the read is resolved and the driver has been answered, never
+      // before: the decode above still holds these URIs.
+      discard(...scratch);
     }
   }, [accept, onCode, snapBusy, reticle, types]);
 
@@ -735,12 +746,14 @@ export function Scanner({
     if (!cam.current || aiBusy) return;
     setAiBusy(true);
     setAiMiss(null);
+    const scratch: string[] = [];
     try {
       // shutterSound: false — legacy passed this on every capture
       // (gas-cylinder-mobile ScanArea.tsx:520). Without it the phone plays a
       // camera shutter in a customer's yard on every Snap.
       const photo = await cam.current.takePictureAsync({ quality: 0.9, shutterSound: false, skipProcessing: true });
       if (!photo?.uri) return;
+      scratch.push(photo.uri);
 
       /**
        * THE ORG'S OWN DATA, WHICH IS THE ONLY THING AN OCR RESULT IS WEIGHED
@@ -796,6 +809,7 @@ export function Scanner({
             },
           }], { compress: 1 });
           uri = cropped.uri;
+          scratch.push(cropped.uri);
         } catch { /* fall through with the uncropped photo */ }
       }
 
@@ -831,6 +845,7 @@ export function Scanner({
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     } finally {
       if (alive.current) setAiBusy(false);
+      discard(...scratch);
     }
   }, [accept, onCode, aiBusy, reticle]);
 
