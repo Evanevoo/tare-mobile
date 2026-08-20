@@ -17,6 +17,7 @@ import {
 } from '@/form';
 import { Scanner } from '@/scanner';
 import { formatNudge } from '@/formats';
+import { useAttributeOptions } from '@/attributes';
 import { ulid } from '@/ulid';
 import {
   addRow, applyResult, describeResult, editRow, normalizeCode, removeRow, serialKey,
@@ -111,6 +112,8 @@ export default function BatchAssets() {
     () => (boot?.locations ?? []).map((l) => ({ key: l })),
     [boot?.locations],
   );
+  // Gas, category, group and supplier, as this fleet already spells them.
+  const attrs = useAttributeOptions();
 
   /**
    * Serial → the barcode wearing it, over the whole downloaded fleet.
@@ -819,29 +822,52 @@ export default function BatchAssets() {
                 <DateField value={requal} onChange={setRequal} />
               </Field>
 
-              {/* One pick of the product code fills these four; the whole
-                  pallet gets them. Editable, optional, and saving them once
-                  teaches the pick list for next time. */}
+              {/* One pick of the product code fills these; the whole pallet
+                  gets them. Editable, optional, and saving them once teaches
+                  the pick list for next time.
+
+                  Chips, not boxes — same reason as Add and Edit: a value
+                  whose job is to match other rows must not be retyped. Here
+                  it matters most, because one typo lands on the whole pallet
+                  at once. */}
               <Field
-                label="Type details"
+                label="Gas type"
                 hint={boot?.types?.some((t) => t.code === product)
-                  ? 'Filled from the product code — correct anything that is wrong.'
-                  : 'Optional. The whole pallet gets these.'}
+                  ? 'Filled from the product code — change it if this pallet differs.'
+                  : 'Optional. The whole pallet gets this.'}
               >
-                <TextField value={gas} onChangeText={setGas} placeholder="Gas type — Oxygen, Acetylene…" />
-                <View style={{ height: 8 }} />
-                <TextField value={category} onChangeText={setCategory} placeholder="Category — Industrial, Medical…" />
-                <View style={{ height: 8 }} />
-                <TextField value={group} onChangeText={setGroup} placeholder="Group — High-Pressure, Cryo…" />
-                <View style={{ height: 8 }} />
-                <TextField value={desc} onChangeText={setDesc} placeholder="Description" />
+                <Chips
+                  options={attrs.gas} value={gas} onChange={setGas}
+                  placeholder="Gas type — Oxygen, Acetylene…" freeLabel="Not on the list"
+                />
+              </Field>
+
+              <Field label="Category" hint="Optional. Industrial, medical, beverage.">
+                <Chips
+                  options={attrs.category} value={category} onChange={setCategory}
+                  placeholder="Category — Industrial, Medical…" freeLabel="Not on the list"
+                />
+              </Field>
+
+              <Field label="Group" hint="Optional. How it is grouped on reports.">
+                <Chips
+                  options={attrs.group} value={group} onChange={setGroup}
+                  placeholder="Group — High-Pressure, Cryo…" freeLabel="Not on the list"
+                />
+              </Field>
+
+              <Field label="Description" hint="Optional. The whole pallet gets this.">
+                <TextField value={desc} onChangeText={setDesc} placeholder="Description" code={false} />
               </Field>
 
               <Field
                 label="Belong to"
                 hint="Optional. A supplier label — WeldCor, Linde. Does NOT change billing."
               >
-                <TextField value={owner} onChangeText={setOwner} placeholder="Ours — leave blank" />
+                <Chips
+                  options={attrs.supplier} value={owner} onChange={setOwner}
+                  placeholder="Ours — leave blank" freeLabel="A new supplier"
+                />
               </Field>
             </Rise>
           )}

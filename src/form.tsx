@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   View, Text, TextInput, Pressable, StyleProp, ViewStyle, TextStyle,
 } from 'react-native';
@@ -99,6 +99,21 @@ export function Chips({
   // is the case on Edit whenever the record predates the list.
   const [free, setFree] = useState(() => !options.length || (!!value && !known.has(value)));
   const [q, setQ] = useState('');
+
+  /*
+    A VALUE THAT ARRIVES LATE STILL HAS TO BE VISIBLE.
+
+    The line above runs once, at mount, which was fine while every caller had
+    its value in hand by then. It is not fine now: Edit seeds the form from a
+    server lookup when the barcode is not in the phone's copy of the fleet, so
+    the record lands AFTER this component mounted. If that value is not one of
+    the chips, list mode has no chip to light up and the field reads as empty —
+    the screen would be showing "no gas type" over a cylinder that has one, and
+    saving would then clear it.
+  */
+  useEffect(() => {
+    if (value && !known.has(value)) setFree(true);
+  }, [value, known]);
 
   /**
    * A LONG LIST GETS A SEARCH BOX; A SHORT ONE DOES NOT.

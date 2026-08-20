@@ -10,6 +10,7 @@ import {
   T, Screen, Btn, Rise, mono, useBottomInset,
 } from '@/ui';
 import { Field, Chips, Choice } from '@/form';
+import { useAttributeOptions } from '@/attributes';
 
 /**
  * The same correction, applied to a stack at once.
@@ -44,8 +45,15 @@ export default function BulkEditAssets() {
 
   const [product, setProduct] = useState('');
   const [location, setLocation] = useState('');
+  const [gas, setGas] = useState('');
+  const [category, setCategory] = useState('');
+  const [group, setGroup] = useState('');
+  const [owner, setOwner] = useState('');
   const [owned, setOwned] = useState<'unset' | 'yours' | 'theirs'>('unset');
   const [busy, setBusy] = useState(false);
+
+  // Gas, category, group and supplier, as this fleet already spells them.
+  const attrs = useAttributeOptions();
 
   const products = useMemo(
     () => (boot?.products ?? []).map((p) => ({ key: p.code, sub: `${p.n} on fleet` })),
@@ -60,9 +68,13 @@ export default function BulkEditAssets() {
     const p: BulkAssetPatch = {};
     if (product.trim()) p.productCode = product.trim();
     if (location.trim()) p.location = location.trim();
+    if (gas.trim()) p.gasType = gas.trim();
+    if (category.trim()) p.category = category.trim();
+    if (group.trim()) p.groupName = group.trim();
+    if (owner.trim()) p.owner = owner.trim();
     if (owned !== 'unset') p.customerOwned = owned === 'theirs';
     return p;
-  }, [product, location, owned]);
+  }, [product, location, gas, category, group, owner, owned]);
 
   const count = Object.keys(changes).length;
   const ready = count > 0 && !busy && barcodes.length > 0;
@@ -152,6 +164,50 @@ export default function BulkEditAssets() {
               />
             </Field>
 
+            {/*
+              THE TYPE FIELDS BELONG HERE MOST OF ALL.
+
+              A pallet that arrived mislabelled is mislabelled identically on
+              every bottle in it, so correcting gas type or category one
+              cylinder at a time is forty repetitions of the same sentence.
+              The server has accepted these on this endpoint since it was
+              written; the screen simply never offered them.
+
+              Description is deliberately still absent: it is prose about one
+              object. Forty cylinders sharing one sentence is a sentence that
+              describes none of them.
+            */}
+            <Field label="Gas type" hint="Leave blank to leave each one's gas type alone.">
+              <Chips
+                options={attrs.gas} value={gas} onChange={setGas}
+                placeholder="Gas type" freeLabel="Not on the list"
+              />
+            </Field>
+
+            <Field label="Category" hint="Leave blank to leave each one's category alone.">
+              <Chips
+                options={attrs.category} value={category} onChange={setCategory}
+                placeholder="Category" freeLabel="Not on the list"
+              />
+            </Field>
+
+            <Field label="Group" hint="Leave blank to leave each one's group alone.">
+              <Chips
+                options={attrs.group} value={group} onChange={setGroup}
+                placeholder="Group" freeLabel="Not on the list"
+              />
+            </Field>
+
+            <Field
+              label="Belong to"
+              hint="A supplier label. Leave blank to leave it alone — this does NOT change billing."
+            >
+              <Chips
+                options={attrs.supplier} value={owner} onChange={setOwner}
+                placeholder="Supplier" freeLabel="A new supplier"
+              />
+            </Field>
+
             <Field
               label="Who owns them"
               hint="Only a manager can set this — it decides whether these bill at all."
@@ -202,6 +258,10 @@ function prettyField(k: string): string {
   switch (k) {
     case 'productCode': return 'kind';
     case 'location': return 'location';
+    case 'gasType': return 'gas type';
+    case 'category': return 'category';
+    case 'groupName': return 'group';
+    case 'owner': return 'belongs to';
     case 'customerOwned': return 'ownership';
     default: return k;
   }

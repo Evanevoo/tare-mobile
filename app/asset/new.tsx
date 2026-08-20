@@ -14,6 +14,7 @@ import {
 } from '@/form';
 import { Scanner } from '@/scanner';
 import { formatNudge } from '@/formats';
+import { useAttributeOptions } from '@/attributes';
 
 /**
  * Adding something to the fleet.
@@ -67,6 +68,10 @@ export default function NewAsset() {
     () => (boot?.locations ?? []).map((l) => ({ key: l })),
     [boot?.locations],
   );
+
+  // Gas, category, group and supplier, as this fleet already spells them.
+  const attrs = useAttributeOptions();
+  const typeFilled = !!boot?.types?.some((t) => t.code === product);
 
   const existing = barcode ? boot?.assets[barcode] : undefined;
 
@@ -350,30 +355,61 @@ export default function NewAsset() {
                 <DateField value={requal} onChange={setRequal} />
               </Field>
 
-              {/* One pick above fills these four together; they stay editable
-                  because an individual cylinder is allowed to disagree with
-                  its catalogue entry. All optional, all pallet facts — they
-                  hold their values between saves. */}
+              {/*
+                One pick above fills these together; they stay editable because
+                an individual cylinder is allowed to disagree with its
+                catalogue entry. All optional, all pallet facts — they hold
+                their values between saves.
+
+                PICKED FROM WHAT THE FLEET ALREADY SAYS, NOT TYPED.
+
+                These were text boxes, and a text box is how a column that
+                exists to be grouped by gets four spellings of argon in it.
+                Every value already on the fleet is a chip; `Chips` keeps its
+                escape hatch for the genuinely new one, so a first-of-its-kind
+                cylinder is still addable — it just cannot be added by
+                mistyping one that exists. Description stays a box: it is prose
+                about one object, not a value that has to match.
+              */}
               <Field
-                label="Type details"
-                hint={boot?.types?.some((t) => t.code === product)
-                  ? 'Filled from the product code — correct anything that is wrong.'
-                  : 'Optional. Saving these once teaches the pick list for next time.'}
+                label="Gas type"
+                hint={typeFilled ? 'Filled from the product code — change it if this one differs.' : 'What is in it.'}
               >
-                <TextField value={gas} onChangeText={setGas} placeholder="Gas type — Oxygen, Acetylene…" />
-                <View style={{ height: 8 }} />
-                <TextField value={category} onChangeText={setCategory} placeholder="Category — Industrial, Medical…" />
-                <View style={{ height: 8 }} />
-                <TextField value={group} onChangeText={setGroup} placeholder="Group — High-Pressure, Cryo…" />
-                <View style={{ height: 8 }} />
-                <TextField value={desc} onChangeText={setDesc} placeholder="Description — what a new hire should know" />
+                <Chips
+                  options={attrs.gas} value={gas} onChange={setGas}
+                  placeholder="Gas type — Oxygen, Acetylene…" freeLabel="Not on the list"
+                />
+              </Field>
+
+              <Field label="Category" hint="Industrial, medical, beverage.">
+                <Chips
+                  options={attrs.category} value={category} onChange={setCategory}
+                  placeholder="Category — Industrial, Medical…" freeLabel="Not on the list"
+                />
+              </Field>
+
+              <Field label="Group" hint="How it is grouped on reports.">
+                <Chips
+                  options={attrs.group} value={group} onChange={setGroup}
+                  placeholder="Group — High-Pressure, Cryo…" freeLabel="Not on the list"
+                />
+              </Field>
+
+              <Field label="Description" hint="Optional. What a new hire should know.">
+                <TextField
+                  value={desc} onChangeText={setDesc} code={false}
+                  placeholder="Description — what a new hire should know"
+                />
               </Field>
 
               <Field
                 label="Belongs to"
                 hint="Optional. A supplier label — WeldCor, Linde. This does NOT change billing."
               >
-                <TextField value={owner} onChangeText={setOwner} placeholder="Ours — leave blank" />
+                <Chips
+                  options={attrs.supplier} value={owner} onChange={setOwner}
+                  placeholder="Ours — leave blank" freeLabel="A new supplier"
+                />
               </Field>
             </Rise>
           )}

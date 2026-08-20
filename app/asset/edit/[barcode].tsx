@@ -12,6 +12,7 @@ import {
 import {
   Field, TextField, Chips, Choice, DateField, Note, isRealDate,
 } from '@/form';
+import { useAttributeOptions } from '@/attributes';
 
 /** What a person can set from here. `rented` is not chosen, it is caused. */
 type Serviceable = 'available' | 'maintenance' | 'lost';
@@ -42,6 +43,10 @@ export default function EditAsset() {
   const barcode = (raw ?? '').toUpperCase();
   const { boot, refresh } = useStore();
   const bottom = useBottomInset(24);
+
+  // What this org already calls its gases, categories, groups and suppliers —
+  // derived from the fleet on the phone, so the pickers work with no signal.
+  const attrs = useAttributeOptions();
 
   /**
    * The record can come from two places: the phone's downloaded copy, or —
@@ -363,24 +368,63 @@ export default function EditAsset() {
               <DateField value={requal} onChange={setRequal} />
             </Field>
 
-            <Field
-              label="Type details"
-              hint="Optional. Gas type, category, group, description — corrections here also teach the pick list."
-            >
-              <TextField value={gas} onChangeText={setGas} placeholder="Gas type — Oxygen, Acetylene…" />
-              <View style={{ height: 8 }} />
-              <TextField value={category} onChangeText={setCategory} placeholder="Category — Industrial, Medical…" />
-              <View style={{ height: 8 }} />
-              <TextField value={group} onChangeText={setGroup} placeholder="Group — High-Pressure, Cryo…" />
-              <View style={{ height: 8 }} />
-              <TextField value={desc} onChangeText={setDesc} placeholder="Description" />
+            {/*
+              PICK, DO NOT TYPE.
+
+              These were four text boxes, which is the wrong control for a
+              value whose whole job is to match other rows: typing is how one
+              gas ends up spelled four ways and no report can group by it
+              again. Every answer the fleet already uses is offered here, and
+              `Chips` keeps its "Something else" toggle for the genuinely new
+              one — so a new gas can still arrive, it just cannot arrive by
+              accident. Description stays typed: it is prose about this one
+              object, not a value that has to match anything.
+            */}
+            <Field label="Gas type" hint="What is in it.">
+              <Chips
+                options={attrs.gas}
+                value={gas}
+                onChange={setGas}
+                placeholder="Gas type — Oxygen, Acetylene…"
+                freeLabel="Not on the list"
+              />
+            </Field>
+
+            <Field label="Category" hint="Industrial, medical, beverage.">
+              <Chips
+                options={attrs.category}
+                value={category}
+                onChange={setCategory}
+                placeholder="Category — Industrial, Medical…"
+                freeLabel="Not on the list"
+              />
+            </Field>
+
+            <Field label="Group" hint="How it is grouped on reports.">
+              <Chips
+                options={attrs.group}
+                value={group}
+                onChange={setGroup}
+                placeholder="Group — High-Pressure, Cryo…"
+                freeLabel="Not on the list"
+              />
+            </Field>
+
+            <Field label="Description" hint="Optional. Anything a person needs to recognise it.">
+              <TextField value={desc} onChangeText={setDesc} placeholder="Description" code={false} />
             </Field>
 
             <Field
               label="Belongs to"
               hint="A supplier label — WeldCor, Linde. Blank means ours. This does NOT change billing."
             >
-              <TextField value={owner} onChangeText={setOwner} placeholder="Ours — leave blank" />
+              <Chips
+                options={attrs.supplier}
+                value={owner}
+                onChange={setOwner}
+                placeholder="Ours — leave blank"
+                freeLabel="A new supplier"
+              />
             </Field>
 
             {asset.own === 1 && (
