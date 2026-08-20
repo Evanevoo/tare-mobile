@@ -58,7 +58,10 @@ export async function open(): Promise<SQLite.SQLiteDatabase | null> {
   } catch (e: any) {
     db = null;
     dbUnavailable = String(e?.message ?? e);
-    console.warn('[tare] local database unavailable, running online-only:', dbUnavailable);
+    // Not fatal on its own - the AsyncStorage fallback below usually holds the
+    // shift - but it is the first half of the story and worth knowing which
+    // handsets it happens on.
+    shout('sqlite-open', e);
     return null;
   }
 }
@@ -134,13 +137,45 @@ const fromRow = (r: any): QueuedScan => ({
 const AS_OUTBOX = 'outbox.fallback.v1';
 const AS_CACHE_PREFIX = 'cache.fallback.v1.';
 
+/**
+ * A STORAGE FAILURE HAS TO REACH SOMEBODY WHO CAN READ IT.
+ *
+ * Every failure path in this file logged to `console.warn`, which on a release
+ * build on a driver's phone goes precisely nowhere. So "Not saving to this
+ * phone" could appear in a yard with no way to find out which of the two
+ * storage layers had gone, or why — and the only remaining move was guessing,
+ * which is how the update-check bug ate most of 20 Aug before Sentry was asked.
+ *
+ * Reported once per kind per launch: a save runs on every scan, and a driver
+ * sweeping a rack must not turn one broken phone into a thousand events.
+ */
+const shouted = new Set<string>();
+function shout(kind: string, e: unknown, extra: Record<string, unknown> = {}) {
+  console.warn(`[tare] ${kind}:`, e);
+  if (shouted.has(kind)) return;
+  shouted.add(kind);
+  try {
+    // Required lazily so this module never depends on Sentry being up, and
+    // never throws from a catch block.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const Sentry = require('@sentry/react-native');
+    Sentry.captureException(e instanceof Error ? e : new Error(`${kind}: ${String(e)}`), {
+      tags: { kind: 'storage-failed', storage: kind, storageMode },
+      extra: { ...extra, storageMode, sqliteError: dbUnavailable },
+    });
+  } catch { /* nothing left to try */ }
+}
+
 async function asyncStorage() {
   // Guarded like every other native touch in this app: if even AsyncStorage
   // is missing there is nothing left to do but stay in memory, and saying so
   // is better than throwing on the scan path.
   try {
     return (await import('@react-native-async-storage/async-storage')).default;
-  } catch {
+  } catch (e) {
+    // This is the branch that decides between "SQLite broke but the shift is
+    // safe" and "nothing on this phone is holding anything". It was silent.
+    shout('async-storage-import', e);
     return null;
   }
 }
@@ -196,7 +231,9 @@ export async function saveOutbox(o: Outbox): Promise<boolean> {
       storageMode = 'fallback';
       return true;
     } catch (e) {
-      console.warn('[tare] fallback saveOutbox failed; scans are in memory only:', e);
+      // BOTH layers are gone. This is the only state the red banner is for,
+      // and until now it was the least explained thing in the app.
+      shout('fallback-save', e, { scans: o.scans.length });
       storageMode = 'none';
       return false;
     }
