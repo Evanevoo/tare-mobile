@@ -24,6 +24,23 @@
     <meta-data android:name="expo.modules.updates.EXPO_UPDATES_CHECK_ON_LAUNCH" android:value="ALWAYS"/>
     <meta-data android:name="expo.modules.updates.EXPO_UPDATES_LAUNCH_WAIT_MS" android:value="0"/>
     <meta-data android:name="expo.modules.updates.EXPO_UPDATE_URL" android:value="https://u.expo.dev/fad89b31-ae33-4bff-9011-af88c8268844"/>
+    <!--
+      THE CHANNEL. Without this line the app knows WHERE to ask for an update
+      and never says WHICH BRANCH, so u.expo.dev cannot resolve one and every
+      check fails with ERR_UPDATES_CHECK / "Failed to check for update".
+      Updates.channel reads "" on the device; that is what it means.
+
+      `eas build` injects this from eas.json's "channel": "production". A local
+      Gradle build - which is how 217 onward have been built, because EAS signs
+      with its own keystore and Play rejects it - gets no such injection. So
+      every locally built binary since has been unable to check for updates.
+      The OTAs that appeared to work were bundles already downloaded by an
+      earlier EAS build and left in app data across the upgrade.
+
+      Mirrored in app.json under updates.requestHeaders so that a future
+      `expo prebuild` writes it back rather than dropping it again.
+    -->
+    <meta-data android:name="expo.modules.updates.UPDATES_CONFIGURATION_REQUEST_HEADERS_KEY" android:value="{&quot;expo-channel-name&quot;:&quot;production&quot;}"/>
     <activity android:name=".MainActivity" android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|uiMode" android:launchMode="singleTask" android:windowSoftInputMode="adjustResize" android:theme="@style/Theme.App.SplashScreen" android:exported="true" android:screenOrientation="portrait">
       <intent-filter>
         <action android:name="android.intent.action.MAIN"/>

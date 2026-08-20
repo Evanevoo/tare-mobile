@@ -6,7 +6,8 @@
     "runtimeVersion": "1.2.3",
     "updates": {
       "url": "https://u.expo.dev/fad89b31-ae33-4bff-9011-af88c8268844",
-      "fallbackToCacheTimeout": 0
+      "fallbackToCacheTimeout": 0,
+      "requestHeaders": { "expo-channel-name": "production" }
     },
     "//platforms": [
       "Two, not three. With no `platforms` key Expo defaults to ios, android AND",
@@ -49,7 +50,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.evanevoo.scanifiedmobile",
-      "buildNumber": "224",
+      "buildNumber": "225",
       "infoPlist": {
         "NSCameraUsageDescription": "Scanified uses the camera to scan asset barcodes when you ship and receive them.",
         "NSLocationWhenInUseUsageDescription": "Scanified records where a scan happened so a delivery can be proven later.",
@@ -58,7 +59,7 @@
     },
     "android": {
       "package": "com.evanevoo.scanifiedandroid",
-      "versionCode": 224,
+      "versionCode": 225,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#07090A"
