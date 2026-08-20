@@ -198,6 +198,44 @@ export default function Scan() {
    */
   const ready = Boolean(orderNumber && customerListId);
   useEffect(() => { if (!ready) router.replace('/'); }, [ready, router]);
+
+  /**
+   * EVERY HOOK LIVES ABOVE THE EARLY RETURN BELOW. THIS IS NOT STYLE.
+   *
+   * React identifies hooks by call order, so a render that reaches
+   * `return null` must still have run exactly as many of them as the render
+   * before it. Two hooks used to sit underneath this guard — `lastDupe`, and
+   * the `leaving` effect added on 19 Aug — and `ready` flips true→false ON THE
+   * NORMAL SUBMIT PATH: finish() sets `leaving`, the effect calls
+   * endDelivery(), that clears orderNumber, and this component re-renders once
+   * more before the navigation commits. That render would have executed two
+   * fewer hooks and thrown "Rendered fewer hooks than expected" — a fatal
+   * error, in production, on the exact screen the last four fixes were about.
+   *
+   * Moving them up costs nothing: a ref and an effect that no-ops while
+   * `leaving` is false.
+   */
+  const lastDupe = useRef<string | null>(null);
+
+  /**
+   * The far side of the wait — except there is no wait, only an ordering.
+   *
+   * This cannot run until React has committed the render in which `leaving` is
+   * true, and that render draws the "Order sent" card and nothing else: no
+   * camera, no sheet. The screen is already quiet before anything is torn
+   * down, which is the guarantee the timers could never make.
+   *
+   * Guarded on `ready` as well, because endDelivery() below makes `ready`
+   * false and the effect must not run a second time on the way out.
+   */
+  const left = useRef(false);
+  useEffect(() => {
+    if (!leaving || left.current) return;
+    left.current = true;
+    endDelivery();
+    router.replace('/');
+  }, [leaving, endDelivery, router]);
+
   if (!ready) return null;
 
   /**
@@ -350,7 +388,7 @@ export default function Scan() {
    * legacy app used for duplicates and what a gloved hand can tell apart
    * from the single solid thump of a real add without looking.
    */
-  const lastDupe = useRef<string | null>(null);
+  // Declared above the `ready` guard with the other hooks — see the note there.
   function dupe(barcode: string) {
     if (lastDupe.current === barcode) {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -464,20 +502,6 @@ export default function Scan() {
 
     setLeaving(true);
   }
-
-  /**
-   * The far side of the wait — except there is no wait, only an ordering.
-   *
-   * This effect cannot run until React has committed the render in which
-   * `leaving` is true, and that render draws the "Order sent" card and nothing
-   * else: no camera, no sheet. So the screen is already quiet before anything
-   * is torn down, which is the guarantee the timers could never make.
-   */
-  useEffect(() => {
-    if (!leaving) return;
-    endDelivery();
-    router.replace('/');
-  }, [leaving]);
 
   /** What this org knows about the thing just scanned, if it knows it. */
   const rec = last ? boot?.assets[last.barcode] : undefined;

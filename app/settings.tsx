@@ -178,13 +178,21 @@ export default function Settings() {
                   [
                     { text: 'Stay', style: 'cancel' },
                     {
-                      text: 'Sign out',
+                      text: unsent ? 'Sign out and lose them' : 'Sign out',
                       style: 'destructive',
-                      // Clear the phone before dropping the session — see
-                      // store.handOver. Both sign-out paths must do this, or
-                      // the one that does not becomes the bug.
+                      /**
+                       * `force` is passed HERE and nowhere else.
+                       *
+                       * handOver now tries to upload first and refuses to
+                       * clear the phone while anything is unsent — because the
+                       * idle timer calls the same function with nobody
+                       * watching, and it used to delete a whole shift at the
+                       * hour mark. A person standing here has been shown the
+                       * count, in the dialog above and on the row behind it,
+                       * and is entitled to decide. An interval timer is not.
+                       */
                       onPress: async () => {
-                        await useStore.getState().handOver();
+                        await useStore.getState().handOver({ force: true });
                         await signOut();
                         router.replace('/login');
                       },

@@ -7,6 +7,8 @@
   <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
   <uses-permission android:name="android.permission.RECORD_AUDIO"/>
   <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
+  <uses-permission android:name="android.permission.USE_BIOMETRIC"/>
+  <uses-permission android:name="android.permission.USE_FINGERPRINT"/>
   <uses-permission android:name="android.permission.VIBRATE"/>
   <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
   <queries>
@@ -22,21 +24,6 @@
     <meta-data android:name="expo.modules.updates.EXPO_UPDATES_CHECK_ON_LAUNCH" android:value="ALWAYS"/>
     <meta-data android:name="expo.modules.updates.EXPO_UPDATES_LAUNCH_WAIT_MS" android:value="0"/>
     <meta-data android:name="expo.modules.updates.EXPO_UPDATE_URL" android:value="https://u.expo.dev/fad89b31-ae33-4bff-9011-af88c8268844"/>
-    <!-- Without this, expo-updates on Android has a URL and a runtime version
-         but never tells the update server WHICH branch to check — the
-         "expo-channel-name" request header, read from this exact meta-data
-         key (UpdatesConfiguration.kt: getOriginalEmbeddedRequestHeaders ->
-         "expo.modules.updates.UPDATES_CONFIGURATION_REQUEST_HEADERS_KEY").
-         `eas build` writes this automatically from eas.json's own
-         build.production.channel ("production") during its cloud prebuild;
-         this android/ folder is a persistent, hand-maintained native project
-         built locally, so that step never ran and this key has never existed
-         here. Confirmed by reading node_modules/expo-updates's Kotlin source
-         directly (2026-08-18) — this, not just the ENABLED flag, is why a
-         published OTA update produces no "ready" banner on Android: the
-         client can identify itself by runtime version but not by channel,
-         so the server has nothing to match a branch against. -->
-    <meta-data android:name="expo.modules.updates.UPDATES_CONFIGURATION_REQUEST_HEADERS_KEY" android:value="{&quot;expo-channel-name&quot;:&quot;production&quot;}"/>
     <activity android:name=".MainActivity" android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|uiMode" android:launchMode="singleTask" android:windowSoftInputMode="adjustResize" android:theme="@style/Theme.App.SplashScreen" android:exported="true" android:screenOrientation="portrait">
       <intent-filter>
         <action android:name="android.intent.action.MAIN"/>

@@ -94,8 +94,8 @@ android {
         applicationId 'com.evanevoo.scanifiedandroid'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 211
-        versionName "1.2.2"
+        versionCode 223
+        versionName "1.2.3"
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
     }

@@ -3,6 +3,7 @@ import { Alert, AppState, Pressable, Text, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase, signOut } from './api';
 import { useStore } from './store';
+import { pending } from './outbox';
 import { hasNativeModule } from './notifications';
 import { T } from './ui';
 
@@ -39,6 +40,17 @@ export function SessionGuards({ children }: { children: React.ReactNode }) {
   const [signedIn, setSignedIn] = useState(false);
   const [locked, setLocked] = useState(false);
   const [lockMsg, setLockMsg] = useState<string | null>(null);
+  /**
+   * How many scans stopped the hand-over. Non-null means the phone is blocked:
+   * the shift is safe on disk, and nobody can start a new one over the top of
+   * it. Deliberately separate from `locked` — biometrics answer "is this the
+   * right person", this answers "is this phone finished with", and resolving
+   * one must never look like resolving the other.
+   */
+  const [heldBack, setHeldBack] = useState<number | null>(null);
+  const [sending, setSending] = useState(false);
+  const sync = useStore((s) => s.sync);
+  const unsentNow = useStore((s) => pending(s.outbox).length);
 
   const lastActive = useRef(Date.now());
   const warned = useRef(false);
@@ -65,10 +77,24 @@ export function SessionGuards({ children }: { children: React.ReactNode }) {
     const t = setInterval(() => {
       const idle = Date.now() - lastActive.current;
       if (idle >= IDLE_MS) {
-        // The same path as the Settings sign-out: local state first, then
-        // the session, so nothing of this shift waits under the next name.
+        /**
+         * THE HAND-OVER MAY REFUSE, AND A REFUSAL IS NOT A FAILURE.
+         *
+         * handOver() tries to upload first and declines to clear the phone
+         * while anything is still unsent. Before that guard existed this line
+         * deleted a driver's whole shift from disk at the hour mark, in a dead
+         * zone, with the only warning being an Alert nobody was there to read
+         * — which is precisely the loss the offline design exists to prevent.
+         *
+         * On a refusal the phone is BLOCKED rather than handed over. That
+         * keeps the actual security promise (the next driver cannot work
+         * under this one's name) while costing nobody their afternoon, and it
+         * puts the problem where somebody will see it instead of resolving it
+         * silently in the wrong direction.
+         */
         void (async () => {
-          await handOver();
+          const r = await handOver();
+          if (!r.handed) { setHeldBack(r.unsent); return; }
           await signOut();
         })();
       } else if (idle >= WARN_MS && !warned.current) {
@@ -141,6 +167,53 @@ export function SessionGuards({ children }: { children: React.ReactNode }) {
       onStartShouldSetResponderCapture={() => { touch(); return false; }}
     >
       {children}
+      {/*
+        THE SHIFT IS SAFE AND THE PHONE IS OUT OF SERVICE UNTIL IT IS SENT.
+        Above the biometric lock deliberately: if both fire, this is the one
+        somebody has to act on, and unlocking must not look like clearing it.
+      */}
+      {heldBack !== null && (
+        <View
+          style={{
+            position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+            backgroundColor: T.zinc, alignItems: 'center', justifyContent: 'center',
+            padding: 32, zIndex: 200, elevation: 32,
+          }}
+        >
+          <Text style={{ color: T.amber, fontSize: 20, fontWeight: '800', textAlign: 'center' }}>
+            {unsentNow} scan{unsentNow === 1 ? '' : 's'} still to send
+          </Text>
+          <Text style={{ color: T.faint, fontSize: 13.5, marginTop: 10, textAlign: 'center', lineHeight: 20 }}>
+            This phone would normally have signed itself out by now. It has not, because
+            that would have thrown this work away. Nothing is lost — it is saved here.
+            {'\n\n'}Find signal and send it, then hand the phone over.
+          </Text>
+          <Pressable
+            onPress={() => {
+              setSending(true);
+              void (async () => {
+                try { await sync(); } catch { /* the count below tells the story */ }
+                // Only stand down when there is genuinely nothing left. Clearing
+                // on a failed send is how this becomes the bug it replaced.
+                if (pending(useStore.getState().outbox).length === 0) setHeldBack(null);
+                setSending(false);
+              })();
+            }}
+            disabled={sending}
+            accessibilityRole="button"
+            accessibilityLabel="Send the scans that are still waiting"
+            style={{
+              marginTop: 24, minHeight: 52, paddingHorizontal: 28, borderRadius: 10,
+              alignItems: 'center', justifyContent: 'center',
+              backgroundColor: sending ? T.rule : T.brandLit,
+            }}
+          >
+            <Text style={{ color: sending ? T.faint : '#04121A', fontSize: 15, fontWeight: '800' }}>
+              {sending ? 'Sending…' : 'Send now'}
+            </Text>
+          </Pressable>
+        </View>
+      )}
       {locked && (
         <Pressable
           onPress={() => { void tryUnlock(); }}

@@ -55,7 +55,12 @@ interface State {
   endDelivery: () => void;
   setMode: (m: Mode) => void;
   sync: () => Promise<void>;
-  handOver: () => Promise<void>;
+  /**
+   * Wipe this phone for the next driver. Refuses, and changes nothing, while
+   * scans are still unsent — see the implementation. `force` overrides, and is
+   * only ever passed by a person who has been shown the count.
+   */
+  handOver: (opts?: { force?: boolean }) => Promise<{ handed: boolean; unsent: number }>;
 }
 
 export const useStore = create<State>((set, get) => ({
@@ -156,7 +161,39 @@ export const useStore = create<State>((set, get) => ({
    * failure to reach Supabase cannot leave one driver's work sitting under
    * another driver's login.
    */
-  async handOver() {
+  async handOver(opts) {
+    /**
+     * A HAND-OVER MAY NEVER DESTROY WORK. THIS GUARD IS THE WHOLE POINT.
+     *
+     * This function used to clear the outbox unconditionally, and the idle
+     * timer in src/guard.tsx calls it after sixty minutes with no touch. So:
+     * a driver scans forty bottles in a dead zone, presses Submit, the upload
+     * fails, the rows go back to QUEUED, the phone sits in the cradle for a
+     * long drive with nobody touching the screen — and at the hour mark the
+     * app deleted all forty from memory AND from disk, with no upload attempt
+     * and no warning anyone was awake to read.
+     *
+     * That is the exact loss the entire offline design exists to prevent, and
+     * it is the one RECOVER_INFLIGHT cannot undo, because recovery reads the
+     * database and this had already emptied it.
+     *
+     * So: try to send first, and if anything is still unsent, REFUSE. The
+     * caller decides what to do with a refusal — the idle timer blocks the
+     * phone instead of signing out, which keeps the security promise (nobody
+     * else can use it) without paying for it in somebody's shift.
+     *
+     * `force` exists for the deliberate Settings sign-out, where a person has
+     * been shown the count and has chosen. Nothing calls it automatically.
+     */
+    try {
+      await get().sync();
+    } catch {
+      // Offline. The count below decides; a failed send is not a reason to
+      // discard, it is the reason the guard exists.
+    }
+    const unsent = pending(get().outbox).length;
+    if (unsent && !opts?.force) return { handed: false, unsent };
+
     // The push token first, while the session still exists to authorize the
     // request — after signOut nothing can. Never blocks the hand-over; a
     // dead zone just leaves a token the send-side prunes on first bounce.
@@ -180,6 +217,7 @@ export const useStore = create<State>((set, get) => ({
       cacheSet('bootstrap', null).catch(() => {}),
       cacheSet('lastSync', null).catch(() => {}),
     ]);
+    return { handed: true, unsent: 0 };
   },
 
   async refresh() {

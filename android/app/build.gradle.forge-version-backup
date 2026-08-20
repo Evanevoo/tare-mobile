@@ -94,28 +94,12 @@ android {
         applicationId 'com.evanevoo.scanifiedandroid'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 211
-        versionName "1.2.2"
+        versionCode 222
+        versionName "1.2.3"
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
     }
     signingConfigs {
-        // FORGE-SIGNING-START - managed by Forge. Do not edit inside this block.
-        forgeRelease {
-            // Credentials are supplied by Forge through the environment at build
-            // time, so no keystore path or password is ever stored in this file.
-            def forgeStoreFile = System.getenv("FORGE_STORE_FILE")
-            if (forgeStoreFile != null && forgeStoreFile.length() > 0) {
-                storeFile file(forgeStoreFile)
-                storePassword System.getenv("FORGE_STORE_PASSWORD")
-                keyAlias System.getenv("FORGE_KEY_ALIAS")
-                keyPassword System.getenv("FORGE_KEY_PASSWORD")
-            } else {
-                logger.warn("Forge: FORGE_STORE_FILE is not set - release artifacts will be UNSIGNED.")
-            }
-        }
-        // FORGE-SIGNING-END
-
         debug {
             storeFile file('debug.keystore')
             storePassword 'android'
@@ -130,7 +114,7 @@ android {
         release {
             // Caution! In production, you need to generate your own keystore file.
             // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.forgeRelease // FORGE-SIGNING-RELEASE (was: signingConfig signingConfigs.debug)
+            signingConfig signingConfigs.debug
             def enableShrinkResources = findProperty('android.enableShrinkResourcesInReleaseBuilds') ?: 'false'
             shrinkResources enableShrinkResources.toBoolean()
             minifyEnabled enableMinifyInReleaseBuilds
