@@ -198,7 +198,38 @@ export default function Scan() {
    * renders nothing in the single frame before the redirect lands.
    */
   const ready = Boolean(orderNumber && customerListId);
-  useEffect(() => { if (!ready) router.replace('/'); }, [ready, router]);
+
+  /**
+   * `!leaving` IS THE WHOLE FIX FOR THE GREY SCREEN. HERE IS THE SEQUENCE.
+   *
+   *   1. finish() sets `leaving`.
+   *   2. This renders: `ready` is still true, so it falls past the guard below
+   *      and draws the "Order sent" card. Correct.
+   *   3. The `leaving` effect runs: endDelivery(), then replace('/').
+   *   4. endDelivery() clears orderNumber, so `ready` flips true -> FALSE.
+   *   5. This re-renders BEFORE the navigation from step 3 has committed. The
+   *      guard below is above the "Order sent" card, so the card the driver is
+   *      looking at is replaced by nothing.
+   *   6. And this effect, seeing `ready` go false, fires a SECOND replace('/')
+   *      into a navigator already mid-transition from the first.
+   *
+   * Two replaces racing, and an empty render sitting between them. If either
+   * is dropped — which is what racing replaces on the same navigator do — the
+   * screen stays empty with no error, forever. Reported five times, and the
+   * reason four fixes missed it is that nothing throws: Sentry has 12 fatals
+   * on build 219 and none at all on 221-223.
+   *
+   * `leaving` already means "the leaving effect owns the navigation from
+   * here". So while it is set, this guard stands down: one replace instead of
+   * two, and the "Order sent" card stays on screen until the navigation
+   * actually commits.
+   *
+   * The guard still does its real job — someone arriving at /scan with no
+   * order, `leaving` false, gets sent home. That was never the broken case.
+   */
+  useEffect(() => {
+    if (!ready && !leaving) router.replace('/');
+  }, [ready, leaving, router]);
 
   /**
    * EVERY HOOK LIVES ABOVE THE EARLY RETURN BELOW. THIS IS NOT STYLE.
@@ -244,7 +275,7 @@ export default function Scan() {
     when it is still here at 2.5s. The guard is unchanged; only what it
     renders while the redirect is in flight.
   */
-  if (!ready) return <Redirecting from="scan" />;
+  if (!ready && !leaving) return <Redirecting from="scan" />;
 
   /**
    * A SILENT COOLDOWN IS A CAMERA THAT LOOKS DEAD.
