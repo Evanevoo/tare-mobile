@@ -11,7 +11,7 @@ import { APP_LOCK_KEY } from '@/guard';
 import { hasNativeModule } from '@/notifications';
 import { T, Screen, Surface, Btn, Eyebrow, Rise, Hairline, Icon, ICON, mono, tint } from '@/ui';
 import { useTheme, type Pref } from '@/theme';
-import { useUpdates, APP_VERSION, UPDATES_ENABLED, runningBundle } from '@/updates';
+import { useUpdates, APP_VERSION, BUNDLE_VERSION, UPDATES_ENABLED, runningBundle } from '@/updates';
 import { statusLine } from '@/update-policy';
 
 /**
@@ -258,9 +258,15 @@ function UpdateCard() {
   return (
     <>
       <Surface>
-        <Row label="Version" value={APP_VERSION} mono />
+        {/*
+          "Installed" is the APK, read from the package manager. "Bundle" is
+          the JS on top of it. They are shown as two rows because they are two
+          different facts, and collapsing them into one row labelled "Version"
+          is what let a fleet on binary 219 report itself as 223 for a day.
+        */}
+        <Row label="Installed" value={APP_VERSION} mono />
         <Hairline />
-        <Row label="Running" value={runningBundle()} />
+        <Row label="Bundle" value={`${BUNDLE_VERSION} · ${runningBundle()}`} mono />
         <Hairline />
         <Row label="Updates" value={statusLine(phase, { enabled: UPDATES_ENABLED, error })} />
       </Surface>

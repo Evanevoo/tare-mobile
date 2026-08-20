@@ -37,7 +37,12 @@ function load(): FileCtor | null {
   try {
     // See notifications.ts: a bare import of an absent native module is fatal
     // under Metro, try/catch or not. Probe for the native side first.
-    if (!hasNativeModule('ExpoFileSystem')) { off = true; return null; }
+    // 'FileSystem', NOT 'ExpoFileSystem'. Verified against the module's own
+    // source: expo-file-system/src/ExpoFileSystem.ts ends with
+    // `requireNativeModule('FileSystem')`. The wrong name here made this whole
+    // file a silent no-op on its first day — the cache kept filling and the
+    // fix was reported as shipped.
+    if (!hasNativeModule('FileSystem')) { off = true; return null; }
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const fs = require('expo-file-system');
     if (typeof fs?.File !== 'function') { off = true; return null; }

@@ -30,8 +30,62 @@ import { shouldCheck, type Phase } from './update-policy';
 /** Compiled in and pointed at a channel — false in Expo Go and dev clients. */
 export const UPDATES_ENABLED: boolean = Updates.isEnabled;
 
-/** The version a driver would read out over the phone. */
+/**
+ * THE VERSION A DRIVER READS OUT MUST BE THE BINARY'S, NOT THE MANIFEST'S.
+ *
+ * This was `Constants.expoConfig?.version`, and expoConfig is the UPDATE
+ * MANIFEST — `eas update` bakes the whole of app.json into it at publish time.
+ * So the instant a phone takes an OTA, this screen starts reporting whatever
+ * versionCode happened to be sitting in app.json on the machine that
+ * published it, regardless of which APK is actually installed underneath.
+ *
+ * On 20 Aug that meant every handset in the field reported "1.2.3 / 223" while
+ * running binary 219 — a build number that had never been built, let alone
+ * shipped. Sentry read the binary and said 219; the app read the manifest and
+ * said 223; and every conversation about "is this fixed in the build you have"
+ * was conducted in those two numbers without anyone knowing they disagreed.
+ * Hours went into debugging a fleet nobody could identify.
+ *
+ * expo-application reads the real thing out of the package manager. It is
+ * guarded because it is a NATIVE module and this JS ships by OTA to binaries
+ * that predate it — 219 has no ExpoApplication, exactly as it has no
+ * ExpoDevice, and an unguarded import there is a fatal (see notifications.ts).
+ * The module name is verified against expo-application's own source, which is
+ * a lesson from getting `ExpoFileSystem` wrong the same morning: the real name
+ * there was `FileSystem`.
+ *
+ * When it cannot be read the answer is "unknown", never the manifest's guess.
+ * A build number that might be a lie is worse than no build number, because
+ * only one of the two stops people trusting it.
+ */
+function nativeBuild(): { version: string; build: string } | null {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const core = require('expo-modules-core');
+    if (!core?.requireOptionalNativeModule?.('ExpoApplication')) return null;
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const App = require('expo-application');
+    const version = App?.nativeApplicationVersion;
+    const build = App?.nativeBuildVersion;
+    if (!version && !build) return null;
+    return { version: String(version ?? '?'), build: String(build ?? '?') };
+  } catch {
+    return null;
+  }
+}
+
+const NATIVE = nativeBuild();
+
+/** What is actually installed: "1.2.2 (219)". Never the manifest's opinion. */
 export const APP_VERSION: string =
+  NATIVE ? `${NATIVE.version} (${NATIVE.build})` : 'unknown build';
+
+/**
+ * What app.json claimed when the running bundle was published. Useful only
+ * beside APP_VERSION, and only for spotting exactly the drift described above
+ * — never on its own, and never labelled "version".
+ */
+export const BUNDLE_VERSION: string =
   Constants.expoConfig?.version ?? Updates.runtimeVersion ?? '—';
 
 /**
