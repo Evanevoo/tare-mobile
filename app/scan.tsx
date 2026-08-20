@@ -15,6 +15,7 @@ import { T, shipTone, Surface, Btn, Tag, mono } from '@/ui';
 import { Scanner } from '@/scanner';
 import type { AssetRec } from '@/api';
 import { Sheet } from '@/sheet';
+import { Redirecting } from '@/redirecting';
 import { matchesFormat, formatExample } from '@/formats';
 
 /**
@@ -236,7 +237,14 @@ export default function Scan() {
     router.replace('/');
   }, [leaving, endDelivery, router]);
 
-  if (!ready) return null;
+  /*
+    Was `return null`, which is indistinguishable from the reported grey
+    screen if the replace() above never lands. See src/redirecting.tsx — it
+    draws something, retries, offers a way out, and reports itself to Sentry
+    when it is still here at 2.5s. The guard is unchanged; only what it
+    renders while the redirect is in flight.
+  */
+  if (!ready) return <Redirecting from="scan" />;
 
   /**
    * A SILENT COOLDOWN IS A CAMERA THAT LOOKS DEAD.
