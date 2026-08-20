@@ -21,6 +21,7 @@ import { create } from 'zustand';
 import { AppState } from 'react-native';
 import { useEffect } from 'react';
 import * as Updates from 'expo-updates';
+import * as Sentry from '@sentry/react-native';
 import Constants from 'expo-constants';
 import { saveOutbox } from './db';
 import { useStore } from './store';
@@ -126,11 +127,43 @@ export const useUpdates = create<UpdateState>((set, get) => ({
       });
       return 'ready';
     } catch (e: unknown) {
+      /**
+       * THE MESSAGE EXPO GIVES US IS NOT THE REASON.
+       *
+       * A native rejection arrives as "Call to function
+       * 'ExpoUpdates.checkForUpdateAsync' rejected" — the expo-modules bridge
+       * wrapper, identical for every possible cause. Showing that to a driver,
+       * and keeping nothing else, is how "updates are broken" became a report
+       * with no way to act on it: the server was verified healthy and the
+       * error text ruled nothing in or out.
+       *
+       * The cause is one layer down, in `code` and `cause`. Keep both, show
+       * the useful part, and report the whole thing once per failure so the
+       * next occurrence is an event with a device and a build attached rather
+       * than a sentence.
+       */
+      const err = e as { message?: string; code?: string; cause?: unknown };
+      const cause =
+        err?.cause instanceof Error ? err.cause.message
+        : typeof err?.cause === 'string' ? err.cause
+        : null;
+
+      Sentry.captureException(e, {
+        tags: { kind: 'update-check-failed', code: err?.code ?? 'none' },
+        extra: { manual, cause, currentUpdateId: Updates.updateId ?? null,
+                 channel: Updates.channel ?? null, runtime: Updates.runtimeVersion ?? null },
+      });
+
       set({
         phase: 'error',
         lastCheckAt: Date.now(),
         lastFailed: true,
-        error: (e as Error)?.message ?? 'Could not reach the update server',
+        // Prefer the specific half. Falling back to the wrapper is better than
+        // inventing a reason, but it should be the last resort, not the first.
+        error: cause
+          ?? (err?.code ? `${err.code}: ${err.message ?? 'update check failed'}` : null)
+          ?? err?.message
+          ?? 'Could not reach the update server',
       });
       return 'error';
     }
