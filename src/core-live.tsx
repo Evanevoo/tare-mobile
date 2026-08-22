@@ -93,17 +93,35 @@ export interface CoreRead {
  *
  * Not the raw photo: a 12-megapixel still is mostly a picture of a warehouse,
  * and every one of those pixels is paid for three times over - JPEG decode,
- * base64 across the bridge, and the band sweep itself. At 1200 a label filling
- * half the frame still lands near four pixels per narrow bar, which is
- * comfortably inside what this engine reads, so nothing is being given away.
+ * base64 across the bridge, and the band sweep itself. At 900 a label filling
+ * half the frame still lands comfortably inside what this engine reads.
+ *
+ * WAS 1200. Dropped after claude/scanx-core-freeze-root-cause-2026-08-22.md:
+ * `_scanx_decode` runs synchronously on the JS thread with no way to
+ * interrupt it, so the size handed in is the only lever that bounds how long
+ * a bad frame can run for before it either returns or hangs the screen.
+ * Smaller does not make a hang impossible - only less likely and, when it
+ * does happen, shorter.
  */
-const LONG_EDGE = 1200;
+const LONG_EDGE = 900;
 
 export function CoreLiveTest({ onClose }: { onClose: () => void }) {
   const [perm, requestPerm] = useCameraPermissions();
   const cam = useRef<CameraView | null>(null);
 
-  const [running, setRunning] = useState(true);
+  /**
+   * DEFAULTS PAUSED, NOT RUNNING.
+   *
+   * This screen's whole point is calling scanx-core, and scanx-core's decode
+   * is one synchronous call into asm.js with no way to interrupt it — see
+   * claude/scanx-core-freeze-root-cause-2026-08-22.md. A bad frame can
+   * occasionally make that call never return, which freezes this screen
+   * until it's force-closed. That is a real possibility every time the loop
+   * runs, not just a slow path, so it should never start on its own the
+   * instant someone opens this sheet. Resume is one deliberate tap, made
+   * with the warning below already on screen.
+   */
+  const [running, setRunning] = useState(false);
   const [torch, setTorch] = useState(false);
   const [reads, setReads] = useState<CoreRead[]>([]);
   const [attempts, setAttempts] = useState(0);
@@ -372,6 +390,25 @@ export function CoreLiveTest({ onClose }: { onClose: () => void }) {
             <Text style={{ color: torch ? T.amber : '#fff', fontSize: 20 }}>⚡</Text>
           </Pressable>
         </View>
+
+        {/*
+          Shown whenever the loop is not actively running — which is the
+          state this screen now opens into. See the note on `running`'s
+          initial value above: Resume is the moment someone accepts the risk,
+          so the risk is what they should be reading right before they tap it.
+        */}
+        {!running && (
+          <View style={{ position: 'absolute', top: 100, left: 18, right: 18 }}>
+            <Text style={{
+              color: T.amber, fontSize: 12.5, fontWeight: '700', textAlign: 'center',
+              backgroundColor: 'rgba(0,0,0,0.6)', padding: 11, borderRadius: 10, lineHeight: 18,
+            }}>
+              scanx-core is experimental — on some real photos it never returns, which
+              freezes this screen until it's force-closed. Not a new bug; a known limit of
+              this engine. Resume only when you mean to test it.
+            </Text>
+          </View>
+        )}
 
         <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: 18, paddingBottom: 34,
                        backgroundColor: 'rgba(0,0,0,0.62)' }}>

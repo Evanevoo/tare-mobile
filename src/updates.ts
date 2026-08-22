@@ -22,13 +22,30 @@ import { AppState } from 'react-native';
 import { useEffect } from 'react';
 import * as Updates from 'expo-updates';
 import * as Sentry from '@sentry/react-native';
-import Constants from 'expo-constants';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { saveOutbox } from './db';
 import { useStore } from './store';
 import { shouldCheck, type Phase } from './update-policy';
 
-/** Compiled in and pointed at a channel — false in Expo Go and dev clients. */
-export const UPDATES_ENABLED: boolean = Updates.isEnabled;
+/**
+ * `Updates.isEnabled` says whether expo-updates is CONFIGURED — the
+ * "updates" key in app.json — not whether the client running right now can
+ * do anything with that config. It reads true inside Expo Go too, because
+ * the config is still there; only `checkForUpdateAsync()` itself knows Expo
+ * Go can't act on it, and it finds out by throwing:
+ *
+ *   Error: checkForUpdateAsync() is not supported in Expo Go.
+ *
+ * caught below and reported to Sentry as a real failure (SCANIFIED-MOBILE,
+ * 22 Aug) — fired from a phone running the app straight out of Expo Go for a
+ * quick test, nothing was actually broken. `executionEnvironment` is the
+ * signal that actually answers "which client is this": StoreClient is Expo
+ * Go specifically, distinct from a real build or a dev client.
+ */
+const IS_EXPO_GO = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
+
+/** Compiled in, pointed at a channel, and running somewhere that can use it. */
+export const UPDATES_ENABLED: boolean = Updates.isEnabled && !IS_EXPO_GO;
 
 /**
  * THE VERSION A DRIVER READS OUT MUST BE THE BINARY'S, NOT THE MANIFEST'S.

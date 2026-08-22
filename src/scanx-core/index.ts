@@ -1,48 +1,33 @@
 /**
- * SCANX-CORE — the in-house decoder, on the phone.
+ * SCANX-CORE — the in-house decoder, on the phone. SECOND ENGINE (22 Aug).
  *
- * WHAT THIS IS. A grey-level barcode decoder written in C++ and compiled to
- * asm.js. It never thresholds the image and never finds an edge. Instead it
- * correlates the raw luminance profile against every pattern Code 128 is
- * allowed to contain and asks which one the signal looks most like — a matched
- * filter, with the codebook as the prior.
+ * WHAT CHANGED AND WHY. The original artifact here (scanx.js, kept beside
+ * this file for rollback but no longer imported) was the v0.1.0 correlator:
+ * one synchronous `_scanx_decode` call that measured 4-31 SECONDS per real
+ * photo in a JIT — which under Hermes (no JIT, facebook/hermes#429) is
+ * minutes of blocked JS thread per frame. That is the "Working… / frozen,
+ * only the camera preview moves" hang reported on both Lab screens, in Expo
+ * Go and in the native APK alike. No JS-side deadline can interrupt a
+ * synchronous call, so the engine itself had to go.
  *
- * WHY THAT MATTERS. The ZXing family (which is what ships in the app today,
- * and what ML Kit does internally) binarises first: every pixel is called black
- * or white before decoding starts. Below about three pixels per narrow bar most
- * of the pixels on an edge are somewhere in between, and once a 40%-grey pixel
- * has been called white nothing downstream can recover it. Keeping the grey is
- * why this reads labels the other engines cannot.
+ * THE REPLACEMENT is the streaming build recovered from
+ * `_scanx-demo/scanner.html` — a later evolution of the same C++ engine
+ * (stateful sx_create/sx_scan/sx_reset API, corner-point output, per-code
+ * confidence, multi-symbol, Code 39 included). Its WebAssembly was converted
+ * to plain JS with Binaryen's wasm2js so Hermes can run it (scanx2.js), and
+ * validated against the 20-photo real corpus: every frame returned in
+ * 160-820 ms under a JIT, ~2-13 s interpreted, ZERO misreads — where the old
+ * build produced garbage text on 18 of 20 photos at minMargin 0 and one
+ * photo took 31 s. Full evidence: claude/scanx-engine-recovery-2026-08-22.md.
  *
- * MEASURED, on a 270-image synthetic corpus with ground truth, against a fair
- * classical baseline (Otsu threshold + run-length matching on the same
- * codebook):
+ * STILL SYNCHRONOUS. A decode still blocks the JS thread while it runs; the
+ * difference is it demonstrably RETURNS, in bounded time. Keep frames at or
+ * under ~1200 px long edge — cost is roughly linear in pixels.
  *
- *     px per narrow module   scanx-core   classical
- *     1.0                        40.7%         0.0%
- *     1.2                        37.0%         3.7%
- *     2.0                        88.9%        25.9%
- *     4.0                        96.3%        66.7%
- *     overall                    66.3%        47.8%
- *
- * Zero misreads for both engines across every configuration tested. The 1.0 and
- * 1.2 rows are the interesting ones: that is below the resolution floor the
- * classical approach has, and it is the regime a frosted or worn cylinder label
- * actually lives in.
- *
- * WHAT IS NOT PROVEN. Those numbers are synthetic. This engine has never been
- * run against the 516 real degraded labels, and on the harshest synthetic
- * condition (heavy blur plus low contrast — the closest thing to a frosty
- * bottle) it still LOSES to the classical baseline, 41% to 47%. Putting it on
- * the phone is how that gets settled. Treat every number above as a hypothesis
- * about real labels until the Lab screen says otherwise.
- *
- * ON THE SPEED. ~2 seconds per photo. That is not the algorithm, it is Hermes:
- * React Native's engine has no WebAssembly (facebook/hermes#429, open since
- * 2020), so Emscripten output has to be asm.js, which Hermes interprets rather
- * than JITs. Native would be 10–100× faster. Two seconds is fine for a
- * diagnostic that reads one photograph; it is nowhere near fast enough for the
- * live scan loop, and nothing here is wired into it.
+ * INPUT CHANGED. The old C side decoded the JPEG itself; the streaming build
+ * takes a raw 8-bit luminance plane, so the JPEG is decoded here in JS
+ * (jpeg-js, ~1 s interpreted at 1200 px) and reduced to luma. Callers hand
+ * over the same base64 JPEG as before — the interface below is unchanged.
  */
 
 // Reused rather than reimplemented, and NOT replaced with a package: Hermes
@@ -57,14 +42,14 @@ export interface ScanxResult {
   /** 'Code128' | 'Code39' | '' */
   format: string;
   /**
-   * The weakest per-character confidence in the whole symbol: how far the
-   * winning codeword beat its nearest rival. THIS is the number that separates
-   * "I read it" from "I picked the least bad of 107 guesses", and it is why a
-   * wrong read is rare rather than merely unlikely.
+   * Engine confidence for the weakest accepted symbol, 0..1. The streaming
+   * engine reports per-code `conf` rather than the old per-character margin;
+   * same purpose — how far the read beat the runner-up — same field so every
+   * screen built against the old engine keeps working.
    */
   margin: number;
-  /** Estimated width of one narrow bar, in pixels. Under 2 is past where the
-   *  classical decoders give up. */
+  /** The old engine measured narrow-bar width; the streaming engine does not
+   *  report it. Always 0 — shown as such rather than invented. */
   module: number;
   chars: number;
   w: number;
@@ -76,35 +61,52 @@ export interface ScanxResult {
   error?: string;
 }
 
-type Wasm = {
-  _scanx_decode: (ptr: number, len: number, maxDim: number, minMargin: number) => number;
-  _scanx_version: () => number;
-  _scanx_alloc: (n: number) => number;
-  _scanx_free: (p: number) => void;
+type Engine = {
+  cwrap: (name: string, ret: string | null, args: string[]) => (...xs: any[]) => any;
   UTF8ToString: (ptr: number) => string;
   HEAPU8: Uint8Array;
 };
 
-let modPromise: Promise<Wasm> | null = null;
+type Api = {
+  create: (mode: number, effort: number, mask: number, confirm: number, r: number) => number;
+  reset: (h: number) => void;
+  scan: (h: number, buf: number, w: number, hgt: number, stateful: number) => number;
+  alloc: (n: number) => number;
+  free: (p: number) => void;
+  version: () => string;
+};
+
+let modPromise: Promise<{ m: Engine; api: Api; scanner: number }> | null = null;
 
 /**
- * Loaded once, lazily, and never on the scan path.
- *
- * The factory is a 262KB module — small next to the 5MB zxing build, but still
- * something no driver should pay for on a screen that does not use it. The
- * dynamic import keeps it out of the initial bundle evaluation entirely.
+ * Loaded once, lazily, and never on the scan path. ~2 MB of generated JS
+ * (wasm2js output plus the Emscripten glue), which Hermes walks once here
+ * rather than on the first tap.
  */
-function load(): Promise<Wasm> {
+function load() {
   if (!modPromise) {
     modPromise = (async () => {
-      // CommonJS, not ESM. The Emscripten ES6 output opens with
-      // `import.meta.url`, which Metro cannot parse and which fails the whole
-      // bundle export — so this is built with EXPORT_ES6=0 and the factory
-      // arrives on `module.exports`. The `.default` fallback covers Metro's
-      // interop wrapping it.
-      const mod: any = await import('./scanx.js');
-      const factory = (mod?.default ?? mod) as () => Promise<Wasm>;
-      return await factory();
+      // CommonJS, same as every engine in this app — Metro cannot parse the
+      // ES6 build's `import.meta.url`. The factory arrives on module.exports.
+      const mod: any = await import('./scanx2.js');
+      const factory = (mod?.default ?? mod) as (cfg: object) => Promise<Engine>;
+      // The glue insists on fetching its wasm before instantiating; the
+      // wasm2js conversion IS the compiled code, so any non-empty buffer
+      // satisfies the check and is otherwise ignored.
+      const m = await factory({ wasmBinary: new Uint8Array(1) });
+      const api: Api = {
+        create: m.cwrap('sx_create', 'number', ['number', 'number', 'number', 'number', 'number']),
+        reset: m.cwrap('sx_reset', null, ['number']),
+        scan: m.cwrap('sx_scan', 'number', ['number', 'number', 'number', 'number', 'number']),
+        alloc: m.cwrap('sx_alloc', 'number', ['number']),
+        free: m.cwrap('sx_free', null, ['number']),
+        version: m.cwrap('sx_version', 'string', []) as () => string,
+      };
+      // Single-shot mode, balanced effort, mask 0 = every symbology the
+      // engine has, confirm in 1 frame (these are stills, not video).
+      const scanner = api.create(0, 1, 0, 1, 0);
+      if (!scanner) throw new Error('sx_create returned null');
+      return { m, api, scanner };
     })();
   }
   return modPromise;
@@ -115,28 +117,35 @@ export async function warmUp(): Promise<void> {
 }
 
 export async function version(): Promise<string> {
-  const m = await load();
-  return m.UTF8ToString(m._scanx_version());
+  const { api } = await load();
+  // Suffixed so a bug report can tell the two generations apart — the C
+  // version string was never bumped between them.
+  return `${api.version()}-streaming`;
 }
 
 export interface ScanxOptions {
   /**
-   * Downscale the long edge before decoding. Not for speed — a 12-megapixel
-   * still of a label 300 pixels wide is mostly a picture of a yard. 1400 is
-   * what the app's own Snap path uses, so passing the same number keeps the
-   * comparison honest.
+   * Long-edge cap. Frames arrive already resized by expo-image-manipulator,
+   * so this is a guard, not the resize: anything larger is nearest-neighbour
+   * reduced here before the scan, because decode cost is linear in pixels
+   * and the JS thread is blocked for the duration.
    */
   maxDim?: number;
-  /**
-   * Refuse anything below this confidence. Defaults to 0 HERE, unlike the
-   * engine's own default, because on a test screen a refusal and a wrong
-   * answer look identical unless you can see the number behind them. Read
-   * `margin` off the result and judge it yourself.
-   */
+  /** Refuse reads below this confidence (0..1). Default 0 HERE, as before:
+   *  on a test screen a refusal and a wrong answer look identical unless the
+   *  number behind them is visible. Read `margin` and judge it yourself. */
   minMargin?: number;
 }
 
-/** Decode one base64-encoded JPEG or PNG — the same shape takePictureAsync gives. */
+const FORMAT_NAME: Record<string, string> = {
+  CODE_128: 'Code128',
+  GS1_128: 'GS1-128',
+  CODE_39: 'Code39',
+  CODE_93: 'Code93',
+  QR_CODE: 'QRCode',
+};
+
+/** Decode one base64-encoded JPEG — the same shape takePictureAsync gives. */
 export async function decodeBase64Image(
   b64: string,
   opts: ScanxOptions = {},
@@ -149,9 +158,9 @@ export async function decodeBase64Image(
     w: 0, h: 0, sourceW: 0, sourceH: 0, ms: 0,
   };
 
-  let m: Wasm;
+  let eng: { m: Engine; api: Api; scanner: number };
   try {
-    m = await load();
+    eng = await load();
   } catch (e: any) {
     return { ...blank, error: e?.message ? String(e.message) : 'scanx did not start' };
   }
@@ -164,48 +173,80 @@ export async function decodeBase64Image(
   }
   if (!bytes.length) return { ...blank, error: 'empty image' };
 
-  // One allocation, always freed — a leak here would grow every time the
-  // screen is used and be blamed on the camera.
-  const ptr = m._scanx_alloc(bytes.length);
-  if (!ptr) return { ...blank, error: 'out of memory' };
-
+  // JPEG → luminance, in JS. jpeg-js is pure JavaScript (no native module,
+  // no DOM), which is the whole reason it can run under Hermes at all.
+  let luma: Uint8Array;
+  let w: number;
+  let h: number;
+  const sourceW = 0;
+  const sourceH = 0;
   try {
-    m.HEAPU8.set(bytes, ptr);
-    const raw = m.UTF8ToString(
-      m._scanx_decode(ptr, bytes.length, maxDim, Math.round(minMargin * 1000)),
-    );
-    const parsed = JSON.parse(raw) as Omit<ScanxResult, 'ms'>;
-    /**
-     * THE SPREAD IS NOT A DEFAULT — IT ONLY FILLS IN *MISSING* KEYS.
-     *
-     * `{...blank, ...parsed}` looks like it guarantees numbers, and it does
-     * not: a key that is PRESENT and null overrides the zero underneath it.
-     * The C side serialises a double, and the natural JSON spelling of a NaN
-     * is `null` — which a zero-variance luminance profile produces honestly,
-     * because the confidence ratio it divides is 0/0. The value then reaches
-     * core-live.tsx's `last.margin.toFixed(2)`, which is called unguarded in
-     * render, so the failure is a TypeError thrown from a render function: a
-     * red box in dev and an unhandled exception on the scan screen in release.
-     * `res.ok && res.text` does not protect it — that says nothing about the
-     * measurement fields.
-     *
-     * Coerce numerically at the boundary, once, where the untrusted JSON
-     * arrives, rather than at each of the call sites that formats it.
-     */
-    const num = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
-    return {
-      ...blank,
-      ...parsed,
-      margin: num(parsed.margin),
-      module: num(parsed.module),
-      w: num(parsed.w),
-      h: num(parsed.h),
-      ms: Date.now() - started,
-    };
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const jpeg = require('jpeg-js');
+    const img = jpeg.decode(bytes, { maxMemoryUsageInMB: 256 });
+    w = img.width; h = img.height;
+    const rgba: Uint8Array = img.data;
+    luma = new Uint8Array(w * h);
+    for (let i = 0, j = 0; j < luma.length; i += 4, j++) {
+      // Rec.601 luma — what a camera's Y plane already carries.
+      luma[j] = (rgba[i] * 77 + rgba[i + 1] * 150 + rgba[i + 2] * 29) >> 8;
+    }
   } catch (e: any) {
     return { ...blank, ms: Date.now() - started,
+             error: e?.message ? String(e.message) : 'could not decode the JPEG' };
+  }
+
+  // Guard-rail resize; normally a no-op because callers pre-resize natively.
+  if (Math.max(w, h) > maxDim) {
+    const s = maxDim / Math.max(w, h);
+    const nw = Math.max(1, Math.round(w * s));
+    const nh = Math.max(1, Math.round(h * s));
+    const small = new Uint8Array(nw * nh);
+    for (let y = 0; y < nh; y++) {
+      const sy = Math.min(h - 1, Math.round(y / s));
+      for (let x = 0; x < nw; x++) {
+        small[y * nw + x] = luma[sy * w + Math.min(w - 1, Math.round(x / s))];
+      }
+    }
+    luma = small; w = nw; h = nh;
+  }
+
+  const { m, api, scanner } = eng;
+  const buf = api.alloc(luma.length);
+  if (!buf) return { ...blank, w, h, ms: Date.now() - started, error: 'out of memory' };
+
+  try {
+    m.HEAPU8.set(luma, buf);
+    api.reset(scanner);
+    const raw = m.UTF8ToString(api.scan(scanner, buf, w, h, 0));
+    const parsed = JSON.parse(raw) as {
+      codes?: Array<{ format?: string; text?: string; conf?: number }>;
+    };
+    const codes = (parsed.codes ?? []).filter(
+      (c) => c && c.text && (Number(c.conf) || 0) >= minMargin,
+    );
+    const best = codes[0];
+    const num = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+    if (best && best.text) {
+      return {
+        ...blank,
+        ok: true,
+        text: String(best.text),
+        format: FORMAT_NAME[best.format ?? ''] ?? String(best.format ?? ''),
+        margin: num(best.conf),
+        chars: String(best.text).length,
+        w, h, sourceW, sourceH,
+        ms: Date.now() - started,
+      };
+    }
+    return {
+      ...blank, w, h, sourceW, sourceH, ms: Date.now() - started,
+      failure: 'no barcode found',
+    };
+  } catch (e: any) {
+    return { ...blank, w, h, ms: Date.now() - started,
              error: e?.message ? String(e.message) : 'decode failed' };
   } finally {
-    m._scanx_free(ptr);
+    api.free(buf);
   }
 }

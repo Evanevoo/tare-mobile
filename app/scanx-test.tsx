@@ -196,6 +196,22 @@ export default function ScanXTest() {
   // the plain rows above have already shown a miss, not a default tax on
   // every tap.
   const [sweepOn, setSweepOn] = useState(false);
+  /**
+   * scanx-core IS THE ONE THAT CAN HANG THE WHOLE SCREEN.
+   *
+   * It correlates the frame synchronously, on the JS thread, as one call into
+   * asm.js with no `await` inside it and no way to yield back to the event
+   * loop. On a bad photo that call can run far longer than the others — long
+   * enough, occasionally, that it never returns and the screen stops
+   * responding until it's force-closed. See
+   * claude/scanx-core-freeze-root-cause-2026-08-22.md: the 12s `deadline()`
+   * guard on core-live.tsx cannot help here, because a `setTimeout` can only
+   * fire once the JS thread is free, and while this call is running it never
+   * is. Off by default so a person testing ScanX/zxing/today's decoder is not
+   * silently exposed to the one engine capable of freezing the app — the
+   * same reasoning as Sweep above, but for a real risk rather than only cost.
+   */
+  const [coreOn, setCoreOn] = useState(false);
   // 1200, not 720. The bench says a 20-character Code 128 needs ~660 px of
   // barcode to clear 3 px per narrow bar, and at 720 across the whole frame
   // that label lands under 2 -- undecodable by anything. Starting below the
@@ -388,12 +404,18 @@ export default function ScanXTest() {
          */
         const t3 = Date.now();
         let core: CoreResult | null = null;
-        try {
-          core = small.base64
-            ? await coreDecode(small.base64, { maxDim, minMargin: 0 })
-            : null;
-        } catch {
-          core = null;
+        if (coreOn) {
+          try {
+            // Capped independently of the shared Size setting — cranking that
+            // up to 1600 for the other three engines should not also hand
+            // this one a bigger frame to correlate and a bigger worst case to
+            // hang on.
+            core = small.base64
+              ? await coreDecode(small.base64, { maxDim: Math.min(maxDim, 900), minMargin: 0 })
+              : null;
+          } catch {
+            core = null;
+          }
         }
         const coreWallMs = Date.now() - t3;
 
@@ -473,7 +495,8 @@ export default function ScanXTest() {
         coreMs: pass.coreWallMs,
         coreMargin: pass.core?.margin ?? 0,
         coreModule: pass.core?.module ?? 0,
-        coreError: pass.core?.error ?? pass.core?.failure,
+        coreError: pass.core?.error ?? pass.core?.failure
+          ?? (!coreOn ? 'off — turn it on in Settings for the test' : undefined),
         sweep: sweepTexts,
         sweepFormats: dedupe(pass.sweep.codes.map((c) => c.format)),
         sweepMs: pass.sweep.ms,
@@ -523,7 +546,7 @@ export default function ScanXTest() {
         setTimeout(() => { if (alive.current) captureRef.current(); }, 250);
       }
     }
-  }, [busy, effort, maxDim, preset, sweepOn]);
+  }, [busy, effort, maxDim, preset, sweepOn, coreOn]);
 
   useEffect(() => { captureRef.current = capture; }, [capture]);
 
@@ -745,6 +768,21 @@ export default function ScanXTest() {
             corpus finding: several real cylinder photos only decoded once the same engine
             got a different rotation or size, not a different algorithm. Off by default
             because it costs real time on a miss (it tries everything before giving up).
+          </Text>
+          <View style={{ height: 10 }} />
+          <Segments
+            label="scanx-core (in-house)"
+            items={[{ value: 'off', label: 'Off' }, { value: 'on', label: 'On' }]}
+            value={coreOn ? 'on' : 'off'}
+            onChange={(v) => setCoreOn(v === 'on')}
+          />
+          <Text style={{ color: T.amber, fontSize: 12, marginTop: 11, lineHeight: 18 }}>
+            Off by default — and unlike every setting above, this one is a real risk, not
+            just a cost. This engine reads the frame with one synchronous call and nothing
+            can interrupt it once started; on some real photos it can run far longer than
+            the others, occasionally long enough that this screen stops responding and
+            needs a force-close. Turn it on only when you specifically want to test this
+            engine, and expect that possibility.
           </Text>
           <Text style={{ color: T.faint, fontSize: 12, marginTop: 11, lineHeight: 18 }}>
             Narrowing the formats is the biggest speed win there is — measured at 10.7× for
