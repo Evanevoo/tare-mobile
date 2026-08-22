@@ -30,3 +30,5 @@ credentials.json
 # local build helpers written by the 209 rebuild
 _*.js
 *.aab
+*.apk
+*.aab

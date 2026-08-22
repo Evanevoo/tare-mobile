@@ -98,6 +98,28 @@ android {
         versionName "1.2.3"
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
+
+        // scanx2core native module (22 Aug 2026): the compiled Code128/
+        // Code39 decoder, wired in because interpreted JS (Hermes, no JIT)
+        // was too slow for its survey phase -- see
+        // claude/scanx2core-emscripten-perf-finding-2026-08-22.md. Restrict
+        // to the ABIs real devices use; drop x86/x86_64 if emulator builds
+        // are never distributed.
+        externalNativeBuild {
+            cmake {
+                cppFlags "-std=c++17"
+                abiFilters "armeabi-v7a", "arm64-v8a", "x86", "x86_64"
+            }
+        }
+    }
+    externalNativeBuild {
+        cmake {
+            path "src/main/cpp/CMakeLists.txt"
+            // No explicit version pin: letting AGP pick whatever CMake
+            // package is already installed with the SDK avoids requiring a
+            // second, specific CMake download on top of the NDK that is
+            // already configured (rootProject.ext.ndkVersion, above).
+        }
     }
     signingConfigs {
         // FORGE-SIGNING-START - managed by Forge. Do not edit inside this block.

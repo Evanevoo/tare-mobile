@@ -1,0 +1,11 @@
+Wire scanx2core into Android as a real native module (JNI + CMake)
+
+Adds the Code128/Code39 decoder rebuilt earlier today as a compiled native
+Android module instead of another JS/WASM attempt: Emscripten build was
+correct but too slow interpreted under Hermes (no JIT), so this runs the
+same decode.cpp as real ARM/x86 machine code via a classic ReactPackage/
+JNI bridge. decodeBase64Image() tries native first on Android and falls
+back to the existing streaming JS engine if it's absent or finds nothing;
+iOS is unaffected. Verified with a full gradlew assembleDebug on this
+machine -- libscanxcore.so built for all four ABIs and confirmed inside
+the resulting APK.

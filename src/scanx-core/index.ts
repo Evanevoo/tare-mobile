@@ -1,4 +1,36 @@
 /**
+ * SCANX-CORE — the in-house decoder, on the phone. THIRD ENGINE (22 Aug, same day).
+ *
+ * WHAT CHANGED AND WHY, AGAIN. The streaming JS/WASM build below (scanx2.js)
+ * fixed the freeze (bounded time, always returns) but a same-day rebuild --
+ * scanx2core, native C++, Code 128 + Code 39, tuned against the real corpus
+ * (11/20 vs this engine's 8/20) -- could not be shipped the same way: under
+ * `node --jitless` (this project's proxy for Hermes' no-JIT execution), its
+ * survey phase did not even finish inside an 8s budget at 700px. Full
+ * writeup: claude/scanx2core-emscripten-perf-finding-2026-08-22.md. That is
+ * not a JS problem to tune away today -- it is compute that belongs compiled.
+ *
+ * So: scanx2core is wired in as a REAL compiled native Android module (JNI +
+ * CMake, see android/app/src/main/cpp/scanx2core/), not as more JS. On
+ * Android it runs FIRST, at true native speed (300-1900 ms/frame measured on
+ * the real corpus, native x86 -O2 -- ARM release will differ but is real
+ * machine code either way, not an interpreter). The streaming engine below
+ * stays as the fallback: iOS (no native module there yet), or if the native
+ * module is missing from a given build, or if it runs and reports no read.
+ * Nothing about the existing streaming path changes; it just moves to
+ * second place on Android instead of being the only option.
+ *
+ * Classic bridge, not TurboModule (RN New Architecture's interop layer still
+ * runs `ReactContextBaseJavaModule`/`ReactPackage` unchanged), and classic
+ * bridge cannot share raw memory -- so the luma frame crosses as base64 out
+ * (`bytesToBase64`, hand-written for the same reason `base64ToBytes` already
+ * is: Hermes has neither `Buffer` nor `btoa`) and a JSON string comes back,
+ * parsed on the Kotlin side into the map JS receives.
+ *
+ * ORIGINAL HEADER BELOW, UNCHANGED, for the streaming engine's own history.
+ */
+
+/**
  * SCANX-CORE — the in-house decoder, on the phone. SECOND ENGINE (22 Aug).
  *
  * WHAT CHANGED AND WHY. The original artifact here (scanx.js, kept beside
@@ -34,7 +66,8 @@
 // has neither `atob` nor `Buffer`, which is why this function exists in the
 // zxing wrapper in the first place. Two decoders sharing one base64 reader
 // also means the two engines are provably fed byte-identical input.
-import { base64ToBytes } from '@/zxing';
+import { base64ToBytes, bytesToBase64 } from '@/zxing';
+import { NativeModules, Platform } from 'react-native';
 
 export interface ScanxResult {
   ok: boolean;
@@ -59,6 +92,9 @@ export interface ScanxResult {
   ms: number;
   failure?: string;
   error?: string;
+  /** Which engine actually produced this result. Added with the native
+   *  module (22 Aug) so a test screen or bug report can tell them apart. */
+  engine?: 'native' | 'streaming';
 }
 
 type Engine = {
@@ -82,6 +118,10 @@ let modPromise: Promise<{ m: Engine; api: Api; scanner: number }> | null = null;
  * Loaded once, lazily, and never on the scan path. ~2 MB of generated JS
  * (wasm2js output plus the Emscripten glue), which Hermes walks once here
  * rather than on the first tap.
+ *
+ * Since the native module became the primary path on Android, this load is
+ * now lazy in truth as well as in name: `decodeBase64Image` only calls it
+ * when the native module is absent, or ran and found nothing.
  */
 function load() {
   if (!modPromise) {
@@ -112,6 +152,11 @@ function load() {
   return modPromise;
 }
 
+/**
+ * Warms the STREAMING (fallback) engine only. The native module has no
+ * warm-up cost worth paying for — it is a compiled library, not 2 MB of JS
+ * to walk — so there is nothing to do for it here.
+ */
 export async function warmUp(): Promise<void> {
   await load();
 }
@@ -135,6 +180,12 @@ export interface ScanxOptions {
    *  on a test screen a refusal and a wrong answer look identical unless the
    *  number behind them is visible. Read `margin` and judge it yourself. */
   minMargin?: number;
+  /** Hard wall-clock cap for the NATIVE engine only, ms. The streaming
+   *  engine has no equivalent knob (it is a single scan() call with no
+   *  internal budget loop). Default 3000 — plenty for the 300-1900 ms this
+   *  engine measures on real photos, short enough that a failed native
+   *  attempt still leaves time for the streaming fallback. */
+  budgetMs?: number;
 }
 
 const FORMAT_NAME: Record<string, string> = {
@@ -145,25 +196,45 @@ const FORMAT_NAME: Record<string, string> = {
   QR_CODE: 'QRCode',
 };
 
+type NativeScanxCore = {
+  decode: (
+    grayBase64: string, width: number, height: number,
+    minMargin: number, budgetMs: number,
+  ) => Promise<{
+    ok: boolean; text: string; format: string; margin: number; modulePx: number;
+    chars: number; bandY: number; rotated: boolean; reversed: boolean;
+    ms: number; timedOut: boolean; failure: string;
+  }>;
+  version: () => Promise<string>;
+};
+
+function nativeModule(): NativeScanxCore | null {
+  if (Platform.OS !== 'android') return null;
+  return (NativeModules as any).ScanxCore ?? null;
+}
+
+export async function nativeVersion(): Promise<string | null> {
+  const n = nativeModule();
+  if (!n) return null;
+  try {
+    return await n.version();
+  } catch {
+    return null;
+  }
+}
+
 /** Decode one base64-encoded JPEG — the same shape takePictureAsync gives. */
 export async function decodeBase64Image(
   b64: string,
   opts: ScanxOptions = {},
 ): Promise<ScanxResult> {
-  const { maxDim = 1400, minMargin = 0 } = opts;
+  const { maxDim = 1400, minMargin = 0, budgetMs = 3000 } = opts;
 
   const started = Date.now();
   const blank: ScanxResult = {
     ok: false, text: '', format: '', margin: 0, module: 0, chars: 0,
     w: 0, h: 0, sourceW: 0, sourceH: 0, ms: 0,
   };
-
-  let eng: { m: Engine; api: Api; scanner: number };
-  try {
-    eng = await load();
-  } catch (e: any) {
-    return { ...blank, error: e?.message ? String(e.message) : 'scanx did not start' };
-  }
 
   let bytes: Uint8Array;
   try {
@@ -173,8 +244,10 @@ export async function decodeBase64Image(
   }
   if (!bytes.length) return { ...blank, error: 'empty image' };
 
-  // JPEG → luminance, in JS. jpeg-js is pure JavaScript (no native module,
-  // no DOM), which is the whole reason it can run under Hermes at all.
+  // JPEG → luminance, in JS either way: the native module takes the same
+  // luma plane the streaming engine does, not the JPEG bytes, so both
+  // engines are provably fed byte-identical input (same rationale as the
+  // shared base64 reader above).
   let luma: Uint8Array;
   let w: number;
   let h: number;
@@ -211,6 +284,45 @@ export async function decodeBase64Image(
     luma = small; w = nw; h = nh;
   }
 
+  // NATIVE FIRST (Android only). Real compiled code, not JS — see the header
+  // comment for why this exists alongside, not instead of, the engine below.
+  const native = nativeModule();
+  if (native) {
+    try {
+      const b64luma = bytesToBase64(luma);
+      const r = await native.decode(b64luma, w, h, minMargin, budgetMs);
+      if (r.ok) {
+        return {
+          ok: true,
+          text: r.text,
+          format: r.format,
+          margin: r.margin,
+          module: r.modulePx || 0,
+          chars: r.chars,
+          w, h, sourceW, sourceH,
+          ms: Date.now() - started,
+          engine: 'native',
+        };
+      }
+      // Native ran cleanly but found nothing (or below minMargin) — fall
+      // through to the streaming engine as a second opinion rather than
+      // reporting failure on its say-so alone.
+    } catch {
+      // Module missing from this build, or threw — fall through silently.
+      // This is the expected path on any build shipped before this native
+      // module lands, not just an error case.
+    }
+  }
+
+  // STREAMING FALLBACK (iOS always; Android when native found nothing).
+  let eng: { m: Engine; api: Api; scanner: number };
+  try {
+    eng = await load();
+  } catch (e: any) {
+    return { ...blank, w, h, sourceW, sourceH, ms: Date.now() - started,
+             error: e?.message ? String(e.message) : 'scanx did not start' };
+  }
+
   const { m, api, scanner } = eng;
   const buf = api.alloc(luma.length);
   if (!buf) return { ...blank, w, h, ms: Date.now() - started, error: 'out of memory' };
@@ -237,11 +349,13 @@ export async function decodeBase64Image(
         chars: String(best.text).length,
         w, h, sourceW, sourceH,
         ms: Date.now() - started,
+        engine: 'streaming',
       };
     }
     return {
       ...blank, w, h, sourceW, sourceH, ms: Date.now() - started,
       failure: 'no barcode found',
+      engine: 'streaming',
     };
   } catch (e: any) {
     return { ...blank, w, h, ms: Date.now() - started,

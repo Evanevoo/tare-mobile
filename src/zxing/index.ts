@@ -203,6 +203,31 @@ export function base64ToBytes(b64: string): Uint8Array {
 }
 
 /**
+ * Bytes -> base64, by hand -- the other direction of the function above and
+ * for the same reason (Hermes has neither `btoa` nor `Buffer`). Added 22 Aug
+ * 2026 for the scanx2core native module (`@/scanx-core`), which crosses the
+ * classic RN bridge as a JSON string and so needs the luma frame it decodes
+ * base64-encoded going IN, not just coming back out.
+ */
+export function bytesToBase64(bytes: Uint8Array): string {
+  let out = '';
+  let i = 0;
+  for (; i + 2 < bytes.length; i += 3) {
+    const n = (bytes[i] << 16) | (bytes[i + 1] << 8) | bytes[i + 2];
+    out += B64[(n >> 18) & 63] + B64[(n >> 12) & 63] + B64[(n >> 6) & 63] + B64[n & 63];
+  }
+  const rem = bytes.length - i;
+  if (rem === 1) {
+    const n = bytes[i] << 16;
+    out += B64[(n >> 18) & 63] + B64[(n >> 12) & 63] + '==';
+  } else if (rem === 2) {
+    const n = (bytes[i] << 16) | (bytes[i + 1] << 8);
+    out += B64[(n >> 18) & 63] + B64[(n >> 12) & 63] + B64[(n >> 6) & 63] + '=';
+  }
+  return out;
+}
+
+/**
  * Decode one still image.
  *
  * Takes the encoded JPEG/PNG rather than pixels: the phone already has a JPEG
