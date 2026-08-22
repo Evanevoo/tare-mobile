@@ -80,6 +80,20 @@ type Shot = {
   /** Estimated narrow-bar width in pixels. Under 2 is past the classical floor. */
   coreModule: number;
   coreError?: string;
+  /**
+   * E — zxing-cpp again, but swept across rotation and a scale ladder instead
+   * of the single pass every other engine gets. See SWEEP_ROTATIONS above.
+   */
+  sweep: string[];
+  sweepFormats: string[];
+  sweepMs: number;
+  /** How many (rotation, scale) combinations it took to get a hit — or all of
+   * them, if it never did. The number a person actually wants after "did it
+   * work": zero extra tries is no better than the plain zxing row above. */
+  sweepTried: number;
+  sweepTotal: number;
+  sweepWon: string;
+  sweepError?: string;
   size: string;
   /**
    * What the camera actually handed back, before any crop or resize.
@@ -98,6 +112,10 @@ type Shot = {
 const EMPTY_TALLY = {
   runs: 0, agree: 0, scanxOnly: 0, currentOnly: 0, differ: 0, neither: 0,
   currentHits: 0, scanxHits: 0, zxHits: 0, scanxMs: 0, currentMs: 0, zxMs: 0,
+  // Sweep-only tallies: how often it rescued something the plain zxing row
+  // above (same engine, single pass) missed — the number that actually
+  // justifies the extra time, as opposed to raw hit count.
+  sweepHits: 0, sweepRescues: 0, sweepMs: 0,
 };
 
 const PRESET_KEYS = ['all', 'retail', 'assets', 'qr'] as const;
@@ -106,6 +124,31 @@ const PRESET_LABEL: Record<(typeof PRESET_KEYS)[number], string> = {
 };
 
 const sleep = (ms: number) => new Promise<void>((resolve) => { setTimeout(resolve, ms); });
+
+/**
+ * ROTATION + SCALE SWEEP — the realistic, on-device version of the Aug 22
+ * corpus finding (see RESULTS.md / differentiation-architecture.md): several
+ * real cylinder photos that failed at a single rotation and a single scale
+ * decoded fine once the SAME zxing-cpp engine got another rotation or another
+ * size to try. A full OpenCV perspective-warp + denoise/CLAHE bank (what
+ * actually got 12/15 in the offline Python corpus) needs native image
+ * processing this JS/Hermes app doesn't have — this sweep is the part of that
+ * pipeline that IS just rotation and resizing, which expo-image-manipulator
+ * already does.
+ *
+ * Stops at the first hit rather than running every combination every time —
+ * an easy label should stay fast, and the ones worth sweeping for are exactly
+ * the ones that don't hit early.
+ */
+const SWEEP_ROTATIONS = [0, 90, 180, 270] as const;
+
+// A short ladder AROUND the chosen Size, not a fixed list — so the sweep
+// tracks whatever's selected in "Settings for the test" instead of ignoring
+// it. Narrower first: most of the real rescues in the corpus needed less
+// pixel data in better focus, not more.
+function sweepScales(base: number): number[] {
+  return Array.from(new Set([Math.round(base * 0.75), base, Math.round(base * 1.3)]));
+}
 
 export default function ScanXTest() {
   const [perm, requestPerm] = useCameraPermissions();
@@ -148,6 +191,11 @@ export default function ScanXTest() {
 
   const [effort, setEffort] = useState<Effort>(0);
   const [preset, setPreset] = useState<(typeof PRESET_KEYS)[number]>('all');
+  // Off by default: up to 12 extra manipulateAsync+decode passes per capture
+  // is real cost on a phone, and it's a diagnostic a person opts into after
+  // the plain rows above have already shown a miss, not a default tax on
+  // every tap.
+  const [sweepOn, setSweepOn] = useState(false);
   // 1200, not 720. The bench says a 20-character Code 128 needs ~660 px of
   // barcode to clear 3 px per narrow bar, and at 720 across the whole frame
   // that label lands under 2 -- undecodable by anything. Starting below the
@@ -279,6 +327,45 @@ export default function ScanXTest() {
           : { ms: 0, w: 0, h: 0, sourceW: 0, sourceH: 0, codes: [], error: 'no base64 from the resize' };
         const zxWallMs = Date.now() - t2;
 
+        // E — the same zxing-cpp engine again, but given more than one shot:
+        // a rotation and a scale ladder around it, stopping at the first hit.
+        // Skipped entirely when off, so it costs nothing unless asked for.
+        let sweep: ZXResult = { ms: 0, w: 0, h: 0, sourceW: 0, sourceH: 0, codes: [] };
+        let sweepTried = 0;
+        let sweepTotal = 0;
+        let sweepWon = '';
+        if (sweepOn) {
+          const t4 = Date.now();
+          const scales = sweepScales(maxDim);
+          sweepTotal = SWEEP_ROTATIONS.length * scales.length;
+          outer:
+          for (const rot of SWEEP_ROTATIONS) {
+            for (const scale of scales) {
+              sweepTried += 1;
+              try {
+                const variant = await manipulateAsync(
+                  imgUri,
+                  [
+                    ...(rot ? [{ rotate: rot }] : []),
+                    { resize: { width: scale } },
+                  ],
+                  { compress: 0.85, format: SaveFormat.JPEG, base64: true },
+                );
+                if (!variant.base64) continue;
+                const r = await zxDecode(variant.base64, {
+                  maxDim: scale, effort: 1, formats: ZX_PRESETS[preset], binarize: true,
+                });
+                if (r.codes.length) {
+                  sweep = r;
+                  sweepWon = `${rot}° · ${scale}px`;
+                  break outer;
+                }
+              } catch { /* try the next combination */ }
+            }
+          }
+          sweep = { ...sweep, ms: Date.now() - t4 };
+        }
+
         /**
          * D — scanx-core, the in-house grey-level decoder.
          *
@@ -310,7 +397,10 @@ export default function ScanXTest() {
         }
         const coreWallMs = Date.now() - t3;
 
-        return { cur, curMs, sx, wallMs, zx, zxWallMs, core, coreWallMs };
+        return {
+          cur, curMs, sx, wallMs, zx, zxWallMs, core, coreWallMs,
+          sweep, sweepTried, sweepTotal, sweepWon,
+        };
       };
 
       /*
@@ -355,7 +445,7 @@ export default function ScanXTest() {
       let pass = await runBoth(uri);
       let usedFallback = false;
       if (cropped && pass.cur.length === 0 && pass.sx.codes.length === 0
-          && pass.zx.codes.length === 0) {
+          && pass.zx.codes.length === 0 && pass.sweep.codes.length === 0) {
         usedFallback = true;
         pass = await runBoth(photo.uri);
       }
@@ -363,6 +453,7 @@ export default function ScanXTest() {
       const currentTexts = dedupe(pass.cur.map((c) => c.data));
       const scanxTexts = dedupe(pass.sx.codes.map((c) => c.text));
       const zxTexts = dedupe(pass.zx.codes.map((c) => c.text));
+      const sweepTexts = dedupe(pass.sweep.codes.map((c) => c.text));
 
       const shot: Shot = {
         at: Date.now(),
@@ -383,6 +474,13 @@ export default function ScanXTest() {
         coreMargin: pass.core?.margin ?? 0,
         coreModule: pass.core?.module ?? 0,
         coreError: pass.core?.error ?? pass.core?.failure,
+        sweep: sweepTexts,
+        sweepFormats: dedupe(pass.sweep.codes.map((c) => c.format)),
+        sweepMs: pass.sweep.ms,
+        sweepTried: pass.sweepTried,
+        sweepTotal: pass.sweepTotal,
+        sweepWon: pass.sweepWon,
+        sweepError: sweepOn && !sweepTexts.length ? pass.sweep.error : undefined,
         size: (pass.sx.w ? `${pass.sx.sourceW}×${pass.sx.sourceH} → ${pass.sx.w}×${pass.sx.h}` : '—')
           + (usedFallback ? ' · full frame, crop missed' : cropped ? ' · cropped to reticle' : ''),
         capture: captureSize,
@@ -405,6 +503,12 @@ export default function ScanXTest() {
         currentMs: t.currentMs + pass.curMs,
         scanxMs: t.scanxMs + pass.sx.ms,
         zxMs: t.zxMs + pass.zx.ms,
+        sweepHits: t.sweepHits + (sweepTexts.length ? 1 : 0),
+        // A rescue: the plain zxing row (one pass) missed, the sweep didn't.
+        // This is the number that justifies the extra time — raw sweep hits
+        // includes everything the plain row already got too.
+        sweepRescues: t.sweepRescues + (sweepTexts.length && !zxTexts.length ? 1 : 0),
+        sweepMs: t.sweepMs + pass.sweep.ms,
       }));
     } catch (e: any) {
       // A real failure (camera/resize), not "nothing decoded" — that path
@@ -419,7 +523,7 @@ export default function ScanXTest() {
         setTimeout(() => { if (alive.current) captureRef.current(); }, 250);
       }
     }
-  }, [busy, effort, maxDim, preset]);
+  }, [busy, effort, maxDim, preset, sweepOn]);
 
   useEffect(() => { captureRef.current = capture; }, [capture]);
 
@@ -561,6 +665,10 @@ export default function ScanXTest() {
             <Hairline />
             <Row label="Read by zxing" value={`${tally.zxHits}/${tally.runs}`} mono />
             <Hairline />
+            <Row label="Read by zxing, swept" value={`${tally.sweepHits}/${tally.runs}`} mono />
+            <Hairline />
+            <Row label="Sweep rescued (zxing alone missed)" value={String(tally.sweepRescues)} mono />
+            <Hairline />
             <Row label="Same answer" value={String(tally.agree)} mono />
             <Hairline />
             <Row label="Only ScanX got it" value={String(tally.scanxOnly)} mono />
@@ -623,6 +731,21 @@ export default function ScanXTest() {
             value={maxDim}
             onChange={(v) => setMaxDim(v as number)}
           />
+          <View style={{ height: 10 }} />
+          <Segments
+            label="Sweep (rotation + scale, zxing only)"
+            items={[{ value: 'off', label: 'Off' }, { value: 'on', label: 'On' }]}
+            value={sweepOn ? 'on' : 'off'}
+            onChange={(v) => setSweepOn(v === 'on')}
+          />
+          <Text style={{ color: T.faint, fontSize: 12, marginTop: 11, lineHeight: 18 }}>
+            When on, every capture gives zxing up to {SWEEP_ROTATIONS.length * 3} more tries
+            at the same photo — each of 4 rotations at a narrower, the chosen, and a wider
+            scale — stopping at the first hit. This is the on-device version of the Aug 22
+            corpus finding: several real cylinder photos only decoded once the same engine
+            got a different rotation or size, not a different algorithm. Off by default
+            because it costs real time on a miss (it tries everything before giving up).
+          </Text>
           <Text style={{ color: T.faint, fontSize: 12, marginTop: 11, lineHeight: 18 }}>
             Narrowing the formats is the biggest speed win there is — measured at 10.7× for
             an identical read rate — and it also removes any chance of a stray Code 39 read
@@ -738,6 +861,26 @@ function LastShot({ shot }: { shot: Shot }) {
       />
       <Hairline />
       {/*
+        Same engine as the row above, given more than one try. shot.sweepTried
+        is 0 whenever the sweep wasn't run (toggle off) — kept as its own row
+        rather than folded into the plain zxing one so a rescue is visible as
+        a rescue, not silently absorbed into a single number.
+      */}
+      <Engine
+        name="zxing, rotation + scale sweep"
+        sub={
+          shot.sweepTried === 0
+            ? 'sweep off'
+            : shot.sweep.length
+              ? `${shot.sweepMs} ms · won at ${shot.sweepWon} (try ${shot.sweepTried}/${shot.sweepTotal})`
+              : `${shot.sweepMs} ms · no read after all ${shot.sweepTotal} tries`
+        }
+        codes={shot.sweep}
+        formats={shot.sweepFormats}
+        ms={shot.sweepTried === 0 ? '—' : `${shot.sweepMs} ms`}
+      />
+      <Hairline />
+      {/*
         The in-house engine. It reports the two numbers the others cannot:
         MARGIN — how far the weakest character beat its nearest rival, which is
         the difference between a read and a confident guess — and MODULE, the
@@ -770,6 +913,14 @@ function LastShot({ shot }: { shot: Shot }) {
           <Hairline />
           <Text style={{ color: T.needle, fontSize: 12.5, paddingHorizontal: 18, paddingVertical: 12 }}>
             zxing: {shot.zxError}
+          </Text>
+        </>
+      )}
+      {!!shot.sweepError && (
+        <>
+          <Hairline />
+          <Text style={{ color: T.needle, fontSize: 12.5, paddingHorizontal: 18, paddingVertical: 12 }}>
+            zxing sweep: {shot.sweepError}
           </Text>
         </>
       )}
