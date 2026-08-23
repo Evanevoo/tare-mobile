@@ -1,6 +1,5 @@
 import 'react-native-url-polyfill/auto';
 import { createClient } from '@supabase/supabase-js';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 import * as Linking from 'expo-linking';
 import type { QueuedScan } from './outbox';
@@ -8,6 +7,7 @@ import { toWire } from './outbox';
 import type { BatchItem, BulkCreateResult } from './batch';
 import type { HistoryPage } from './history';
 import type { PendingShipRec } from './pending-ship';
+import { supabaseSecureStorage } from './secure-storage';
 
 /**
  * One base URL, set at build time per EAS profile. Nothing else in the app
@@ -23,7 +23,10 @@ const SUPABASE_ANON = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON, {
   auth: {
-    storage: AsyncStorage,
+    // Encrypted at rest — see secure-storage.ts for why plain AsyncStorage
+    // was the wrong place for a live session token, and why SecureStore
+    // alone isn't either.
+    storage: supabaseSecureStorage,
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: false,
@@ -246,9 +249,24 @@ export interface SyncResult {
 }
 
 /**
+ * The server refuses a batch bigger than this — see `Batch` in
+ * src/app/api/scans/route.ts (`z.array(Scan).min(1).max(2000)`). A shift's
+ * offline queue can run past it (a driver who never got signal all day), and
+ * `postScans` here sends whatever it is handed in one request — it does not
+ * chunk. Callers that might exceed this must split first; see `sync()` in
+ * store.ts, the only caller today. A queue over the cap sent whole came back
+ * a permanent 400: too big to ever accept, too big to ever drop, so the
+ * upload never left the phone and never told the driver why.
+ */
+export const MAX_SYNC_BATCH = 2000;
+
+/**
  * Drain the outbox. Safe to call twice with the same rows — the server is
  * idempotent on (org, orderNumber, barcode, mode), which is the guarantee the
  * whole offline design rests on.
+ *
+ * Sends exactly what it is given, in one request — see `MAX_SYNC_BATCH`
+ * above for why a caller with more than that queued must split first.
  */
 export class SyncRefused extends Error {
   constructor(readonly status: number, message: string) {

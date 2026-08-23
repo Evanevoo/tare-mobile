@@ -3,8 +3,10 @@ import { reduce, empty, pending, queued, type Action, type Outbox, type Mode, ty
   from './outbox';
 import { ulid } from './ulid';
 import { loadOutbox, saveOutbox, cacheGet, cacheSet, dbUnavailable as dbFlag, storageMode } from './db';
-import { fetchBootstrap, postScans, sessionIdentity, SyncRefused, BOOTSTRAP_VERSION, type Bootstrap }
-  from './api';
+import {
+  fetchBootstrap, postScans, sessionIdentity, SyncRefused, BOOTSTRAP_VERSION, MAX_SYNC_BATCH,
+  type Bootstrap,
+} from './api';
 import { registerPush, deregisterPush } from './notifications';
 
 interface State {
@@ -316,70 +318,114 @@ export const useStore = create<State>((set, get) => ({
     cacheSet('delivery', { customerListId, customerName, orderNumber, mode }).catch(() => {});
   },
 
+  /**
+   * Drain the outbox to the server, one chunk of at most `MAX_SYNC_BATCH` at
+   * a time.
+   *
+   * A SHIFT'S QUEUE USED TO BE SENT AS ONE REQUEST, WHATEVER ITS SIZE.
+   *
+   * The server has always capped a batch at 2,000 scans (`Batch` in
+   * api/scans/route.ts) and `postScans` has always sent exactly what it was
+   * handed — it does not chunk. A driver who went a whole shift with no
+   * signal, or whose queue survived several missed syncs, could carry more
+   * than 2,000 scans by the time a bar of signal finally showed up. That one
+   * oversized request came back a permanent 400 — not a retryable "offline",
+   * a batch the server will never accept — and every scan in it sat on the
+   * phone forever, because nothing here ever split it smaller and tried
+   * again. Chunking here, on the one caller that can ever exceed the cap, is
+   * what keeps a big queue draining instead of wedging solid.
+   *
+   * Each chunk is BEGIN_UPLOAD → post → UPLOAD_OK/UPLOAD_FAILED on its own,
+   * so a failure partway through leaves the earlier chunks correctly SENT
+   * and only the chunk in flight (plus whatever never got a turn) back in
+   * QUEUED for the next sync — nothing already accepted is re-sent, nothing
+   * still queued is lost.
+   */
   async sync() {
     const { outbox, syncing } = get();
     if (syncing) return;
     const toSend = queued(outbox);
     if (!toSend.length) return;
 
-    const ids = toSend.map((s) => s.clientId);
     set({ syncing: true, lastError: null });
-    get().dispatch({ type: 'BEGIN_UPLOAD', clientIds: ids });
 
-    try {
-      /**
-       * THE SERVER'S ANSWER WAS THROWN AWAY.
-       *
-       * `await postScans(toSend)` discarded a `SyncResult` that carries
-       * `unresolved` — the barcodes the server accepted but could not match to
-       * any asset. Every row was then marked SENT regardless, so a bottle
-       * scanned against a barcode nobody owns vanished from the phone looking
-       * exactly like a successful delivery. The driver had the only remaining
-       * evidence and no reason to think anything was wrong.
-       *
-       * The rows still go to SENT — they ARE on the server, and pretending
-       * otherwise would make the next sync post them twice — but the count
-       * comes back to the driver so the unknown barcode gets dealt with while
-       * the truck is still at the customer.
-       */
-      const result = await postScans(toSend);
-      get().dispatch({ type: 'UPLOAD_OK', clientIds: ids });
+    const allUnresolved: string[] = [];
+    let anyUploaded = false;
+
+    const persistProgress = async () => {
       const now = new Date().toISOString();
-      await cacheSet('lastSync', now);
-      set({
-        online: true,
-        lastSync: now,
-        lastError: result.unresolved?.length
-          ? `${result.unresolved.length} barcode${result.unresolved.length === 1 ? '' : 's'} uploaded but `
-            + `${result.unresolved.length === 1 ? 'is' : 'are'} not on the fleet: `
-            + `${result.unresolved.slice(0, 3).join(', ')}`
-            + `${result.unresolved.length > 3 ? '…' : ''}. The office has to add or correct `
-            + `${result.unresolved.length === 1 ? 'it' : 'them'}.`
-          : null,
-        unresolved: result.unresolved ?? [],
-      });
-      get().refresh().catch(() => {});
-    } catch (e: any) {
-      // Nothing is lost. The rows go back in line and the next sync retries;
-      // if the server did receive them, the replay posts zero.
-      get().dispatch({ type: 'UPLOAD_FAILED', clientIds: ids });
+      await cacheSet('lastSync', now).catch(() => {});
+      set({ lastSync: now });
+    };
 
-      /*
-        A REFUSAL IS NOT OFFLINE. Setting `online: false` on every failure is
-        what turned a billing lockout and an expired session into "Offline —
-        nothing is lost", which is the one message that tells the driver to
-        keep trying. `SyncRefused` means the server answered; the connection is
-        fine and pressing Sync again will not help.
-      */
-      const refused = e instanceof SyncRefused;
-      set({
-        online: refused ? true : false,
-        blocked: refused ? e.status : null,
-        lastError: e?.message ?? 'Sync failed',
-      });
-    } finally {
-      set({ syncing: false });
+    for (let i = 0; i < toSend.length; i += MAX_SYNC_BATCH) {
+      const chunk = toSend.slice(i, i + MAX_SYNC_BATCH);
+      const ids = chunk.map((s) => s.clientId);
+      get().dispatch({ type: 'BEGIN_UPLOAD', clientIds: ids });
+
+      try {
+        /**
+         * THE SERVER'S ANSWER WAS THROWN AWAY.
+         *
+         * `await postScans(toSend)` discarded a `SyncResult` that carries
+         * `unresolved` — the barcodes the server accepted but could not match
+         * to any asset. Every row was then marked SENT regardless, so a
+         * bottle scanned against a barcode nobody owns vanished from the
+         * phone looking exactly like a successful delivery. The driver had
+         * the only remaining evidence and no reason to think anything was
+         * wrong.
+         *
+         * The rows still go to SENT — they ARE on the server, and pretending
+         * otherwise would make the next sync post them twice — but the count
+         * comes back to the driver so the unknown barcode gets dealt with
+         * while the truck is still at the customer.
+         */
+        const result = await postScans(chunk);
+        get().dispatch({ type: 'UPLOAD_OK', clientIds: ids });
+        anyUploaded = true;
+        if (result.unresolved?.length) allUnresolved.push(...result.unresolved);
+      } catch (e: any) {
+        // Nothing is lost. This chunk goes back in line and the next sync
+        // retries it (and anything after it that never got a turn); if the
+        // server did receive it, the replay posts zero.
+        get().dispatch({ type: 'UPLOAD_FAILED', clientIds: ids });
+
+        /*
+          A REFUSAL IS NOT OFFLINE. Setting `online: false` on every failure is
+          what turned a billing lockout and an expired session into "Offline —
+          nothing is lost", which is the one message that tells the driver to
+          keep trying. `SyncRefused` means the server answered; the connection
+          is fine and pressing Sync again will not help.
+        */
+        const refused = e instanceof SyncRefused;
+        set({
+          online: refused ? true : false,
+          blocked: refused ? e.status : null,
+          lastError: e?.message ?? 'Sync failed',
+          syncing: false,
+        });
+        // Earlier chunks in THIS call did upload — record that before
+        // stopping, so a partial drain still moves lastSync forward.
+        if (anyUploaded) await persistProgress();
+        return;
+      }
     }
+
+    await persistProgress();
+    set({
+      syncing: false,
+      online: true,
+      blocked: null,
+      lastError: allUnresolved.length
+        ? `${allUnresolved.length} barcode${allUnresolved.length === 1 ? '' : 's'} uploaded but `
+          + `${allUnresolved.length === 1 ? 'is' : 'are'} not on the fleet: `
+          + `${allUnresolved.slice(0, 3).join(', ')}`
+          + `${allUnresolved.length > 3 ? '…' : ''}. The office has to add or correct `
+          + `${allUnresolved.length === 1 ? 'it' : 'them'}.`
+        : null,
+      unresolved: allUnresolved,
+    });
+    get().refresh().catch(() => {});
   },
 }));
 

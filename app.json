@@ -2,8 +2,8 @@
   "expo": {
     "name": "Scanified",
     "slug": "scanified",
-    "version": "1.2.3",
-    "runtimeVersion": "1.2.3",
+    "version": "1.2.4",
+    "runtimeVersion": "1.2.4",
     "updates": {
       "url": "https://u.expo.dev/fad89b31-ae33-4bff-9011-af88c8268844",
       "fallbackToCacheTimeout": 0,
@@ -28,7 +28,16 @@
       "Bumping the runtime is what strands the bad bundle: nothing asks for",
       "1.2.2 any more, so nothing is served it. Disabling updates outright would",
       "also have worked and would have cost the fleet OTA permanently.",
-      "Do not lower this back to 1.2.2."
+      "Do not lower this back to 1.2.2.",
+      "",
+      "It moved again, 1.2.3 -> 1.2.4, for the QA-sweep fixes of 23 Aug 2026:",
+      "expo-crypto is a NEW native module (added for the SecureStore-backed",
+      "session storage in secure-storage.ts). A JS-only OTA published under",
+      "runtime 1.2.3 that calls into it would crash on any phone still running",
+      "a 1.2.3 BINARY built before expo-crypto was linked - the same class of",
+      "bug the paragraph above describes. Bumping the runtime with the build",
+      "that adds the native module is what keeps that combination from ever",
+      "existing in the field."
     ],
     "platforms": [
       "ios",
@@ -50,7 +59,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.evanevoo.scanifiedmobile",
-      "buildNumber": "225",
+      "buildNumber": "226",
       "infoPlist": {
         "NSCameraUsageDescription": "Scanified uses the camera to scan asset barcodes when you ship and receive them.",
         "NSLocationWhenInUseUsageDescription": "Scanified records where a scan happened so a delivery can be proven later.",
@@ -59,7 +68,7 @@
     },
     "android": {
       "package": "com.evanevoo.scanifiedandroid",
-      "versionCode": 225,
+      "versionCode": 226,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#07090A"

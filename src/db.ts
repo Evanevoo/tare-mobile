@@ -216,8 +216,11 @@ export async function loadOutbox(): Promise<Outbox> {
 
 /** Mirror the whole reduced state. Small N (a shift is hundreds, not millions).
  *  Returns false when it could not be persisted, so a caller that cares can
- *  say so — silence here is what turns a dead battery into a lost shift. */
-export async function saveOutbox(o: Outbox): Promise<boolean> {
+ *  say so — silence here is what turns a dead battery into a lost shift.
+ *
+ *  Private on purpose — see `saveOutbox` below, the only way in. This does
+ *  the actual delete-then-reinsert; it must never run twice at once. */
+async function doSaveOutbox(o: Outbox): Promise<boolean> {
   const d = await open();
 
   if (!d) {
@@ -257,6 +260,53 @@ export async function saveOutbox(o: Outbox): Promise<boolean> {
     console.warn('[tare] saveOutbox failed; scans are in memory only:', e);
     return false;
   }
+}
+
+/**
+ * ═══ THE OUTBOX WRITE RACE ═══
+ *
+ * `store.ts`'s `dispatch()` fires `saveOutbox(outbox)` unawaited on every
+ * single scan, on purpose — a driver must never wait on a disk write between
+ * two scans. Two scans close together (which is the normal case, not the
+ * edge case) used to mean two overlapping calls into `doSaveOutbox`, each
+ * running its own `withTransactionAsync(DELETE FROM outbox; re-INSERT every
+ * row)` against the same table at the same time. Expo's own SQLite docs warn
+ * that `withTransactionAsync` is not exclusive — a second async query can
+ * interleave with a transaction already in flight — so the second save's
+ * DELETE could land between the first save's DELETE and its re-INSERTs, or
+ * the two re-INSERT loops could interleave, either of which is how a scan
+ * that was correctly in memory a moment earlier ends up missing on disk,
+ * discovered only when the app is later killed and reads back whatever the
+ * race left behind.
+ *
+ * The fix is not to await every save — that reintroduces the pause between
+ * scans this was built to avoid — it is to make sure only one write is ever
+ * actually running, by chaining every request onto the tail of whichever
+ * write is already in flight. Because a save always mirrors the WHOLE
+ * current outbox rather than appending, chained requests can also coalesce:
+ * if three scans queue up while one save is in flight, there is no reason to
+ * write the middle one — the newest snapshot already contains everything the
+ * app needs on disk, and skipping straight to it is strictly less work for
+ * the exact same result.
+ */
+let savingChain: Promise<boolean> = Promise.resolve(true);
+let latestPending: Outbox | null = null;
+
+export function saveOutbox(o: Outbox): Promise<boolean> {
+  latestPending = o;
+  const run: Promise<boolean> = savingChain.then(async () => {
+    // Grab whatever the newest requested snapshot is AT THE MOMENT this
+    // finally gets its turn — not necessarily `o` from this call, if a later
+    // call already queued behind us. `doSaveOutbox` never throws (every
+    // branch above catches its own failure and returns false), so this never
+    // rejects either.
+    const toWrite = latestPending;
+    latestPending = null;
+    if (toWrite === null) return true; // a later, already-run call wrote it
+    return doSaveOutbox(toWrite);
+  });
+  savingChain = run;
+  return run;
 }
 
 export async function cacheSet(key: string, value: unknown) {
