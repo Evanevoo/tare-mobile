@@ -1,6 +1,7 @@
 import { View, Text, ScrollView, Pressable } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useStore } from '@/store';
+import { decodeParam } from '@/route-param';
 import { T, Screen, Surface, Btn, Eyebrow, Tag, Rise, Hairline, mono, tint } from '@/ui';
 import { whenLabel } from '@/when';
 import {
@@ -19,7 +20,10 @@ export default function AssetDetail() {
   const router = useRouter();
   const { boot } = useStore();
 
-  const code = decodeURIComponent(barcode ?? '').toUpperCase();
+  // decodeParam, not a bare decodeURIComponent — same fatal-throw shape as
+  // OrderEdit (SCANIFIED-MOBILE-7): a param carrying a literal '%' after the
+  // router's own decode crashed the screen. See src/route-param.ts.
+  const code = decodeParam(barcode).toUpperCase();
   const a = boot?.assets[code];
   const customer = a?.c ? boot?.customers.find((c) => c.customerListId === a.c) : null;
 
