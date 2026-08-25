@@ -161,6 +161,56 @@ const DEFAULT_TYPES: BarcodeType[] = [
 ];
 
 /**
+ * SYMBOLOGIES THAT CHECK THEMSELVES, WHICH IS WHAT THE DOUBLE-READ CONFIRM
+ * WAS STANDING IN FOR.
+ *
+ * The confirm below exists because a live decoder fires on half-read frames —
+ * "code39 in particular happily yields a truncated string off a motion-blurred
+ * label" (this file's own header). That is a statement about code39, and the
+ * fix was applied to everything: every read, from every symbology, waited for
+ * a second byte-identical frame before it counted. On a struggling label,
+ * where good frames are seconds apart, that wait is most of the time a driver
+ * spends holding the phone still — the single biggest share of "scanning is
+ * slow" that is actually ours to spend.
+ *
+ * It is not needed where the symbology already carries the proof:
+ *
+ *   code128     mandatory mod-103 check character, verified by the decoder
+ *   code93      two mandatory check characters (C and K)
+ *   ean/upc     mandatory mod-10 check digit
+ *   itf14       GS1 mod-10 check digit
+ *   qr/pdf417/datamatrix/aztec   real Reed-Solomon error correction
+ *
+ * A truncated or single-substitution misread of any of these fails its own
+ * checksum inside ML Kit / AVFoundation and never reaches this file at all.
+ * Demanding a second identical frame on top of that verified math is paying
+ * the misread tax twice — so these accept on their FIRST sighting, which is
+ * exactly what the legacy app did for years ("legacy accepted a barcode on
+ * ONE good frame", above) without a misread problem on this fleet's
+ * checksummed labels.
+ *
+ * What keeps the confirm: code39 (check digit optional and not present on
+ * most of this fleet's customer cards) and codabar (none at all). Those two
+ * really can hand back a plausible wrong string off one soft frame, and the
+ * asset ranges here are dense sequential numbers where a one-digit slip IS
+ * another real cylinder — for them the second frame is the only checksum
+ * there is, and it stays.
+ *
+ * An unknown/absent symbology name keeps the confirm too: fail safe, not
+ * fast.
+ */
+const SELF_CHECKING = new Set([
+  'code128', 'code93', 'itf14', 'ean13', 'ean8', 'upc_a', 'upc_e',
+  'qr', 'pdf417', 'datamatrix', 'aztec',
+  // expo-camera reports iOS AVFoundation names with an "org.iso"/"org.gs1"
+  // prefix on some versions; normalise is done at the call site, but the
+  // common raw spellings are accepted here so a rename never silently
+  // reintroduces the slow path.
+  'org.iso.code128', 'org.gs1.ean-13', 'org.gs1.ean-8', 'org.iso.pdf417',
+  'org.iso.qrcode', 'org.iso.datamatrix', 'org.iso.aztec', 'org.gs1.itf14',
+]);
+
+/**
  * THERE IS NO REGION OF INTEREST, AND THERE NEVER WAS.
  *
  * Both this file and the legacy Android app it was ported from used to pass
@@ -312,8 +362,17 @@ export function Scanner({
     if (!perm?.granted) requestPerm();
     // The torch hint and the Snap fallback both key off "open a while with
     // nothing read" — checked on a slow tick, not per frame.
+    //
+    // 3000ms, down from 5000ms. The live decoder answers a readable label in
+    // well under a second, so three seconds of silence already means this
+    // label is not going to read live — frost, shadow, a dent — and the tools
+    // that actually crack those (torch, Snap, Read text) were sitting hidden
+    // for two further seconds while the driver just held the phone there.
+    // Surfacing them at 3s is the cheapest latency cut in this file: it costs
+    // nothing on a good label (the hint never appears) and saves two seconds
+    // on precisely the scans that were already slowest.
     const t = setInterval(() => {
-      if (alive.current) setStruggling(Date.now() - lastReadAt.current > 5000);
+      if (alive.current) setStruggling(Date.now() - lastReadAt.current > 3000);
     }, 1000);
     return () => { alive.current = false; clearInterval(t); };
   }, [perm?.granted]);
@@ -447,7 +506,7 @@ export function Scanner({
     [types],
   );
 
-  const deliver = useCallback((raw: string) => {
+  const deliver = useCallback((raw: string, symbology?: string) => {
     const code = raw.trim().toUpperCase();
     if (!code) return;
     if (accept && !accept(code)) return;
@@ -458,6 +517,21 @@ export function Scanner({
       // exactly what it is pointed at. See `onDuplicate` above; a caller
       // that does nothing with this is exactly as correct as before.
       onDuplicate?.(code);
+      return;
+    }
+
+    // A symbology that carries its own verified checksum (see SELF_CHECKING)
+    // needs no second frame: the decoder already proved this read. Accepting
+    // it here, on the first sighting, is the single biggest cut to
+    // time-to-scan on every well-printed label — and code39/codabar, the two
+    // that genuinely can misread off one soft frame, still take the
+    // double-read path below.
+    if (symbology && SELF_CHECKING.has(symbology.trim().toLowerCase())) {
+      pending.current = null;
+      lastAccepted.current[code] = now;
+      lastReadAt.current = now;
+      setStruggling(false);
+      onCode(code);
       return;
     }
 
@@ -960,10 +1034,13 @@ export function Scanner({
           // the camera being broken. And gated on POSITION_FILTER — see below.
           onBarcodeScanned={
             ready && !closing
-              ? ({ data, bounds }) => {
+              ? ({ data, bounds, type }) => {
                   if (POSITION_FILTER && reticle
                       && !withinReticle(bounds, viewSize.current)) return;
-                  deliver(data);
+                  // `type` is the platform's own symbology name — it decides
+                  // whether this read is checksum-backed and may accept on
+                  // the first frame (SELF_CHECKING, above).
+                  deliver(data, type);
                 }
               : undefined
           }
