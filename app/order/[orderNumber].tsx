@@ -6,6 +6,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { useStore } from '@/store';
 import { retagBlockedBy, type QueuedScan } from '@/outbox';
+import { decodeParam } from '@/route-param';
 import { editSentScan, fetchOrderDetail, type RemoteOrder } from '@/api';
 import {
   T, Screen, Surface, Btn, Eyebrow, Tag, Rise, Icon, ICON, mono, useBottomInset, tint,
@@ -40,7 +41,11 @@ import {
  */
 export default function OrderEdit() {
   const params = useLocalSearchParams<{ orderNumber: string }>();
-  const orderNumber = decodeURIComponent(String(params.orderNumber ?? ''));
+  // decodeParam, not a bare decodeURIComponent: an order number carrying a
+  // literal '%' (a customer-card scan — SCANIFIED-MOBILE-7) made the bare
+  // call throw fatally on first render, killing the app on every tap of
+  // that order. src/route-param.ts carries the full story.
+  const orderNumber = decodeParam(params.orderNumber);
   const router = useRouter();
   const bottom = useBottomInset(24);
 
