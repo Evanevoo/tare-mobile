@@ -5,6 +5,7 @@ import {
 import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useStore } from '@/store';
+import { decodeParam } from '@/route-param';
 import { updateAsset, getAsset, ApiError, type AssetDraft, type AssetRec } from '@/api';
 import {
   T, Screen, Btn, Rise, Tag, mono, useBottomInset,
@@ -40,7 +41,10 @@ type Status = Serviceable | 'retired';
 export default function EditAsset() {
   const router = useRouter();
   const { barcode: raw } = useLocalSearchParams<{ barcode: string }>();
-  const barcode = (raw ?? '').toUpperCase();
+  // decodeParam for the same reason as AssetDetail and OrderEdit
+  // (SCANIFIED-MOBILE-7): every dynamic-segment screen normalizes its param
+  // through the one helper that cannot throw on a literal '%'.
+  const barcode = decodeParam(raw).toUpperCase();
   const { boot, refresh } = useStore();
   const bottom = useBottomInset(24);
 
