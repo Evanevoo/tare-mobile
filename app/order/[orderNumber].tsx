@@ -8,6 +8,8 @@ import { useStore } from '@/store';
 import { retagBlockedBy, type QueuedScan } from '@/outbox';
 import { decodeParam } from '@/route-param';
 import { editSentScan, fetchOrderDetail, type RemoteOrder } from '@/api';
+import { classify } from '@/scan-match';
+import { ulid } from '@/ulid';
 import {
   T, Screen, Surface, Btn, Eyebrow, Tag, Rise, Icon, ICON, mono, useBottomInset, tint,
 } from '@/ui';
@@ -85,6 +87,20 @@ export default function OrderEdit() {
   const [custQuery, setCustQuery] = useState('');
   const [custPick, setCustPick] = useState<{ id: string; name: string } | null>(null);
 
+  /**
+   * ADD A BOTTLE THAT NEVER WENT THROUGH THE SCAN LOOP.
+   *
+   * Missed on the truck, found under a seat after the delivery closed, or
+   * corrected off a phone call from the customer — none of those go through
+   * scan.tsx, because scan.tsx only exists while a delivery is open and this
+   * order may not be. This is the same "type a barcode by hand" idea that
+   * screen already has, aimed at an order that already exists instead of the
+   * one currently in progress.
+   */
+  const [showAdd, setShowAdd] = useState(false);
+  const [addCode, setAddCode] = useState('');
+  const [addMode, setAddMode] = useState<'SHIP' | 'RETURN'>('SHIP');
+
   const rows = outbox.scans.filter((s) => s.orderNumber === orderNumber);
 
   useEffect(() => {
@@ -102,27 +118,33 @@ export default function OrderEdit() {
   /**
    * WHAT THE SCREEN ACTUALLY EDITS.
    *
-   * Local rows win outright when there are any — this phone's own unsent or
+   * Local rows always speak for themselves — this phone's own unsent or
    * just-sent work, and the whole point of the outbox is that nothing else
-   * gets to speak for it. Only when the outbox is silent on this order does
-   * the server's copy fill the screen, always marked SENT: every one of these
-   * rows already reached the ledger from *some* phone, so editing any of them
-   * goes through the same server call and the same reason box a locally-SENT
-   * row already required.
+   * gets to override it. The server's copy used to fill the screen ONLY when
+   * the outbox was completely silent on this order, on the assumption that
+   * any local row meant this phone had done the whole order itself. Adding a
+   * bottle from THIS screen breaks that assumption on purpose — a driver
+   * fixing one missed bottle on an order three other phones scanned does not
+   * mean this phone suddenly knows the other twenty. So the two are merged:
+   * every local row, plus whatever the server has that this phone's outbox
+   * does not already carry for the same barcode and direction. Fetched the
+   * same as before — only asked for when the outbox starts out silent — so
+   * an order this phone scanned in full still never spends a request on it.
    */
-  const effectiveRows: (QueuedScan & { scannedBy?: string | null })[] = rows.length
-    ? rows
-    : (remote?.scans ?? []).map((s) => ({
-        clientId: `remote:${s.barcode}:${s.mode}`,
-        orderNumber,
-        barcode: s.barcode,
-        mode: s.mode,
-        customerListId: remote?.customerListId ?? '',
-        scannedAt: s.scannedAt,
-        lat: null, lng: null, accuracyM: null,
-        state: 'SENT' as const,
-        scannedBy: s.scannedBy,
-      }));
+  const remoteOnly = (remote?.scans ?? [])
+    .filter((s) => !rows.some((r) => r.barcode === s.barcode && r.mode === s.mode))
+    .map((s) => ({
+      clientId: `remote:${s.barcode}:${s.mode}`,
+      orderNumber,
+      barcode: s.barcode,
+      mode: s.mode,
+      customerListId: remote?.customerListId ?? '',
+      scannedAt: s.scannedAt,
+      lat: null, lng: null, accuracyM: null,
+      state: 'SENT' as const,
+      scannedBy: s.scannedBy,
+    }));
+  const effectiveRows: (QueuedScan & { scannedBy?: string | null })[] = [...rows, ...remoteOnly];
 
   const nameBy = new Map((boot?.customers ?? []).map((c) => [c.customerListId, c.name]));
   const listId = effectiveRows[0]?.customerListId ?? '';
@@ -269,6 +291,62 @@ export default function OrderEdit() {
     );
   }
 
+  /**
+   * ENQUEUE DIRECTLY, NOT addScan().
+   *
+   * addScan() on the store only ever files against whatever delivery is
+   * CURRENTLY open (store.orderNumber) — it has no way to target an
+   * arbitrary order, and this screen's order is almost always a different
+   * one, often nobody's open delivery at all. ENQUEUE is the same action the
+   * store's own addScan dispatches under the hood; this just builds the scan
+   * by hand and points it at the order this screen is actually looking at.
+   */
+  function addBottle() {
+    const barcode = addCode.trim().toUpperCase();
+    if (!barcode) return;
+
+    // Same guard scan.tsx's own take() applies: a customer card scanned by
+    // reflex must not queue as a cylinder.
+    const target = classify(barcode, boot);
+    if (target?.kind === 'customer') {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Alert.alert('That looks like a customer card', 'Type or scan the bottle’s own barcode, not the customer’s.');
+      return;
+    }
+
+    // Already on this order in the same direction, whether this phone queued
+    // it or the server already has it — nothing to add.
+    const localDup = outbox.scans.some(
+      (s) => s.orderNumber === orderNumber && s.barcode === barcode
+        && s.mode === addMode && s.state !== 'SENT');
+    const remoteDup = remote?.scans.some((s) => s.barcode === barcode && s.mode === addMode);
+    if (localDup || remoteDup) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      Alert.alert(
+        'Already on this order',
+        `${barcode} is already recorded as ${addMode === 'SHIP' ? 'out' : 'back'} on ${orderNumber}.`,
+      );
+      return;
+    }
+
+    dispatch({
+      type: 'ENQUEUE',
+      scan: {
+        clientId: ulid(),
+        orderNumber,
+        barcode,
+        mode: addMode,
+        customerListId: listId,
+        scannedAt: new Date().toISOString(),
+        lat: null, lng: null, accuracyM: null,
+        state: 'QUEUED',
+      },
+    });
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setAddCode('');
+    setShowAdd(false);
+  }
+
   function retagOrder() {
     const to = orderDraft.trim().toUpperCase();
     if (!to || to === orderNumber) return;
@@ -400,6 +478,75 @@ export default function OrderEdit() {
               {ret.length} back
             </Text>
           </View>
+        </Rise>
+
+        <Rise delay={40} style={{ marginTop: 22 }}>
+          {!showAdd ? (
+            <Pressable onPress={() => setShowAdd(true)} hitSlop={10}
+                       accessibilityRole="button"
+                       accessibilityLabel="Add a bottle to this order">
+              <Text style={{ color: T.brandLit, fontSize: 13.5, fontWeight: '700' }}>
+                Add a bottle
+              </Text>
+            </Pressable>
+          ) : (
+            <>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 9 }}>
+                <Eyebrow>Add a bottle</Eyebrow>
+                <Pressable onPress={() => { setShowAdd(false); setAddCode(''); }} hitSlop={12}
+                           accessibilityRole="button"
+                           accessibilityLabel="Cancel adding a bottle">
+                  <Text style={{ color: T.faint, fontSize: 12.5, fontWeight: '700' }}>Cancel</Text>
+                </Pressable>
+              </View>
+              <Text style={{ color: T.faint, fontSize: 11.5, marginBottom: 12, lineHeight: 16 }}>
+                For one that never went through the scan loop — missed on the truck, or found
+                after the fact. Typed, not scanned.
+              </Text>
+              <View style={{ flexDirection: 'row', gap: 10, marginBottom: 12 }}>
+                {(['SHIP', 'RETURN'] as const).map((m) => {
+                  const on = addMode === m;
+                  return (
+                    <Pressable
+                      key={m}
+                      onPress={() => { setAddMode(m); Haptics.selectionAsync(); }}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected: on }}
+                      accessibilityLabel={m === 'SHIP' ? 'Went out' : 'Came back'}
+                      style={{
+                        flex: 1, minHeight: 48, borderRadius: T.radiusSm,
+                        alignItems: 'center', justifyContent: 'center',
+                        borderWidth: on ? 2 : 1,
+                        borderColor: on ? T.brandLit : T.rule,
+                        backgroundColor: on ? tint(0.1) : 'transparent',
+                      }}
+                    >
+                      <Text style={{
+                        color: on ? T.ink : T.faint,
+                        fontSize: 14, fontWeight: on ? '800' : '600',
+                      }}>
+                        {m === 'SHIP' ? 'Went out' : 'Came back'}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              <TextInput
+                value={addCode} onChangeText={(v) => setAddCode(v.toUpperCase())}
+                autoCapitalize="characters" autoCorrect={false}
+                placeholder="PW-K-041827" placeholderTextColor={T.faint}
+                style={[field, mono(15.5, '600')]}
+                onSubmitEditing={addBottle}
+              />
+              <Btn
+                label="Add"
+                variant="ghost"
+                style={{ marginTop: 12 }}
+                disabled={busy || !addCode.trim()}
+                onPress={addBottle}
+              />
+            </>
+          )}
         </Rise>
 
         {/* The reason box only exists when there is something on the server to

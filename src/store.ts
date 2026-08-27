@@ -5,9 +5,11 @@ import { ulid } from './ulid';
 import { loadOutbox, saveOutbox, cacheGet, cacheSet, dbUnavailable as dbFlag, storageMode } from './db';
 import {
   fetchBootstrap, postScans, sessionIdentity, SyncRefused, BOOTSTRAP_VERSION, MAX_SYNC_BATCH,
-  type Bootstrap,
+  fetchOrderTarget, type Bootstrap,
 } from './api';
+import type { TargetLine } from './target-progress.ts';
 import { registerPush, deregisterPush } from './notifications';
+import { matchesFormat } from './formats';
 
 interface State {
   ready: boolean;
@@ -48,12 +50,27 @@ interface State {
   blocked: number | null;
   /** Barcodes the last sync uploaded that match no asset on the fleet. */
   unresolved: string[];
+  /**
+   * What the current order's Sales Order says should ship — "3 Argon, 2
+   * Oxygen" — for the live checklist. Null means "nothing to show": no
+   * Sales Order for this order yet, a walk-in, or simply not fetched yet.
+   * Never blocks anything; see fetchTarget and api.ts's fetchOrderTarget.
+   */
+  orderTarget: TargetLine[] | null;
 
   hydrate: () => Promise<void>;
   refresh: () => Promise<void>;
   dispatch: (a: Action) => void;
-  addScan: (barcode: string, geo?: { lat: number; lng: number; accuracyM: number | null }) => 'added' | 'duplicate' | 'unknown';
+  addScan: (barcode: string, geo?: { lat: number; lng: number; accuracyM: number | null }) =>
+    { kind: 'added' | 'duplicate' | 'unknown'; offFormat: boolean };
   startDelivery: (customerListId: string, customerName: string, orderNumber: string) => void;
+  /**
+   * Fire-and-forget: ask the server what this order's Sales Order says
+   * should ship. Never awaited by a caller that needs to keep moving — see
+   * the doc comment on api.ts's fetchOrderTarget for why a failure here is
+   * silent rather than surfaced.
+   */
+  fetchTarget: (orderNumber: string) => void;
   endDelivery: () => void;
   setMode: (m: Mode) => void;
   sync: () => Promise<void>;
@@ -81,6 +98,7 @@ export const useStore = create<State>((set, get) => ({
   mode: 'SHIP',
   blocked: null,
   unresolved: [],
+  orderTarget: null,
 
   async hydrate() {
     const [loaded, cached, lastSync, job, who] = await Promise.all([
@@ -142,6 +160,11 @@ export const useStore = create<State>((set, get) => ({
       mode: job?.mode ?? 'SHIP',
     });
     get().refresh().catch(() => {});
+    // A relaunch mid-job restores the order but not its target — the
+    // checklist would otherwise sit empty until the driver went back to
+    // Delivery and started again. Same fire-and-forget contract as
+    // startDelivery's own call below.
+    if (job?.orderNumber) get().fetchTarget(job.orderNumber);
   },
 
   /**
@@ -212,6 +235,7 @@ export const useStore = create<State>((set, get) => ({
       mode: 'SHIP',
       blocked: null,
       unresolved: [],
+      orderTarget: null,
     });
     await Promise.all([
       saveOutbox(empty).catch(() => {}),
@@ -261,7 +285,7 @@ export const useStore = create<State>((set, get) => ({
    */
   addScan(barcode, geo) {
     const { orderNumber, customerListId, mode, outbox, boot } = get();
-    if (!orderNumber || !customerListId) return 'unknown';
+    if (!orderNumber || !customerListId) return { kind: 'unknown', offFormat: false };
 
     // Only a row still pending can be "already scanned this trip" — a SENT
     // row is history from an earlier sync in this same job and must not
@@ -270,7 +294,17 @@ export const useStore = create<State>((set, get) => ({
     // SHIP-then-RETURN-then-RETURN case this was dropping.
     const existing = outbox.scans.find(
       (s) => s.orderNumber === orderNumber && s.barcode === barcode && s.state !== 'SENT');
-    if (existing && existing.mode === mode) return 'duplicate';
+    if (existing && existing.mode === mode) return { kind: 'duplicate', offFormat: false };
+
+    // Unknown barcodes are still accepted — never rejected in the field.
+    const unknown = !!boot && !(barcode in boot.assets);
+    // See the long comment in scan.tsx's take() for why BOTH conditions
+    // matter: a code the fleet already knows is right by definition, so this
+    // only fires for a code that is both new to the fleet AND does not look
+    // like one of ours. Computed here (not just in scan.tsx) so the flag can
+    // live on the row itself and still read correctly from History days
+    // later, instead of only flashing at the moment of the scan.
+    const offFormat = unknown && !matchesFormat(barcode, boot?.formats?.barcode);
 
     const scan: QueuedScan = {
       clientId: ulid(),
@@ -278,11 +312,11 @@ export const useStore = create<State>((set, get) => ({
       scannedAt: new Date().toISOString(),
       lat: geo?.lat ?? null, lng: geo?.lng ?? null, accuracyM: geo?.accuracyM ?? null,
       state: 'QUEUED',
+      offFormat,
     };
     get().dispatch({ type: 'ENQUEUE', scan });
 
-    // Unknown barcodes are still accepted — never rejected in the field.
-    return boot && !(barcode in boot.assets) ? 'unknown' : 'added';
+    return { kind: unknown ? 'unknown' : 'added', offFormat };
   },
 
   /**
@@ -303,12 +337,36 @@ export const useStore = create<State>((set, get) => ({
    * — three times a job, not once a scan.
    */
   startDelivery(customerListId, customerName, orderNumber) {
-    set({ customerListId, customerName, orderNumber, mode: 'SHIP' });
+    // orderTarget cleared immediately, not left over from whatever order
+    // came before — showing yesterday's checklist against today's order for
+    // the few hundred milliseconds before the fetch below lands would be a
+    // real, if brief, wrong answer.
+    set({ customerListId, customerName, orderNumber, mode: 'SHIP', orderTarget: null });
     cacheSet('delivery', { customerListId, customerName, orderNumber, mode: 'SHIP' })
+      .catch(() => {});
+    get().fetchTarget(orderNumber);
+  },
+  /**
+   * See the doc comment on api.ts's fetchOrderTarget: this never throws
+   * outward, never sets `lastError`, and is never awaited by a caller that
+   * needs to keep moving. An order with no Sales Order behind it yet — most
+   * of them, until rung two of the QuickBooks work lands — simply keeps
+   * orderTarget null, and the screen falls back to exactly what it shows
+   * today.
+   */
+  fetchTarget(orderNumber) {
+    fetchOrderTarget(orderNumber)
+      .then((t) => {
+        // The driver may have already moved to a different order (or ended
+        // the delivery) by the time a slow response lands — a stale target
+        // for the wrong order would be worse than none.
+        if (get().orderNumber !== orderNumber) return;
+        set({ orderTarget: t.lines.map((l) => ({ productCode: l.productCode, quantity: l.quantity })) });
+      })
       .catch(() => {});
   },
   endDelivery() {
-    set({ customerListId: null, customerName: null, orderNumber: null });
+    set({ customerListId: null, customerName: null, orderNumber: null, orderTarget: null });
     cacheSet('delivery', null).catch(() => {});
   },
   setMode(mode) {

@@ -23,6 +23,15 @@ export interface QueuedScan {
   lng: number | null;
   accuracyM: number | null;
   state: ScanState;
+  /**
+   * True when this scan was accepted despite not matching the org's
+   * configured barcode format — see the "off-format" comment in scan.tsx's
+   * take(). Purely a local UI flag: the row is still a normal scan in every
+   * other way (uploads, dedupes, counts the same), this only controls
+   * whether the review list and History keep showing a warning tag on it.
+   * Not sent to the server — see toWire below, which deliberately omits it.
+   */
+  offFormat?: boolean;
 }
 
 export interface Outbox {

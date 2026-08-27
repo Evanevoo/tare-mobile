@@ -8,15 +8,17 @@ import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import { useStore } from '@/store';
 import { forOrder, counts, type QueuedScan } from '@/outbox';
+import { checklist, isComplete } from '@/target-progress';
 import { classify } from '@/scan-match';
 import { playScanAccept, playScanAlert, playSubmitSuccess } from '@/sound';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T, shipTone, Surface, Btn, Tag, mono } from '@/ui';
 import { Scanner } from '@/scanner';
 import type { AssetRec } from '@/api';
+import { editSentScan } from '@/api';
 import { Sheet } from '@/sheet';
 import { Redirecting } from '@/redirecting';
-import { matchesFormat, formatExample } from '@/formats';
+import { formatExample } from '@/formats';
 
 /**
  * The scan loop.
@@ -59,6 +61,7 @@ export default function Scan() {
   const {
     orderNumber, customerName, customerListId, mode, setMode,
     outbox, addScan, dispatch, endDelivery, boot, sync, syncing, dbUnavailable,
+    orderTarget,
   } = useStore();
 
   const [last, setLast] = useState<
@@ -110,6 +113,67 @@ export default function Scan() {
   const removedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (removedTimer.current) clearTimeout(removedTimer.current); }, []);
 
+  /**
+   * REMOVING A SENT BOTTLE IS A DIFFERENT ACT THAN REMOVING A QUEUED ONE, AND
+   * LOOKS DIFFERENT ON PURPOSE.
+   *
+   * A QUEUED row is this phone's own unposted state — REMOVE above is free,
+   * instant, and undoable, because nothing outside this phone has seen it
+   * yet. A SENT row already reached the server (auto-sync posts every 45s,
+   * often before a driver has finished scanning, let alone opened this
+   * review sheet — see auto-sync.ts) and removing it is a real, audited
+   * change to the ledger: api/mobile/scan-edit's `void` action, which asks
+   * for a reason because that reason is what prints in the dispute packet a
+   * customer might eventually read. So this gets its own small sheet instead
+   * of one more silent tap — one field, one confirm, no undo (the undo for a
+   * void that turns out to be wrong is a manager restoring it, not a phone
+   * pretending the server call never happened).
+   *
+   * 27 Aug 2026, at Evan's direction: previously this was manager-only,
+   * meaning a driver mid-route could remove anything still QUEUED but
+   * nothing already auto-synced — exactly the five-out-of-six bottles that
+   * had usually synced by the time they opened this sheet to check their
+   * work. The server (scan-edit/route.ts) now lets a driver void a bottle
+   * THEY scanned, within a recent window, without a manager; this sheet is
+   * the UI for that.
+   */
+  const [removingSent, setRemovingSent] = useState<QueuedScan | null>(null);
+  const [sentReason, setSentReason] = useState('');
+  const [voiding, setVoiding] = useState(false);
+
+  async function confirmRemoveSent() {
+    if (!removingSent) return;
+    const reason = sentReason.trim();
+    if (reason.length < 3) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      return;
+    }
+    setVoiding(true);
+    try {
+      await editSentScan({
+        action: 'void',
+        orderNumber: removingSent.orderNumber,
+        barcode: removingSent.barcode,
+        mode: removingSent.mode,
+        reason,
+      });
+      dispatch({
+        type: 'APPLY_SERVER_EDIT',
+        orderNumber: removingSent.orderNumber,
+        barcode: removingSent.barcode,
+        drop: true,
+      });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setRemovingSent(null);
+      setSentReason('');
+    } catch (e: any) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Alert.alert('Could not remove it', e?.message ?? 'Try again when you have signal.');
+    } finally {
+      setVoiding(false);
+    }
+  }
+
   // The confirmation card flashes on each accepted scan. On a phone held at
   // arm's length this is read peripherally — you should not have to focus on
   // the screen to know the scan landed.
@@ -117,6 +181,13 @@ export default function Scan() {
 
   const rows = orderNumber ? forOrder(outbox, orderNumber) : [];
   const c = counts(outbox, orderNumber ?? undefined);
+  // The live checklist — "Argon 2/3 · Oxygen 1/2" — against a Sales Order's
+  // own target lines, when there is one. Advisory only, same as every other
+  // check in this app: it never changes what the Submit button below does.
+  // See target-progress.ts and store.ts's fetchTarget.
+  const checklistRows = orderNumber && orderTarget?.length
+    ? checklist(outbox, orderNumber, (barcode) => boot?.assets[barcode]?.p ?? null, orderTarget)
+    : [];
 
   /**
    * ONE FIX, STAMPED ON EVERY SCAN, IS NOT EVIDENCE OF WHERE A SCAN HAPPENED.
@@ -344,8 +415,6 @@ export default function Scan() {
       return;
     }
 
-    const kind = addScan(barcode, freshGeo());
-
     /**
      * THE ORG WROTE DOWN WHAT ITS BARCODES LOOK LIKE. THIS LOOP NEVER READ IT.
      *
@@ -362,10 +431,15 @@ export default function Scan() {
      * to ignore it. It is the combination — the fleet has never heard of this
      * code AND it does not look like one of ours — that means something: a
      * shipping label, a pallet tag, a manufacturer's own barcode on the side
-     * of the bottle. Recorded either way; see the banner.
+     * of the bottle.
+     *
+     * Computed inside addScan() now, not here — see the comment on that
+     * function in store.ts. Recorded on the row itself so the review list
+     * and History can keep showing it, not just the momentary banner/buzz
+     * this screen used to be the only place that knew about (27 Aug 2026,
+     * at Evan's direction: "add a visible tag in the review list").
      */
-    const offFormat = kind === 'unknown'
-      && !matchesFormat(barcode, boot?.formats?.barcode);
+    const { kind, offFormat } = addScan(barcode, freshGeo());
 
     setLast({ barcode, kind, offFormat });
 
@@ -907,6 +981,50 @@ export default function Scan() {
             </Pressable>
           </View>
 
+          {/* ── target checklist — "Argon 2/3 · Oxygen 1/2" ──
+              What the Sales Order says should ship, against what has
+              actually been scanned SHIP so far. Shown only when there IS a
+              target (most orders will not have one until the office's
+              QuickBooks Sales Order import is live) and never blocks
+              anything below it — Submit works exactly the same whether
+              every row here is complete or none of them are. */}
+          {checklistRows.length > 0 && (
+            <View style={{
+              paddingHorizontal: 18, paddingVertical: 14,
+              borderBottomWidth: 1, borderBottomColor: T.rule,
+            }}>
+              <Text style={{ color: T.faint, fontSize: 11.5, fontWeight: '700', letterSpacing: 0.4,
+                             textTransform: 'uppercase', marginBottom: 8 }}>
+                On this order
+              </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                {checklistRows.map((r) => {
+                  const done = r.target > 0 && r.scanned >= r.target;
+                  const extra = r.target === 0;
+                  return (
+                    <View key={r.productCode} style={{
+                      flexDirection: 'row', alignItems: 'center', gap: 6,
+                      paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8,
+                      backgroundColor: done ? 'rgba(52,199,89,0.14)' : T.soft,
+                    }}>
+                      <Text style={[mono(13, '700'), { color: done ? T.fern : T.ink }]}>
+                        {r.productCode}
+                      </Text>
+                      <Text style={[mono(13, '600'), { color: done ? T.fern : T.faint }]}>
+                        {extra ? `+${r.scanned}` : `${r.scanned}/${r.target}`}
+                      </Text>
+                    </View>
+                  );
+                })}
+              </View>
+              {isComplete(checklistRows) && (
+                <Text style={{ color: T.fern, fontSize: 12, fontWeight: '600', marginTop: 8 }}>
+                  Everything on the order is scanned.
+                </Text>
+              )}
+            </View>
+          )}
+
           <FlatList
             data={[...rows].reverse()}
             keyExtractor={(s) => s.clientId}
@@ -950,6 +1068,18 @@ export default function Scan() {
                 {a
                   ? <Tag label={a.f ? 'FULL' : 'EMPTY'} tone={a.f ? T.fern : T.needle} />
                   : boot ? <Tag label="UNKNOWN" tone={T.amber} /> : null}
+                {/* Off-format is its own dimension, not a restatement of
+                    UNKNOWN — it only ever applies to an unknown scan (see
+                    addScan() in store.ts), but "the fleet hasn't seen this
+                    code yet" and "this code doesn't even look like ours"
+                    are two different facts, so both chips render together.
+                    Added 27 Aug 2026 at Evan's direction — a driver asked
+                    why a 12-digit code scanned in at all when the org's
+                    format is 9 digits; the answer is it was always allowed
+                    through (never blocked in the field, see the take()
+                    comment above), it just used to say so only for a
+                    moment, in a buzz, and never again. */}
+                {item.offFormat && <Tag label="OFF FORMAT" tone={T.needle} />}
                 {item.state === 'QUEUED' && (
                   <Pressable
                     // 13pt of text with hitSlop 12 was a ~40pt target — under
@@ -966,6 +1096,23 @@ export default function Scan() {
                       setRemoved({ scan: item });
                       dispatch({ type: 'REMOVE', clientId: item.clientId });
                       removedTimer.current = setTimeout(() => setRemoved(null), 6000);
+                    }}
+                  >
+                    <Text style={{ color: T.needle, fontSize: 13, fontWeight: '700' }}>Remove</Text>
+                  </Pressable>
+                )}
+                {/* Already synced — see the note on removingSent above for
+                    why this opens a sheet instead of removing on the spot. */}
+                {item.state === 'SENT' && (
+                  <Pressable
+                    hitSlop={16}
+                    style={{ minHeight: 44, justifyContent: 'center' }}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Remove ${item.barcode} from this order — already sent, needs a reason`}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                      setSentReason('');
+                      setRemovingSent(item);
                     }}
                   >
                     <Text style={{ color: T.needle, fontSize: 13, fontWeight: '700' }}>Remove</Text>
@@ -1078,6 +1225,54 @@ export default function Scan() {
                   label="Add" style={{ flex: 1 }}
                   disabled={!manualCode.trim()}
                   onPress={() => { take(manualCode); setManualCode(''); setManual(false); }}
+                />
+              </View>
+            </View>
+          </Surface>
+        </View>
+      </Sheet>
+
+      {/* ── remove an already-sent bottle ──
+          See the note on removingSent/confirmRemoveSent above: unlike the
+          free, instant REMOVE on a still-QUEUED row, this is a real change
+          to the ledger and needs a reason before the server will take it. */}
+      <Sheet
+        visible={!!removingSent}
+        onRequestClose={() => { if (!voiding) { setRemovingSent(null); setSentReason(''); } }}
+        background="rgba(3,5,6,0.78)"
+      >
+        <View style={{ flex: 1, justifyContent: 'center', padding: 22 }}>
+          <Surface level={3}>
+            <View style={{ padding: 20 }}>
+              <Text style={{ color: T.ink, fontSize: 18.5, fontWeight: '700', marginBottom: 5 }}>
+                Remove {removingSent?.barcode}?
+              </Text>
+              <Text style={{ color: T.faint, fontSize: 13, marginBottom: 16, lineHeight: 19 }}>
+                This one already reached the server. It stays on the record as
+                withdrawn, with your reason, and stops counting on this order.
+              </Text>
+              <TextInput
+                value={sentReason} onChangeText={setSentReason}
+                autoFocus
+                placeholder="Why? (scanned by mistake, wrong order…)"
+                placeholderTextColor={T.faint}
+                style={{
+                  minHeight: 54, borderRadius: T.radiusSm, paddingHorizontal: 15, color: T.ink,
+                  backgroundColor: 'rgba(0,0,0,0.35)', borderWidth: 1, borderColor: T.rule,
+                  fontSize: 15,
+                }}
+                onSubmitEditing={confirmRemoveSent}
+              />
+              <View style={{ flexDirection: 'row', gap: 11, marginTop: 16 }}>
+                <Btn
+                  label="Keep it" variant="quiet" style={{ flex: 1 }} disabled={voiding}
+                  onPress={() => { setRemovingSent(null); setSentReason(''); }}
+                />
+                <Btn
+                  label="Remove" style={{ flex: 1 }}
+                  disabled={sentReason.trim().length < 3}
+                  busy={voiding}
+                  onPress={confirmRemoveSent}
                 />
               </View>
             </View>

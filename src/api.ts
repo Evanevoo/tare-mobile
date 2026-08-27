@@ -454,6 +454,36 @@ export async function fetchOrderDetail(orderNumber: string): Promise<RemoteOrder
   return res.json();
 }
 
+export interface RemoteOrderTarget {
+  orderNumber: string;
+  customerListId: string | null;
+  documentDate: string | null;
+  lines: { productCode: string; quantity: number }[];
+}
+
+/**
+ * What a Sales Order says this order should ship — "3 Argon, 2 Oxygen" — for
+ * the live checklist. Reads api/mobile/order/[orderNumber]/target, a sibling
+ * of fetchOrderDetail above and NOT a field on it: that route answers what
+ * has actually been scanned; this answers what a document says should be,
+ * and the two can legitimately disagree.
+ *
+ * NON-BLOCKING, always. An empty `lines` array — no Sales Order for this
+ * order number, a walk-in, an order scanned before dispatch's file landed,
+ * or simply no signal to ask at all — means "no checklist to show", never an
+ * error the driver has to deal with. Every call site treats a rejection the
+ * same way: log it if you like, but never surface it as a failure, and never
+ * let it delay starting the scan loop. See store.ts's fetchTarget.
+ */
+export async function fetchOrderTarget(orderNumber: string): Promise<RemoteOrderTarget> {
+  const res = await fetch(
+    `${API_URL}/api/mobile/order/${encodeURIComponent(orderNumber)}/target`,
+    { headers: { ...(await authHeader()) } },
+  );
+  if (!res.ok) throw new Error(`Could not fetch order target (${res.status})`);
+  return res.json();
+}
+
 /** The editable half of an asset. Everything here is what the thing IS. */
 export interface AssetDraft {
   productCode: string;

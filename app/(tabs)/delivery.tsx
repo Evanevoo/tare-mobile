@@ -1,7 +1,8 @@
 import { useCallback, useMemo, useState } from 'react';
-import { View, Text, TextInput, Pressable, FlatList } from 'react-native';
+import { View, Text, TextInput, Pressable, FlatList, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useStore } from '@/store';
+import { counts } from '@/outbox';
 import { Scanner } from '@/scanner';
 import { useScanRoute, explainMiss } from '@/scan-route';
 import { classify } from '@/scan-match';
@@ -23,7 +24,10 @@ export default function Delivery() {
   // A customer code read HERE fills the field below; it does not send the
   // driver off to that customer's screen in the middle of setting a job up.
   const route = useScanRoute({ customerScreen: false });
-  const { boot, startDelivery } = useStore();
+  const {
+    boot, startDelivery, outbox, sync,
+    orderNumber: openOrderNumber, customerName: openCustomerName, endDelivery,
+  } = useStore();
   // The customer list this screen searches is only as good as the last time
   // somebody thought to refresh it. Now it refreshes itself — an account added
   // in the office at 09:00 is searchable in the cab without anyone swiping.
@@ -161,7 +165,43 @@ export default function Delivery() {
     );
   }
 
-  const canStart = !!picked && order.trim().length >= 3;
+  /**
+   * THE SAME OPEN JOB, VISIBLE FROM THE SCREEN THAT SILENTLY OVERWROTE IT.
+   *
+   * Home gates a driver behind "Put it down" the moment a job is open — this
+   * screen never did. It reached straight into startDelivery() and replaced
+   * customerListId/customerName/orderNumber/mode with no warning at all, so
+   * a driver who came in through the Delivery tab rather than Home (the tab
+   * is always in the bar; Home's card is not the only door) could start a
+   * second delivery on top of a first with nothing telling them the first one
+   * was still open. Nothing was lost — the old order's scans stay in the
+   * outbox under their own order number and still upload on schedule — but
+   * the job pointer moved silently, and "other users still see it and have
+   * to take it down to do their scanning" (Evan, 27 Aug) was this screen
+   * being the one door that never told them there was anything to take down.
+   *
+   * Same open count as Home, same wording, same action — asked for once,
+   * here, rather than sending a driver back to a different tab to close
+   * something this screen is about to replace.
+   */
+  const openJob = !!(openOrderNumber && openOrderNumber !== order.trim().toUpperCase());
+  const openCount = openOrderNumber ? counts(outbox, openOrderNumber).total : 0;
+
+  function closeOpenJob() {
+    Alert.alert(
+      'Put this delivery down?',
+      `${openCount} scan${openCount === 1 ? '' : 's'} on ${openOrderNumber} stay saved and still `
+        + 'upload — this only clears it so you can start this one.',
+      [
+        { text: 'Keep it open', style: 'cancel' },
+        { text: 'Put it down', onPress: () => { endDelivery(); sync().catch(() => {}); } },
+      ],
+    );
+  }
+
+  // Blocked while another job sits open — the banner above is where it gets
+  // resolved, not a silent overwrite the moment this button is pressed.
+  const canStart = !!picked && order.trim().length >= 3 && !openJob;
 
   /**
    * "That does not look like one of yours."
@@ -231,6 +271,33 @@ export default function Delivery() {
         contentContainerStyle={{ paddingTop: 44, paddingBottom: 40 }}
         ListHeaderComponent={
           <View style={{ paddingHorizontal: 18 }}>
+            {openJob && (
+              <Rise style={{ marginBottom: 18 }}>
+                <Surface tint="rgba(224,164,58,0.16)">
+                  <View style={{ padding: 14 }}>
+                    <Text style={{ color: T.amber, fontSize: 11.5, fontWeight: '800', letterSpacing: 0.4 }}>
+                      STILL OPEN
+                    </Text>
+                    <Text style={{ color: T.ink, fontSize: 14.5, fontWeight: '600', marginTop: 5, lineHeight: 20 }}>
+                      {openCustomerName} · {openOrderNumber} · {openCount} scanned
+                    </Text>
+                    <Text style={{ color: T.faint, fontSize: 12, marginTop: 4, lineHeight: 17 }}>
+                      Put it down to start this one — those scans stay saved and still upload.
+                    </Text>
+                    <View style={{ flexDirection: 'row', gap: 10, marginTop: 12 }}>
+                      <Btn label="Put it down" variant="ghost" style={{ flex: 1 }} onPress={closeOpenJob} />
+                      <Btn
+                        label="Resume it instead"
+                        variant="quiet"
+                        style={{ flex: 1 }}
+                        onPress={() => router.push('/scan' as never)}
+                      />
+                    </View>
+                  </View>
+                </Surface>
+              </Rise>
+            )}
+
             <Rise>
               <Eyebrow style={{ marginBottom: 10 }}>1 · Customer</Eyebrow>
               {picked ? (
@@ -316,6 +383,11 @@ export default function Delivery() {
                     order numbers will be checked against your own.
                   </Text>
                 ) : null}
+                {openJob && (
+                  <Text style={{ color: T.amber, fontSize: 12.5, lineHeight: 18, marginTop: 7 }}>
+                    Put down the delivery above first — see &quot;Still open&quot;.
+                  </Text>
+                )}
                 <Btn
                   label="Start scanning"
                   style={{ marginTop: 20 }}
