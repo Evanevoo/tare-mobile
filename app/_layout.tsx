@@ -10,6 +10,8 @@ import { T, Aurora, applyPalette } from '@/ui';
 import { useTheme } from '@/theme';
 import { useUpdateWatch } from '@/updates';
 import { UpdateBanner } from '@/update-banner';
+import { useStoreUpdateWatch } from '@/store-update';
+import { StoreUpdateBanner } from '@/store-update-banner';
 import { useAutoSync } from '@/auto-sync';
 import { SessionGuards } from '@/guard';
 
@@ -128,6 +130,14 @@ function RootLayout() {
    * screen.
    */
   useUpdateWatch();
+
+  /**
+   * Same idea, a different question: is there a native build in the App
+   * Store / Play Store newer than the one installed right now — something
+   * no OTA bundle can ever answer or fix. See store-update.ts and the "A
+   * NEWER BUILD IN THE STORE" comment in update-policy.ts.
+   */
+  useStoreUpdateWatch();
 
   /**
    * Retry the outbox on its own — see auto-sync.ts. Mounted here, once, next
@@ -250,6 +260,7 @@ function RootLayout() {
         <Stack.Screen name="order/[orderNumber]" options={{ title: '' }} />
       </Stack>
         <UpdateBanner segment={segments[0]} />
+        <StoreUpdateBanner segment={segments[0]} />
       </View>
       </SessionGuards>
     </SafeAreaProvider>

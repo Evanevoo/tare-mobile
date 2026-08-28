@@ -98,6 +98,16 @@ export const APP_VERSION: string =
   NATIVE ? `${NATIVE.version} (${NATIVE.build})` : 'unknown build';
 
 /**
+ * The raw installed build number, for store-update.ts to compare against
+ * what's actually live in the App Store / Play Store — never a string for
+ * display, never the manifest's guess. Same NATIVE this file already reads;
+ * exported as a number (or null when it can't be read) because a comparison
+ * needs one, not a formatted sentence.
+ */
+export const NATIVE_BUILD: number | null =
+  NATIVE && /^\d+$/.test(NATIVE.build) ? Number(NATIVE.build) : null;
+
+/**
  * What app.json claimed when the running bundle was published. Useful only
  * beside APP_VERSION, and only for spotting exactly the drift described above
  * — never on its own, and never labelled "version".

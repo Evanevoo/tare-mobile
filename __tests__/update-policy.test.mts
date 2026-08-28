@@ -12,6 +12,7 @@
 import {
   shouldCheck, bannerVisible, bannerRoute, restartHint, statusLine,
   CHECK_INTERVAL_MS, RETRY_INTERVAL_MS, type Phase,
+  shouldCheckStore, storeBuildIsNewer, storeBannerVisible, STORE_CHECK_INTERVAL_MS,
 } from '../src/update-policy.ts';
 
 let passed = 0, failed = 0;
@@ -146,6 +147,50 @@ section('The Settings line');
     statusLine('error', { enabled: true, error: null }).length > 0);
   ok('a dev build says so rather than claiming to be up to date',
     statusLine('idle', { enabled: false }) === 'Updates are off in this build');
+}
+
+section('A store update is a different fact than an OTA bundle');
+{
+  const sbase = { online: true, checking: false, lastCheckAt: null as number | null, now: NOW };
+
+  ok('a fresh launch asks straight away', shouldCheckStore(sbase));
+  ok('no signal, no request', !shouldCheckStore({ ...sbase, online: false }));
+  ok('not while a check is already running',
+    !shouldCheckStore({ ...sbase, checking: true, lastCheckAt: NOW - 864e5 }));
+  ok('too soon since the last check',
+    !shouldCheckStore({ ...sbase, lastCheckAt: NOW - 1000 }));
+  ok('exactly the interval is due',
+    shouldCheckStore({ ...sbase, lastCheckAt: NOW - STORE_CHECK_INTERVAL_MS }));
+  ok('a clock that jumped backwards is treated as due, not frozen',
+    shouldCheckStore({ ...sbase, lastCheckAt: NOW + 1000 }));
+
+  ok('a published build ahead of the installed one is newer',
+    storeBuildIsNewer(226, 227));
+  ok('the same build is not newer — never !==', !storeBuildIsNewer(227, 227));
+  ok('a published build BEHIND the installed one is not newer either',
+    !storeBuildIsNewer(227, 226));
+  ok('an unreadable installed build never claims an update',
+    !storeBuildIsNewer(null, 227));
+  ok('no answer from the server yet is not an update either',
+    !storeBuildIsNewer(226, null));
+
+  const vbase = {
+    available: true, dismissedBuild: null as number | null,
+    published: 227, otaBannerVisible: false, segment: '(tabs)' as string | null,
+  };
+  ok('shown when available, on the tabs, with nothing else on screen',
+    storeBannerVisible(vbase));
+  ok('nothing to show when no update is available',
+    !storeBannerVisible({ ...vbase, available: false }));
+  ok('the OTA banner always wins when both are true',
+    !storeBannerVisible({ ...vbase, otaBannerVisible: true }));
+  ok('dismissing this exact build hides it',
+    !storeBannerVisible({ ...vbase, dismissedBuild: 227 }));
+  ok('but dismissing an OLDER build does not hide a newer one that shipped since',
+    storeBannerVisible({ ...vbase, dismissedBuild: 226 }));
+  ok('same placement rule as the OTA banner — never on the scan screen',
+    !storeBannerVisible({ ...vbase, segment: 'scan' }));
+  ok('nor on login', !storeBannerVisible({ ...vbase, segment: 'login' }));
 }
 
 console.log(`\n\x1b[1m${passed} passed, ${failed} failed\x1b[0m\n`);

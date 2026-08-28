@@ -139,6 +139,75 @@ export function restartHint(unsent: number): string {
     + 'and the job you are on stay on the phone.';
 }
 
+/**
+ * A NEWER BUILD IN THE STORE IS A DIFFERENT FACT THAN A NEWER BUNDLE ON DISK,
+ * AND NEEDS ITS OWN RULES.
+ *
+ * Everything above this point answers "is there a JS bundle expo-updates has
+ * already fetched" — a question the phone can answer itself, offline, in
+ * milliseconds. This answers a completely different one: "does the App Store
+ * / Play Store have a build newer than the native binary installed right
+ * now" — something only Scanified's own server can say (see
+ * api/mobile/store-version's doc comment for why neither Apple's nor
+ * Google's own answer is one the phone can ask for itself). A newer native
+ * build can NEVER arrive over the air — new native code, a new permission, a
+ * fixed crash in code that runs before any JS does — so a driver on one has
+ * no path forward except the store, and until this existed the app had no
+ * way to say so at all. Reported 27 Aug 2026: "users can't tell if there is
+ * a new update on the app store or play store."
+ */
+
+/** Four times a day. A store release is a rare event, not worth 15-minute polling. */
+export const STORE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+
+/** Same idea as shouldCheck above, with the same reasons, minus the ones that don't apply. */
+export function shouldCheckStore(o: {
+  online: boolean;
+  checking: boolean;
+  lastCheckAt: number | null;
+  now: number;
+  intervalMs?: number;
+}): boolean {
+  if (!o.online) return false;
+  if (o.checking) return false;
+  if (o.lastCheckAt === null) return true;
+  const since = o.now - o.lastCheckAt;
+  if (since < 0) return true; // clock moved backwards — see shouldCheck's note
+  return since >= (o.intervalMs ?? STORE_CHECK_INTERVAL_MS);
+}
+
+/**
+ * Strictly greater than, never `!==`. The server's answer is occasionally
+ * stale in the SAFE direction — bumped a little early, or not yet bumped
+ * right after a submit — and `!==` would tell a driver already on the
+ * newest build to go "update" to the exact build they're running, which
+ * reads as the app being wrong about something obvious to them.
+ */
+export function storeBuildIsNewer(installed: number | null, published: number | null): boolean {
+  if (installed === null || published === null) return false;
+  return published > installed;
+}
+
+/**
+ * Same placement rule as the OTA banner, and for the same reasons —
+ * `bannerRoute`'s doc comment covers both. The two are also mutually
+ * exclusive on screen: an OTA bundle is free and instant to apply, so if one
+ * is ready it is always the more useful thing to show a driver than "go to
+ * the store", even when both happen to be true at once.
+ */
+export function storeBannerVisible(o: {
+  available: boolean;
+  dismissedBuild: number | null;
+  published: number | null;
+  otaBannerVisible: boolean;
+  segment?: string | null;
+}): boolean {
+  if (!o.available) return false;
+  if (o.otaBannerVisible) return false;
+  if (o.published !== null && o.published === o.dismissedBuild) return false;
+  return bannerRoute(o.segment);
+}
+
 /** One line of plain English for the Settings row. */
 export function statusLine(phase: Phase, o: { enabled: boolean; error?: string | null }): string {
   if (!o.enabled) return 'Updates are off in this build';

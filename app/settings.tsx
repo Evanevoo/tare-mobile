@@ -13,6 +13,7 @@ import { T, Screen, Surface, Btn, Eyebrow, Rise, Hairline, Icon, ICON, mono, tin
 import { useTheme, type Pref } from '@/theme';
 import { useUpdates, APP_VERSION, BUNDLE_VERSION, UPDATES_ENABLED, runningBundle } from '@/updates';
 import { statusLine } from '@/update-policy';
+import { useStoreUpdate, openStore } from '@/store-update';
 
 /**
  * Settings, kept short on purpose.
@@ -255,6 +256,10 @@ function UpdateCard() {
   const working = phase === 'checking' || phase === 'downloading';
   const ready = phase === 'ready';
 
+  const storeAvailable = useStoreUpdate((s) => s.available);
+  const storeUrl = useStoreUpdate((s) => s.storeUrl);
+  const storeChecking = useStoreUpdate((s) => s.checking);
+
   return (
     <>
       <Surface>
@@ -269,7 +274,28 @@ function UpdateCard() {
         <Row label="Bundle" value={`${BUNDLE_VERSION} · ${runningBundle()}`} mono />
         <Hairline />
         <Row label="Updates" value={statusLine(phase, { enabled: UPDATES_ENABLED, error })} />
+        <Hairline />
+        {/*
+          A THIRD FACT, NOT A RESTATEMENT OF "Updates" ABOVE.
+          That row is about the JS bundle on top of this binary. This one is
+          about the binary itself — whether the App Store / Play Store has a
+          build newer than what's installed, which no amount of "Updates: up
+          to date" above can ever cover. See store-update.ts.
+        */}
+        <Row
+          label="App version"
+          value={storeChecking ? 'Checking…' : storeAvailable ? 'A newer version is out' : 'Current'}
+        />
       </Surface>
+
+      {storeAvailable && (
+        <Btn
+          label="Open the App Store / Play Store"
+          variant="primary"
+          style={{ marginTop: 12 }}
+          onPress={() => { if (storeUrl) openStore(storeUrl).catch(() => {}); }}
+        />
+      )}
 
       <Btn
         label={ready ? 'Restart to finish updating' : 'Check for updates'}
