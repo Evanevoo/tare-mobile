@@ -1,0 +1,5 @@
+npm warn config production Use `--omit=dev` instead.
+
+Submissions for @evanevoo/scanified:
+
+

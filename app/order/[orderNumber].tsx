@@ -470,7 +470,19 @@ export default function OrderEdit() {
         <Rise>
           <Text style={[mono(27, '700'), { color: T.ink, letterSpacing: -0.6 }]}>{orderNumber}</Text>
           <Text style={{ color: T.faint, fontSize: 14, marginTop: 5 }}>{customer}</Text>
-          <View style={{ flexDirection: 'row', gap: 16, marginTop: 10 }}>
+          {/* The same "how many bottles" that leads every History row, so the
+              number a driver tapped does not change shape when the screen
+              opens. Out plus back; withdrawn rows are already gone from both. */}
+          <View style={{ flexDirection: 'row', gap: 16, marginTop: 10, flexWrap: 'wrap', rowGap: 4 }}>
+            <Text style={[
+              mono(13.5, '700'),
+              {
+                color: ship.length + ret.length ? T.ink : T.faint,
+                fontVariant: ['tabular-nums'],
+              },
+            ]}>
+              {ship.length + ret.length} bottle{ship.length + ret.length === 1 ? '' : 's'}
+            </Text>
             <Text style={[mono(13.5, '700'), { color: ship.length ? T.amber : T.faint }]}>
               {ship.length} out
             </Text>

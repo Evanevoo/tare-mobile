@@ -422,6 +422,15 @@ export default function History() {
                 ? { text: 'ON THIS PHONE ONLY', tone: T.steel }
                 : { text: 'ON SERVER', tone: T.bottle };
 
+            /* HOW MANY BOTTLES ARE ON THIS ORDER — the question a driver
+               actually arrives with, and the one the out/back split made him
+               do in his head. Out plus back, withdrawn excluded because the
+               server already excludes it from both (see api/mobile/history):
+               a bottle taken off the order is not on the order. It leads the
+               line rather than trailing it, because "how many" is asked first
+               and "which way" second. */
+            const total = g.ship + g.ret;
+
             return (
               <Pressable
                 // `as never` is this codebase's established spelling for a
@@ -429,7 +438,7 @@ export default function History() {
                 // generated, and every other push here does the same.
                 onPress={() => router.push(`/order/${encodeURIComponent(g.orderNumber)}` as never)}
                 accessibilityRole="button"
-                accessibilityLabel={`Order ${g.orderNumber}, ${g.ship} out, ${g.ret} back, ${badge.text.toLowerCase()}`}
+                accessibilityLabel={`Order ${g.orderNumber}, ${total} bottle${total === 1 ? '' : 's'}, ${g.ship} out, ${g.ret} back, ${badge.text.toLowerCase()}`}
                 style={({ pressed }) => ({
                   flexDirection: 'row', alignItems: 'center', gap: 12,
                   paddingVertical: 14, paddingHorizontal: 4,
@@ -453,6 +462,12 @@ export default function History() {
                     flexDirection: 'row', gap: 14, marginTop: 7,
                     flexWrap: 'wrap', rowGap: 4,
                   }}>
+                    <Text style={[
+                      mono(13, '700'),
+                      { color: total ? T.ink : T.faint, fontVariant: ['tabular-nums'] },
+                    ]}>
+                      {total} bottle{total === 1 ? '' : 's'}
+                    </Text>
                     <Text style={[mono(13, '700'), { color: g.ship ? T.amber : T.faint }]}>
                       {g.ship} out
                     </Text>

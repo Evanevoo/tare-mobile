@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { View, Text, TextInput, Pressable, ScrollView, Alert } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { Vibration } from 'react-native';
@@ -92,10 +92,31 @@ export default function Locate() {
 
   const locations = boot?.locations ?? [];
 
+  /*
+    BARCODES WITH A DIALOG OPEN ABOUT THEM.
+
+    The duplicate guard below asks whether a barcode is already in `codes` —
+    but a bottle waiting on "Add anyway" is NOT in codes yet. It goes in when
+    the driver taps. Meanwhile the camera is still pointed at the same label
+    reading it several times a second, and every one of those reads passes the
+    duplicate check, sees a customer, and stacks another identical dialog.
+
+    Tap through the stack and the bottle is added once per dialog. A driver
+    reported scanning three and saving five, which is exactly this: one warned
+    bottle, three alerts, three taps.
+
+    A ref rather than state on purpose. `add` is called from the camera
+    callback and must see the very latest value; a state update would not have
+    landed before the next frame arrives, which is the whole problem.
+  */
+  const deciding = useRef<Set<string>>(new Set());
+
   function add(raw: string) {
     const bc = raw.trim().toUpperCase();
     if (!bc) return;
     if (codes.includes(bc)) { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); return; }
+    // Already asking about this one — the camera is just still looking at it.
+    if (deciding.current.has(bc)) return;
 
     const known = boot?.assets[bc];
 
@@ -119,6 +140,7 @@ export default function Locate() {
      * both fire, and the cheaper test goes first.
      */
     if (boot && !known) {
+      deciding.current.add(bc);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
       Vibration.vibrate([0, 130, 90, 130]);
       playScanAlert();
@@ -126,9 +148,12 @@ export default function Locate() {
         'Not in the system',
         `${bc} is not on the downloaded list. It may be new, or the barcode may have misread.\n\nAdding it still records the shelf — the office assigns what it is later.`,
         [
-          { text: 'Skip it', style: 'cancel' },
-          { text: 'Add anyway', onPress: () => setCodes((c) => [...c, bc]) },
+          { text: 'Skip it', style: 'cancel', onPress: () => deciding.current.delete(bc) },
+          { text: 'Add anyway', onPress: () => { deciding.current.delete(bc); setCodes((c) => (c.includes(bc) ? c : [...c, bc])); } },
         ],
+        // Dismissing without choosing has to clear it too, or the bottle can
+        // never be scanned again this session.
+        { onDismiss: () => deciding.current.delete(bc) },
       );
       return;
     }
@@ -140,14 +165,16 @@ export default function Locate() {
     // phone has already returned it — `c` alone is a stale snapshot, and
     // warning off it warned on exactly the case legacy learned to suppress.
     if (state === 'full' && locateWarning(known, hasLocalReturn(outbox.scans, bc))) {
+      deciding.current.add(bc);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
       Alert.alert(
         'Still out at a customer',
         `${bc} is on ${known?.c}'s account with an open rental. Adding it here brings it back in-house and ends that rental.\n\nThe usual flow is to scan it empty when it comes back, then full once it has been refilled.`,
         [
-          { text: 'Skip', style: 'cancel' },
-          { text: 'Add anyway', onPress: () => setCodes((c) => [...c, bc]) },
+          { text: 'Skip', style: 'cancel', onPress: () => deciding.current.delete(bc) },
+          { text: 'Add anyway', onPress: () => { deciding.current.delete(bc); setCodes((c) => (c.includes(bc) ? c : [...c, bc])); } },
         ],
+        { onDismiss: () => deciding.current.delete(bc) },
       );
       return;
     }

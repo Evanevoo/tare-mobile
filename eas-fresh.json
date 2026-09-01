@@ -1,0 +1,450 @@
+[
+  {
+    "id": "578ad78c-ce99-449f-bf89-556c5f3a2b5c",
+    "status": "FINISHED",
+    "platform": "ANDROID",
+    "artifacts": {
+      "buildUrl": "https://expo.dev/artifacts/eas/D14Ci_OJGx6I3xAb5kQW_jB2vWByHc52SHdqS-wbOsk.aab",
+      "applicationArchiveUrl": "https://expo.dev/artifacts/eas/D14Ci_OJGx6I3xAb5kQW_jB2vWByHc52SHdqS-wbOsk.aab"
+    },
+    "fingerprint": {
+      "id": "01a03ef5-06e6-7bea-9d9e-efb6f11e8247",
+      "hash": "914b25b2b3d2a2f65e5e0a7d95e60b46aa770d9a"
+    },
+    "initiatingActor": {
+      "id": "f01cc472-ff65-44bb-a3f7-e515897b76d2",
+      "displayName": "evanevoo"
+    },
+    "logFiles": [
+      "https://storage.googleapis.com/eas-workflows-production/logs/fad89b31-ae33-4bff-9011-af88c8268844/578ad78c-ce99-449f-bf89-556c5f3a2b5c/2026-08-26T16%3A44%3A04Z-accff6e9-3565-4e9b-958c-26cd6db7946d.txt?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=www-production%40exponentjs.iam.gserviceaccount.com%2F20260827%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260827T013603Z&X-Goog-Expires=900&X-Goog-SignedHeaders=host&X-Goog-Signature=9ca1dea3a6bb2c45e74eb5d6ea6185894242034258e90d9fc709a37457077c50a87bc640d301f283ac069bf9368d621d88fb9528039efdb6bfd9551d9193c7cf0563d15a13cc030fc3b144e3c72dc623da4e4deebd9d39f41e1e327ffb2550c5743b0f2e9be5a91bee83e004859b8b8b696bf5488158416c888759472e0908971c7fd82a2893cdc49c8d92e44bd30eec94ddaf54ecf9797eaa55d37d95d95dd860b43a749873c53cf367cfb0eb60e727e3003f327192273ce655ea51214ca31fff8200ead6c4e1beb5f55941bc48afa707c3b0bee7d58f17a53cac7daf991360784338c94190eb79f530791f1a541bd047d59e9ddd47f28bf9bf0199a539e534"
+    ],
+    "app": {
+      "id": "fad89b31-ae33-4bff-9011-af88c8268844",
+      "name": "scanified",
+      "slug": "scanified",
+      "ownerAccount": {
+        "id": "d6f71276-82eb-4c9d-bb42-6bb37befdfee",
+        "name": "evanevoo"
+      }
+    },
+    "updateChannel": {
+      "id": "019feeef-d4fe-7678-9231-8fcc2587f2be",
+      "name": "production"
+    },
+    "distribution": "STORE",
+    "buildProfile": "production",
+    "appIdentifier": "com.evanevoo.scanifiedandroid",
+    "sdkVersion": "54.0.0",
+    "appVersion": "1.2.4",
+    "appBuildVersion": "227",
+    "runtime": {
+      "id": "01a02ff5-55b7-7ed7-ad5c-93df62af862b",
+      "version": "1.2.4"
+    },
+    "gitCommitHash": "c9517d6c425e8c3b0c1e70ea42bcd55fcbfcb6fb",
+    "gitCommitMessage": "android: bump versionCode to 227 (226 already consumed on Play Console)",
+    "priority": "HIGH",
+    "createdAt": "2026-08-26T16:44:00.563Z",
+    "updatedAt": "2026-08-26T16:56:55.939Z",
+    "completedAt": "2026-08-26T16:56:55.735Z",
+    "expirationDate": "2026-09-25T16:44:00.603Z",
+    "isForIosSimulator": false,
+    "metrics": {
+      "buildWaitTime": 3621,
+      "buildQueueTime": 4464,
+      "buildDuration": 767087
+    }
+  },
+  {
+    "id": "edb7b0c1-ab8c-4483-b94a-dc9ded494d0d",
+    "status": "FINISHED",
+    "platform": "ANDROID",
+    "artifacts": {
+      "buildUrl": "https://expo.dev/artifacts/eas/57DDKL8RBN-p9Yc3tQIyb3sLijOPPQEz_SDqnCOHlbU.aab",
+      "applicationArchiveUrl": "https://expo.dev/artifacts/eas/57DDKL8RBN-p9Yc3tQIyb3sLijOPPQEz_SDqnCOHlbU.aab"
+    },
+    "fingerprint": {
+      "id": "01a03017-f215-76d6-bbe8-486801aeccb1",
+      "hash": "ed8218b3fef0ee0c244593e2cec9586131147a8a"
+    },
+    "initiatingActor": {
+      "id": "f01cc472-ff65-44bb-a3f7-e515897b76d2",
+      "displayName": "evanevoo"
+    },
+    "logFiles": [
+      "https://storage.googleapis.com/eas-workflows-production/logs/fad89b31-ae33-4bff-9011-af88c8268844/edb7b0c1-ab8c-4483-b94a-dc9ded494d0d/2026-08-23T19%3A27%3A55Z-38553285-726b-43e5-9219-ccef8c96aacf.txt?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=www-production%40exponentjs.iam.gserviceaccount.com%2F20260827%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260827T013603Z&X-Goog-Expires=900&X-Goog-SignedHeaders=host&X-Goog-Signature=0b07996c786d4c39c493d4a7e2412845fc3343065b52f33b3cf25401e8a47c0d2718f04d32c3d58dfefc2c89620a33319ea6d17ff58c64ed55ed621c8efc1d2a15dbcc8e8ed65ff42e07003345c4804b8261a0072ed1d616a1ad2906b276402398a114c2a8aa608af56ff359d206ed202b26029574e424e5ea0d811ce6c15087fae0ce6d6ce8a2e45b1e4a7b442ae596f573f939696514d0e7e8de0aed506234c5b6a83d359a0651fd90f43c359065e25e326dcf666392fa2ce12def928562be58aa842b1847620c7eb1e7d94d3d5b5dd5b3224654bac36227b4eaf6f3596e4866ffada21835564e85f63cfe1cb1b5a05231d1760b20fd47c8210c4e28b8f36e"
+    ],
+    "app": {
+      "id": "fad89b31-ae33-4bff-9011-af88c8268844",
+      "name": "scanified",
+      "slug": "scanified",
+      "ownerAccount": {
+        "id": "d6f71276-82eb-4c9d-bb42-6bb37befdfee",
+        "name": "evanevoo"
+      }
+    },
+    "updateChannel": {
+      "id": "019feeef-d4fe-7678-9231-8fcc2587f2be",
+      "name": "production"
+    },
+    "distribution": "STORE",
+    "buildProfile": "production",
+    "appIdentifier": "com.evanevoo.scanifiedandroid",
+    "sdkVersion": "54.0.0",
+    "appVersion": "1.2.4",
+    "appBuildVersion": "226",
+    "runtime": {
+      "id": "01a02ff5-55b7-7ed7-ad5c-93df62af862b",
+      "version": "1.2.4"
+    },
+    "gitCommitHash": "d32949158e16c6e0ed832964b520307784131288",
+    "gitCommitMessage": "Fix QA sweep findings: sync chunking, outbox write race, encrypted session; bump to 1.2.4 (226)\n\n- api.ts/store.ts: chunk sync() into MAX_SYNC_BATCH (2000) requests so a\n  shift's queue past the server's per-request cap keeps draining instead\n  of retrying one oversized, permanently-rejected payload forever.\n- db.ts: serialize saveOutbox through a chained/coalescing queue instead\n  of firing an unawaited write per scan, which could interleave two\n  non-exclusive SQLite transactions and lose a row.\n- secure-storage.ts (new): SecureStore-backed encrypted adapter for the\n  Supabase session (random AES key in SecureStore, encrypted blob in\n  AsyncStorage - avoids SecureStore's ~2048-byte value cap). Wired into\n  api.ts in place of the raw AsyncStorage storage adapter. New deps:\n  expo-crypto, aes-js, @types/aes-js.\n- app.json: version 1.2.3 -> 1.2.4, runtimeVersion likewise (expo-crypto\n  is a new native module, so a future OTA under the old runtime could\n  crash a phone built before this change - see the comment in the file),\n  iOS buildNumber 225 -> 226, Android versionCode 225 -> 226.\n\nVerified: tsc --noEmit clean, full npm test green (12 suites, no\nfailures) both before and after.",
+    "priority": "HIGH",
+    "createdAt": "2026-08-23T19:27:50.778Z",
+    "updatedAt": "2026-08-23T19:41:09.618Z",
+    "completedAt": "2026-08-23T19:41:09.461Z",
+    "expirationDate": "2026-09-22T19:27:50.798Z",
+    "isForIosSimulator": false,
+    "metrics": {
+      "buildWaitTime": 1653,
+      "buildQueueTime": 7162,
+      "buildDuration": 789868
+    }
+  },
+  {
+    "id": "55efe6a0-eff9-400d-a87a-d53effefc5e2",
+    "status": "FINISHED",
+    "platform": "ANDROID",
+    "artifacts": {
+      "buildUrl": "https://expo.dev/artifacts/eas/w1cc3PB4zd-fVbBM-kuQheUREkD_ZSWIAYsJIMuRtzc.aab",
+      "applicationArchiveUrl": "https://expo.dev/artifacts/eas/w1cc3PB4zd-fVbBM-kuQheUREkD_ZSWIAYsJIMuRtzc.aab"
+    },
+    "fingerprint": {
+      "id": "01a02ff6-7000-7be5-a182-307a0f6a48c5",
+      "hash": "e53017de813b6d1e6f9753aee793f9195a1cc884"
+    },
+    "initiatingActor": {
+      "id": "f01cc472-ff65-44bb-a3f7-e515897b76d2",
+      "displayName": "evanevoo"
+    },
+    "logFiles": [
+      "https://storage.googleapis.com/eas-workflows-production/logs/fad89b31-ae33-4bff-9011-af88c8268844/55efe6a0-eff9-400d-a87a-d53effefc5e2/2026-08-23T18%3A51%3A17Z-af63fca0-2dc7-4c3c-8122-7816209e7211.txt?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=www-production%40exponentjs.iam.gserviceaccount.com%2F20260827%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260827T013603Z&X-Goog-Expires=900&X-Goog-SignedHeaders=host&X-Goog-Signature=4adcb858a1f82371b4b825165d0e844f826a46ed08fabaee5a968a75af973b9dfcc6b3b3964cab7c873551234abb33a2cc829ecd2e0b9f135ba4b32fcea6f44cc212ca790e4b7c363e2d9564ba9de87b60943887417932cf8036c3c3d64d74427ec8a7210c61672c4d137b967c852444f34a9c2b16e946334d590493b23abc821a24b3a9c8545f267026c0157592d09502d3eb4ea4d55484b71c366227c1fda8329bcf0a8954ab13b979d825b3e08bc47cb569165d8ac4b8d980f2a6003d1e5b0bf4f2a335f48d997f728419351895ea6fde0ce26098f1c949d94584f5d739037ad643abc0cac5471900d94089d95f7352d5e8f442cc7a1a39dedffd6791311d"
+    ],
+    "app": {
+      "id": "fad89b31-ae33-4bff-9011-af88c8268844",
+      "name": "scanified",
+      "slug": "scanified",
+      "ownerAccount": {
+        "id": "d6f71276-82eb-4c9d-bb42-6bb37befdfee",
+        "name": "evanevoo"
+      }
+    },
+    "updateChannel": {
+      "id": "019feeef-d4fe-7678-9231-8fcc2587f2be",
+      "name": "production"
+    },
+    "distribution": "STORE",
+    "buildProfile": "production",
+    "appIdentifier": "com.evanevoo.scanifiedandroid",
+    "sdkVersion": "54.0.0",
+    "appVersion": "1.2.4",
+    "appBuildVersion": "226",
+    "runtime": {
+      "id": "01a02ff5-55b7-7ed7-ad5c-93df62af862b",
+      "version": "1.2.4"
+    },
+    "gitCommitHash": "d32949158e16c6e0ed832964b520307784131288",
+    "gitCommitMessage": "Fix QA sweep findings: sync chunking, outbox write race, encrypted session; bump to 1.2.4 (226)\n\n- api.ts/store.ts: chunk sync() into MAX_SYNC_BATCH (2000) requests so a\n  shift's queue past the server's per-request cap keeps draining instead\n  of retrying one oversized, permanently-rejected payload forever.\n- db.ts: serialize saveOutbox through a chained/coalescing queue instead\n  of firing an unawaited write per scan, which could interleave two\n  non-exclusive SQLite transactions and lose a row.\n- secure-storage.ts (new): SecureStore-backed encrypted adapter for the\n  Supabase session (random AES key in SecureStore, encrypted blob in\n  AsyncStorage - avoids SecureStore's ~2048-byte value cap). Wired into\n  api.ts in place of the raw AsyncStorage storage adapter. New deps:\n  expo-crypto, aes-js, @types/aes-js.\n- app.json: version 1.2.3 -> 1.2.4, runtimeVersion likewise (expo-crypto\n  is a new native module, so a future OTA under the old runtime could\n  crash a phone built before this change - see the comment in the file),\n  iOS buildNumber 225 -> 226, Android versionCode 225 -> 226.\n\nVerified: tsc --noEmit clean, full npm test green (12 suites, no\nfailures) both before and after.",
+    "priority": "HIGH",
+    "createdAt": "2026-08-23T18:51:14.784Z",
+    "updatedAt": "2026-08-23T19:04:20.519Z",
+    "completedAt": "2026-08-23T19:04:20.331Z",
+    "expirationDate": "2026-09-22T18:51:14.806Z",
+    "isForIosSimulator": false,
+    "metrics": {
+      "buildWaitTime": 2581,
+      "buildQueueTime": 4669,
+      "buildDuration": 778297
+    }
+  },
+  {
+    "id": "65a0220b-525d-4812-97c5-0f54a6d374a7",
+    "status": "FINISHED",
+    "platform": "ANDROID",
+    "artifacts": {
+      "buildUrl": "https://expo.dev/artifacts/eas/tGP-9nPq5HFeh_yjinJQZFfXHBV6fF6rWXmlLriNST4.aab",
+      "applicationArchiveUrl": "https://expo.dev/artifacts/eas/tGP-9nPq5HFeh_yjinJQZFfXHBV6fF6rWXmlLriNST4.aab"
+    },
+    "fingerprint": {
+      "id": "01a01c20-11ba-7327-9537-f53fd3e0ce05",
+      "hash": "9024b21f2f23795280cf3c0abf5c6b97464fdeef"
+    },
+    "initiatingActor": {
+      "id": "f01cc472-ff65-44bb-a3f7-e515897b76d2",
+      "displayName": "evanevoo"
+    },
+    "logFiles": [
+      "https://storage.googleapis.com/eas-workflows-production/logs/fad89b31-ae33-4bff-9011-af88c8268844/65a0220b-525d-4812-97c5-0f54a6d374a7/2026-08-19T22%3A24%3A22Z-68a1805e-cd6a-425c-9bb2-647cd2568386.txt?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=www-production%40exponentjs.iam.gserviceaccount.com%2F20260827%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260827T013603Z&X-Goog-Expires=900&X-Goog-SignedHeaders=host&X-Goog-Signature=92da08102cbc084f2f46338f767d10ec7b8c4134facf6cdef5d48fcc292fc9ec8f0e81216cff97c98300175d10f7198c8dae25b9223d05c320810ef28fdb71a7ab0ec7a403c3873531c16e2701d4f9ee6b018c37ba67be8645682f9acec7ac698d771b3f5fa0832ec1c923d9185aab0352a07a608ea9d20c706d13cf1800f38cab7efd352f84f3192a0fd8eeff6bc53cf3952c0a3b9721bba4ebcf75541fe34a6507a55d609e7dde96a48a59a38d52d3c543a8ce1b6ff13906ae8203c91b02b9992bfb9078d048fd74f366253bc684421f261d34b5a4672971400ff3f2658a4d0d95e4a555249599222b6ed9b71889d4b760ae9082f668b33f909b80d4d41513"
+    ],
+    "app": {
+      "id": "fad89b31-ae33-4bff-9011-af88c8268844",
+      "name": "scanified",
+      "slug": "scanified",
+      "ownerAccount": {
+        "id": "d6f71276-82eb-4c9d-bb42-6bb37befdfee",
+        "name": "evanevoo"
+      }
+    },
+    "updateChannel": {
+      "id": "019feeef-d4fe-7678-9231-8fcc2587f2be",
+      "name": "production"
+    },
+    "distribution": "STORE",
+    "buildProfile": "production",
+    "appIdentifier": "com.evanevoo.scanifiedandroid",
+    "sdkVersion": "54.0.0",
+    "appVersion": "1.2.3",
+    "appBuildVersion": "221",
+    "runtime": {
+      "id": "01a00e69-1151-7131-974e-31cd6040eb1a",
+      "version": "1.2.3"
+    },
+    "gitCommitHash": "efad11a26ef3bf7a6793012abb02b89f7efdd322",
+    "gitCommitMessage": "android 221",
+    "priority": "HIGH",
+    "createdAt": "2026-08-19T22:24:18.837Z",
+    "updatedAt": "2026-08-19T22:37:03.571Z",
+    "completedAt": "2026-08-19T22:37:03.382Z",
+    "expirationDate": "2026-09-18T22:24:18.864Z",
+    "isForIosSimulator": false,
+    "metrics": {
+      "buildWaitTime": 3255,
+      "buildQueueTime": 4722,
+      "buildDuration": 756568
+    }
+  },
+  {
+    "id": "29a04bdd-d3e8-4c9b-9945-7461a6313388",
+    "status": "FINISHED",
+    "platform": "ANDROID",
+    "artifacts": {
+      "buildUrl": "https://expo.dev/artifacts/eas/sHSLg84oHaE8I2gfISlSMCVma49kxJ4pV_lXbqYbOG0.apk",
+      "applicationArchiveUrl": "https://expo.dev/artifacts/eas/sHSLg84oHaE8I2gfISlSMCVma49kxJ4pV_lXbqYbOG0.apk"
+    },
+    "fingerprint": {
+      "id": "01a0168c-5708-711a-b14a-52a48ef08326",
+      "hash": "c392e21372e639cd55d8faf260079c0e3ee92946"
+    },
+    "initiatingActor": {
+      "id": "f01cc472-ff65-44bb-a3f7-e515897b76d2",
+      "displayName": "evanevoo"
+    },
+    "logFiles": [
+      "https://storage.googleapis.com/eas-workflows-production/logs/fad89b31-ae33-4bff-9011-af88c8268844/29a04bdd-d3e8-4c9b-9945-7461a6313388/2026-08-18T20%3A24%3A55Z-6fc402f9-3b65-4948-9618-c48272071097.txt?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=www-production%40exponentjs.iam.gserviceaccount.com%2F20260827%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260827T013603Z&X-Goog-Expires=900&X-Goog-SignedHeaders=host&X-Goog-Signature=065b89bbce54a61f93aad0f32a6c94a0048c8955df99b6b681e82d068519e1237d0d5857e7dfdb23cd0ab420f1aa0b68ba99ccea412cbbc2e1ed94798dfb475b154151edd56e679f6aa5a824b086853ab9c124700cd3a1cd0412092788219f64c09b25f7c2159396a72a1bf66f800d4a0121ee5d8063eb3b7b1345f406cd9c61f445067053867655739e27e17f9bcce0e39380f6fe3dcecda32a3bd2593db39615a7e14632e01b6e6963cd717d69098e39346ff5ae5b0b2451cf86d4c6ada231c7b0e59dcff59be3773a24710a2b937c94b5da79c1f58354bcc02ddb287099f9366a811f782335b34468dd208a141dca89d9df12553be36990746a7838be02b9"
+    ],
+    "app": {
+      "id": "fad89b31-ae33-4bff-9011-af88c8268844",
+      "name": "scanified",
+      "slug": "scanified",
+      "ownerAccount": {
+        "id": "d6f71276-82eb-4c9d-bb42-6bb37befdfee",
+        "name": "evanevoo"
+      }
+    },
+    "updateChannel": {
+      "id": "019fee99-8225-7e54-81de-9aaa6df9b665",
+      "name": "preview"
+    },
+    "distribution": "INTERNAL",
+    "buildProfile": "preview",
+    "appIdentifier": "com.evanevoo.scanifiedandroid",
+    "sdkVersion": "54.0.0",
+    "appVersion": "1.2.2",
+    "appBuildVersion": "216",
+    "runtime": {
+      "id": "01a00e69-1151-7131-974e-31cd6040eb1a",
+      "version": "1.2.3"
+    },
+    "gitCommitHash": "4af8e4361e7464b95666a79c7bfdf6540840303c",
+    "gitCommitMessage": "Full-screen Ship/Return scanner: camera fills the screen, readout + SHIP/RETURN overlay it\n\nThe scan loop had a fixed 36%-height camera box with the mode toggle, a permanently-visible last-scan card (full chips/banner on every single scan, including plain ones), the whole order list, Undo and Submit all stacked below it. Reference: the old app's Ship scan screen (screenshots), plus the explicit ask for a full-bleed camera with a scan border and two separate SHIP/RETURN boxes over the live feed rather than sections underneath it.\n\nCamera is now full-screen; header and a bottom readout+SHIP/RETURN overlay are drawn over it via Scanner's own children prop. A plain accepted scan now shows just the barcode, large — the full colour-bar/chips/banner card is reserved for cases that need judgement (duplicate, customer code, unrecognised barcode, odd asset status). The order list/Remove/Undo/Submit moved into a review sheet opened via a header pill (tap count), since they are reviewed occasionally, not read continuously. Scanner gained controlsBottomInset so its own torch/zoom/Snap/Read-text stack clears the new bottom overlay (measured via onLayout, not guessed).\n\ntsc --noEmit and npm test both pass clean.",
+    "priority": "HIGH",
+    "createdAt": "2026-08-18T20:24:51.165Z",
+    "updatedAt": "2026-08-18T20:38:42.947Z",
+    "completedAt": "2026-08-18T20:38:42.565Z",
+    "expirationDate": "2026-11-16T20:24:51.198Z",
+    "isForIosSimulator": false,
+    "metrics": {
+      "buildWaitTime": 3936,
+      "buildQueueTime": 4808,
+      "buildDuration": 822656
+    }
+  },
+  {
+    "id": "b1c8c4ed-5930-409b-961d-95fde12b8ba2",
+    "status": "FINISHED",
+    "platform": "ANDROID",
+    "artifacts": {
+      "buildUrl": "https://expo.dev/artifacts/eas/xg_4B8WcHwksopVtBQL-P6zVajQO6I8xpbYxIACcavs.aab",
+      "applicationArchiveUrl": "https://expo.dev/artifacts/eas/xg_4B8WcHwksopVtBQL-P6zVajQO6I8xpbYxIACcavs.aab"
+    },
+    "fingerprint": {
+      "id": "01a012ab-29ff-777c-93db-e055c7cbcd5e",
+      "hash": "5e9607acfaa45ca435fbfa43b384c7514119f2cf"
+    },
+    "initiatingActor": {
+      "id": "f01cc472-ff65-44bb-a3f7-e515897b76d2",
+      "displayName": "evanevoo"
+    },
+    "logFiles": [
+      "https://storage.googleapis.com/eas-workflows-production/logs/fad89b31-ae33-4bff-9011-af88c8268844/b1c8c4ed-5930-409b-961d-95fde12b8ba2/2026-08-18T02%3A20%3A03Z-a94331e8-48ca-46d5-8db3-70d9899f3d23.txt?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=www-production%40exponentjs.iam.gserviceaccount.com%2F20260827%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260827T013603Z&X-Goog-Expires=900&X-Goog-SignedHeaders=host&X-Goog-Signature=2c488d57024aeb8c5fce12383ffc28994b9db0b53ed3db36a1f9068c2f8641ea033a889fa876a8fe5c7aee9e589314c04754f483260901c700d201c7c3f3b939e5d0b9ac36dd8d2ddffdd00691d841b71e69be6cec3e972b4b3f3283b65d163e074acef63976b75146eb611006dea15fdd1d0b4ab79e3d5b3bef417e9d0777efe3534fbf6d58e8d721b7c8d858ac0e657881b8fca0b89b5d6ed1251a9640299061e5d0415b6dd46390eb3a5b6d040e67738146d0f0dadc2886c216efbc60e6025daff530898a6248de94185c4d0d0f06a10b5dadd9fe26b88e589b835862c953f18f28c96553d111c707296884aa6be42761af8b4c1321995128aa785cb63e38"
+    ],
+    "app": {
+      "id": "fad89b31-ae33-4bff-9011-af88c8268844",
+      "name": "scanified",
+      "slug": "scanified",
+      "ownerAccount": {
+        "id": "d6f71276-82eb-4c9d-bb42-6bb37befdfee",
+        "name": "evanevoo"
+      }
+    },
+    "updateChannel": {
+      "id": "019feeef-d4fe-7678-9231-8fcc2587f2be",
+      "name": "production"
+    },
+    "distribution": "STORE",
+    "buildProfile": "production",
+    "appIdentifier": "com.evanevoo.scanifiedandroid",
+    "sdkVersion": "54.0.0",
+    "appVersion": "1.2.2",
+    "appBuildVersion": "212",
+    "runtime": {
+      "id": "01a00e69-1151-7131-974e-31cd6040eb1a",
+      "version": "1.2.3"
+    },
+    "gitCommitHash": "4292e84bcb9e1ed6ac8f3b7f7c24e46badf69755",
+    "gitCommitMessage": "Build 211 on both platforms, carrying the expo-asset pin\n\nAndroid is live on 210 and iOS on 209, so both move to 211 rather than one of them colliding with something already in the store. appVersionSource is local and autoIncrement is off, so these numbers are the ones that ship - nothing on EAS will bump them.\n\nThe payload is the expo-asset override. expo-asset@57.0.11 was hoisted over the 12.0.13 that expo@54 resolves, and its AssetModule.kt referenced classes absent from the APK, so Android died in native module registration before a line of JS. No OTA could reach it. .easignore keeps android/ and ios/ out of the upload so EAS prebuilds on Linux and autolinks with paths that exist there.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\nClaude-Session: https://claude.ai/code/session_01UNs485E99owVv7bXP8upPo",
+    "priority": "HIGH",
+    "createdAt": "2026-08-18T02:20:02.388Z",
+    "updatedAt": "2026-08-18T02:32:06.853Z",
+    "completedAt": "2026-08-18T02:32:06.692Z",
+    "expirationDate": "2026-09-17T02:20:02.423Z",
+    "isForIosSimulator": false,
+    "metrics": {
+      "buildWaitTime": 990,
+      "buildQueueTime": 4611,
+      "buildDuration": 718703
+    }
+  },
+  {
+    "id": "035253d1-f255-4192-a39b-1fd07fcaebe5",
+    "status": "FINISHED",
+    "platform": "ANDROID",
+    "artifacts": {
+      "buildUrl": "https://expo.dev/artifacts/eas/IQqw236vbf0trYPUx9nynx9HvKYpSSpB3Wr0Lh8JJ1w.aab",
+      "applicationArchiveUrl": "https://expo.dev/artifacts/eas/IQqw236vbf0trYPUx9nynx9HvKYpSSpB3Wr0Lh8JJ1w.aab"
+    },
+    "fingerprint": {
+      "id": "01a011bd-cb1b-7e2a-8179-e4121c10a247",
+      "hash": "424518a887613e0698c3d9d44a62fd8bf9a63733"
+    },
+    "initiatingActor": {
+      "id": "f01cc472-ff65-44bb-a3f7-e515897b76d2",
+      "displayName": "evanevoo"
+    },
+    "logFiles": [
+      "https://storage.googleapis.com/eas-workflows-production/logs/fad89b31-ae33-4bff-9011-af88c8268844/035253d1-f255-4192-a39b-1fd07fcaebe5/2026-08-17T22%3A00%3A50Z-180a9a28-e1de-4fd3-9c20-1c5637f738f8.txt?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=www-production%40exponentjs.iam.gserviceaccount.com%2F20260827%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260827T013603Z&X-Goog-Expires=900&X-Goog-SignedHeaders=host&X-Goog-Signature=3a4587e659be094aec2eaa30bd775baed8d4862b111b8ce4f22baf364eb56075ad4de75b8d6374a3698fa2e8e1b5bb52106e51cba8385089aca4c744aa2f4a81f21c06200e3d783fb04772edb58dbf79c0997fa38566bec97c4fd399b4888e3f7b61b5a579dced3c5436a316308052fab4a4e94830e7e55874a30d527afdd1fac67af51138e949874d1bffb60075274a96f1a3596dca1fbaf9c6e3cca3ec92b7588f5ed202c0521b734c06c5e911512164d3332070ab68a22646b22934168e00c175e19bf3ae8d2cb9b3c4d1a0aa01e5a5e8de0027ebfa8409faf649391502cecda780c2c18241c937575de33862bcb4808a55c60833b0be487b8795efc829b6"
+    ],
+    "app": {
+      "id": "fad89b31-ae33-4bff-9011-af88c8268844",
+      "name": "scanified",
+      "slug": "scanified",
+      "ownerAccount": {
+        "id": "d6f71276-82eb-4c9d-bb42-6bb37befdfee",
+        "name": "evanevoo"
+      }
+    },
+    "updateChannel": {
+      "id": "019feeef-d4fe-7678-9231-8fcc2587f2be",
+      "name": "production"
+    },
+    "distribution": "STORE",
+    "buildProfile": "production",
+    "appIdentifier": "com.evanevoo.scanifiedandroid",
+    "sdkVersion": "54.0.0",
+    "appVersion": "1.2.2",
+    "appBuildVersion": "211",
+    "runtime": {
+      "id": "01a00e69-1151-7131-974e-31cd6040eb1a",
+      "version": "1.2.3"
+    },
+    "gitCommitHash": "4292e84bcb9e1ed6ac8f3b7f7c24e46badf69755",
+    "gitCommitMessage": "Build 211 on both platforms, carrying the expo-asset pin\n\nAndroid is live on 210 and iOS on 209, so both move to 211 rather than one of them colliding with something already in the store. appVersionSource is local and autoIncrement is off, so these numbers are the ones that ship - nothing on EAS will bump them.\n\nThe payload is the expo-asset override. expo-asset@57.0.11 was hoisted over the 12.0.13 that expo@54 resolves, and its AssetModule.kt referenced classes absent from the APK, so Android died in native module registration before a line of JS. No OTA could reach it. .easignore keeps android/ and ios/ out of the upload so EAS prebuilds on Linux and autolinks with paths that exist there.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n\nClaude-Session: https://claude.ai/code/session_01UNs485E99owVv7bXP8upPo",
+    "priority": "HIGH",
+    "createdAt": "2026-08-17T22:00:46.067Z",
+    "updatedAt": "2026-08-17T22:13:54.479Z",
+    "completedAt": "2026-08-17T22:13:54.300Z",
+    "expirationDate": "2026-09-16T22:00:46.097Z",
+    "isForIosSimulator": false,
+    "metrics": {
+      "buildWaitTime": 4108,
+      "buildQueueTime": 4779,
+      "buildDuration": 779346
+    }
+  },
+  {
+    "id": "16720ffb-2158-4e53-8870-c9fd77226f64",
+    "status": "FINISHED",
+    "platform": "ANDROID",
+    "artifacts": {
+      "buildUrl": "https://expo.dev/artifacts/eas/G46XgvCKrtohbeDnxu7ZEvy9nXSI6ZmVjtDKmOo2K2w.aab",
+      "applicationArchiveUrl": "https://expo.dev/artifacts/eas/G46XgvCKrtohbeDnxu7ZEvy9nXSI6ZmVjtDKmOo2K2w.aab"
+    },
+    "fingerprint": {
+      "id": "01a00e69-1159-7d5e-927a-61db0044b1c8",
+      "hash": "7c9585c7dd9681b50b4a6dc89f6f31e88352f0c4"
+    },
+    "initiatingActor": {
+      "id": "f01cc472-ff65-44bb-a3f7-e515897b76d2",
+      "displayName": "evanevoo"
+    },
+    "logFiles": [
+      "https://storage.googleapis.com/eas-workflows-production/logs/fad89b31-ae33-4bff-9011-af88c8268844/16720ffb-2158-4e53-8870-c9fd77226f64/2026-08-17T06%3A29%3A22Z-92a41dc5-cd0d-48c3-97cc-8ff9842538ca.txt?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=www-production%40exponentjs.iam.gserviceaccount.com%2F20260827%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260827T013603Z&X-Goog-Expires=900&X-Goog-SignedHeaders=host&X-Goog-Signature=470e86e00fa680e469ff0d077b7dce52a317f6ef4ac33d1516f5eebdf2c489bc6eb6541409cdbc131b1792f9da99f04095cea3d9ac1736f6c59eaec36c121654c3916f56c837df250e7bd97e505eec239c8b83230518ecf1ead04f0adffc678d1d3cca2ae0cc050215c222c44cafdc5661e1ff98f5acf6f7b73e6490571f89a75c6f4c1c9a800d8ad33bcc06e557cf0ae5d7a17005a592f1e76184b5f84422fd08f34d33f1bb59144e252cb83bf36d39cb0ab8080fc65a808ee281b769c704dfb360cf49d74632f52b9d76eac3b3e386f6f3d96ad6a83dcc830bbbdfb2d0f4ccca5d1217e7c5e0e56ec50183f06c5c1252b9f4fb4bc4a6c3da24a9c1a5f91655"
+    ],
+    "app": {
+      "id": "fad89b31-ae33-4bff-9011-af88c8268844",
+      "name": "scanified",
+      "slug": "scanified",
+      "ownerAccount": {
+        "id": "d6f71276-82eb-4c9d-bb42-6bb37befdfee",
+        "name": "evanevoo"
+      }
+    },
+    "updateChannel": {
+      "id": "019feeef-d4fe-7678-9231-8fcc2587f2be",
+      "name": "production"
+    },
+    "distribution": "STORE",
+    "buildProfile": "production",
+    "appIdentifier": "com.evanevoo.scanifiedandroid",
+    "sdkVersion": "54.0.0",
+    "appVersion": "1.2.2",
+    "appBuildVersion": "209",
+    "runtime": {
+      "id": "01a00e69-1151-7131-974e-31cd6040eb1a",
+      "version": "1.2.3"
+    },
+    "gitCommitHash": "f7dff2970dcef0e1d90e2a6fb31facb57356fb16",
+    "gitCommitMessage": "The return-loop S is the logo now: splash, app icons, and in-app mark\n\nGenerated from the Recraft vector via tare/scripts/apply-loop-logo.mjs. Splash is the transparent glyph on the existing #07090A background; iOS icon is the flattened dark square (App Store rejects alpha); adaptive foreground sits at 0.62 occupancy inside the Android mask zone. Splash and store icons take effect on the NEXT NATIVE BUILD - the in-app logo reaches existing phones via OTA.",
+    "priority": "HIGH",
+    "createdAt": "2026-08-17T06:29:21.846Z",
+    "updatedAt": "2026-08-17T06:42:00.088Z",
+    "completedAt": "2026-08-17T06:41:59.919Z",
+    "expirationDate": "2026-09-16T06:29:21.872Z",
+    "isForIosSimulator": false,
+    "metrics": {
+      "buildWaitTime": 325,
+      "buildQueueTime": 4932,
+      "buildDuration": 752816
+    }
+  }
+]
