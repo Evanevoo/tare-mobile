@@ -32,3 +32,9 @@ _*.js
 *.aab
 *.apk
 *.aab
+
+# EAS build/submit output - local scratch, not source
+eas-*.json
+eas-*.txt
+submits-summary.json
+parse-submits.js
