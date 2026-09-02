@@ -143,6 +143,38 @@ export const useStore = create<State>((set, get) => ({
 
     // Restore the job in flight, if there was one. A driver who force-quit at
     // bottle thirty comes back to bottle thirty.
+    /*
+      A RESTORED JOB WITH NOTHING LEFT IN IT IS A GHOST.
+
+      `endDelivery()` clears the job and writes `cacheSet('delivery', null)` —
+      but that write is fire-and-forget and its failure is swallowed, which is
+      right (a driver must not be blocked by a disk write) and leaves one hole:
+      if it does not land, hydrate faithfully restores the finished job on the
+      NEXT launch. And the one after. Dismissing it only clears memory, so it
+      returns every single time the app opens.
+
+      Reported 2 Sep 2026 — S50404, "still open, 0 scanned", after the order
+      had been scanned and submitted twice over. All six scans were on the
+      server; only the pointer was stuck.
+
+      So the outbox decides, not the cache. A job whose scans have all
+      uploaded has nothing left to resume: the card would offer to continue
+      work that is already done. A job with anything still queued is restored
+      exactly as before — that is the force-quit-at-bottle-thirty case this
+      cache exists for, and it is untouched.
+
+      Self-healing rather than a stricter write: the write can always fail, on
+      any phone, and this makes that harmless instead of permanent.
+    */
+    const jobHasWork = job?.orderNumber
+      ? outbox.scans.some((sc) => sc.orderNumber === job.orderNumber)
+      : false;
+    const liveJob = jobHasWork ? job : null;
+    if (job && !jobHasWork) {
+      // Try once more to clear it, so the next launch does not repeat this.
+      cacheSet('delivery', null).catch(() => {});
+    }
+
     set({
       outbox, boot, lastSync, ready: true,
       email: who?.email ?? null,
@@ -154,17 +186,17 @@ export const useStore = create<State>((set, get) => ({
       // in db.ts holds them. Warning a driver that nothing is being saved
       // while it IS being saved is how a banner stops being believed.
       dbUnavailable: storageMode === 'none' ? (dbFlag ?? 'Could not save to this phone.') : null,
-      customerListId: job?.customerListId ?? null,
-      customerName: job?.customerName ?? null,
-      orderNumber: job?.orderNumber ?? null,
-      mode: job?.mode ?? 'SHIP',
+      customerListId: liveJob?.customerListId ?? null,
+      customerName: liveJob?.customerName ?? null,
+      orderNumber: liveJob?.orderNumber ?? null,
+      mode: liveJob?.mode ?? 'SHIP',
     });
     get().refresh().catch(() => {});
     // A relaunch mid-job restores the order but not its target — the
     // checklist would otherwise sit empty until the driver went back to
     // Delivery and started again. Same fire-and-forget contract as
     // startDelivery's own call below.
-    if (job?.orderNumber) get().fetchTarget(job.orderNumber);
+    if (liveJob?.orderNumber) get().fetchTarget(liveJob.orderNumber);
   },
 
   /**
