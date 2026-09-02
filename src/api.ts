@@ -1,4 +1,5 @@
 import 'react-native-url-polyfill/auto';
+import { AppState } from 'react-native';
 import { createClient } from '@supabase/supabase-js';
 import Constants from 'expo-constants';
 import * as Linking from 'expo-linking';
@@ -32,6 +33,43 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON, {
     detectSessionInUrl: false,
   },
 });
+
+/*
+  ═══ WHY DRIVERS WERE BEING ASKED FOR THEIR PASSWORD AGAIN ═══
+
+  `autoRefreshToken: true` above starts a timer that renews the access token
+  before it expires. On React Native that timer does not survive the app being
+  backgrounded — the JS runtime is suspended, the interval stops firing, and
+  nothing restarts it when the driver comes back. Supabase's own Expo guidance
+  is explicit that `startAutoRefresh` / `stopAutoRefresh` must be driven from
+  AppState, and this app never did it.
+
+  What that looks like in a yard: the phone sits in a pocket between stops,
+  the access token expires, no refresh runs. Eventually the REFRESH token ages
+  out too, and at that point the session is genuinely gone — the driver is
+  back at the login screen typing a password, on a shift, in the cold.
+
+  Nothing was wrong with the storage adapter: the session was being persisted
+  and encrypted correctly the whole time. It was going stale in place.
+
+  Registered here, beside the client, rather than in a component: it belongs
+  to the client's lifetime, not to any screen's, and a screen unmounting must
+  not take token refresh down with it.
+*/
+AppState.addEventListener('change', (state) => {
+  if (state === 'active') {
+    // Also refreshes immediately if the token expired while away, so the
+    // first request after unlocking the phone does not fail on a stale token.
+    void supabase.auth.startAutoRefresh();
+  } else {
+    void supabase.auth.stopAutoRefresh();
+  }
+});
+
+// The listener only fires on CHANGE, and the app is already active when this
+// module first loads — without this line, refresh would not begin until the
+// driver had backgrounded and returned once.
+if (AppState.currentState === 'active') void supabase.auth.startAutoRefresh();
 
 async function authHeader(): Promise<Record<string, string>> {
   const { data } = await supabase.auth.getSession();
