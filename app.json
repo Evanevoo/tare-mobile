@@ -59,7 +59,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.evanevoo.scanifiedmobile",
-      "buildNumber": "229",
+      "buildNumber": "230",
       "infoPlist": {
         "NSCameraUsageDescription": "Scanified uses the camera to scan asset barcodes when you ship and receive them.",
         "NSLocationWhenInUseUsageDescription": "Scanified records where a scan happened so a delivery can be proven later.",
@@ -68,7 +68,7 @@
     },
     "android": {
       "package": "com.evanevoo.scanifiedandroid",
-      "versionCode": 229,
+      "versionCode": 230,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#07090A"
