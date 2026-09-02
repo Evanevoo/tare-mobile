@@ -1062,11 +1062,31 @@ export default function Scan() {
                     {item.state !== 'QUEUED' ? ` · ${item.state.toLowerCase()}` : ''}
                   </Text>
                 </View>
-                {/* The same green and red as the readout card, small. Known
-                    and unknown are mutually exclusive, so this never adds a
-                    chip to a row that already has one. */}
+                {/* WHAT THIS SCAN MAKES IT, NOT WHAT THE OFFICE LAST KNEW.
+
+                    `a.f` is the fill state from the downloaded asset list —
+                    the server's last word on the bottle. For anything going
+                    OUT that word is stale by definition: the cylinder came
+                    back empty, someone filled it, and nothing has told the
+                    server yet. So every bottle on a delivery rendered EMPTY,
+                    which is both wrong and alarming on the one screen a
+                    driver uses to check an order before submitting it.
+
+                    The scan itself settles it. A cylinder being shipped is
+                    full — that is what shipping one means — and one coming
+                    back is empty. Same rule the server applies on
+                    verification (verify-order.ts sets isFull on the assigned
+                    barcodes), just shown before the round trip instead of
+                    after it.
+
+                    Still only for KNOWN assets: an unknown barcode gets the
+                    UNKNOWN chip instead, and claiming a fill state for a
+                    cylinder the fleet has never seen would be inventing one. */}
                 {a
-                  ? <Tag label={a.f ? 'FULL' : 'EMPTY'} tone={a.f ? T.fern : T.needle} />
+                  ? (() => {
+                      const full = item.mode === 'SHIP';
+                      return <Tag label={full ? 'FULL' : 'EMPTY'} tone={full ? T.fern : T.needle} />;
+                    })()
                   : boot ? <Tag label="UNKNOWN" tone={T.amber} /> : null}
                 {/* Off-format is its own dimension, not a restatement of
                     UNKNOWN — it only ever applies to an unknown scan (see
