@@ -29,6 +29,12 @@ import { useLiveData } from '@/live';
  */
 type LocateDraft = {
   location: string; custom: boolean; state: 'full' | 'empty' | null; codes: string[];
+  /**
+   * When this draft was last touched. Optional because a draft written by an
+   * older build has no stamp — those load as before rather than being thrown
+   * away, since a missing timestamp is not evidence of staleness.
+   */
+  at?: number;
 };
 /** Same cache table startDelivery/endDelivery use for the job, one row over. */
 const DRAFT_KEY = 'locateDraft';
@@ -48,6 +54,13 @@ export default function Locate() {
   const [state, setState] = useState<'full' | 'empty' | null>(null);
   const [codes, setCodes] = useState<string[]>([]);
   const [typed, setTyped] = useState('');
+  /*
+    One line under the list for things worth saying but not worth stopping
+    for. The 'return-pending' case is the reason it exists: the driver did
+    everything right and only needs to know the office is behind, which is a
+    sentence, not a dialog.
+  */
+  const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [scanning, setScanning] = useState(false);
   /** Guards the save-effect below from firing on the empty pre-load render
@@ -73,11 +86,37 @@ export default function Locate() {
     let cancelled = false;
     cacheGet<LocateDraft>(DRAFT_KEY).then((d) => {
       if (cancelled) return;
-      if (d) {
+      /*
+        A DRAFT IS FOR FINISHING A SHELF, NOT FOR KEEPING ONE FOR EVER.
+
+        The cache above has no expiry, so a shelf somebody started and walked
+        away from came back every single time Locate opened — with the codes
+        loaded and "Mark 2 full" primed. Aaron reported exactly that on 2 and
+        3 Sep 2026: two BCS68-300s he had not scanned that day, waiting to be
+        submitted a second time.
+
+        That is worse than losing the draft. A restored shelf is only useful
+        while the driver still remembers what it was; a day later the same
+        rows are a trap, because pressing the button marks bottles full at a
+        location that may no longer be where they are.
+
+        Six hours is the shape of a shift with a break in it — long enough to
+        survive a phone dying mid-aisle, a call, a lunch, Android reclaiming
+        the app; short enough that nothing crosses into the next morning.
+
+        An older draft is dropped AND cleared, so this costs one read once
+        rather than every launch for ever.
+      */
+      const FRESH_MS = 6 * 60 * 60 * 1000;
+      const stale = d?.at != null && Date.now() - d.at > FRESH_MS;
+
+      if (d && !stale) {
         setLocation(d.location);
         setCustom(d.custom);
         setState(d.state);
         setCodes(d.codes);
+      } else if (d) {
+        cacheSet(DRAFT_KEY, null).catch(() => {});
       }
       setHydrated(true);
     }).catch(() => { if (!cancelled) setHydrated(true); });
@@ -87,7 +126,11 @@ export default function Locate() {
   useEffect(() => {
     if (!hydrated) return;
     const empty = !location && !custom && !state && codes.length === 0;
-    cacheSet(DRAFT_KEY, empty ? null : { location, custom, state, codes }).catch(() => {});
+    // `at` is what makes the draft expirable — see the note in the loader.
+    // Stamped on every change, so the six hours run from the last thing the
+    // driver actually did rather than from when the shelf was started.
+    cacheSet(DRAFT_KEY, empty ? null : { location, custom, state, codes, at: Date.now() })
+      .catch(() => {});
   }, [hydrated, location, custom, state, codes]);
 
   const locations = boot?.locations ?? [];
@@ -164,15 +207,46 @@ export default function Locate() {
     // customer AND an open rental must actually exist AND nothing on this
     // phone has already returned it — `c` alone is a stale snapshot, and
     // warning off it warned on exactly the case legacy learned to suppress.
-    if (state === 'full' && locateWarning(known, hasLocalReturn(outbox.scans, bc))) {
+    const warn = state === 'full' ? locateWarning(known, hasLocalReturn(outbox.scans, bc)) : 'none';
+
+    /*
+      A RETURN IS ON RECORD — SAY SO QUIETLY AND CARRY ON.
+
+      No dialog. The driver did the right thing; the invoice simply has not
+      been written yet, so the rental cannot close until the order is
+      verified. Stopping them to explain the office's backlog is how a
+      warning becomes noise, and once it is noise the 'not-returned' case
+      below stops being read too.
+    */
+    if (warn === 'return-pending') {
+      setNote(`${bc} — already scanned back, waiting on the paperwork. Shelving it is fine.`);
+    }
+
+    if (warn === 'not-returned') {
       deciding.current.add(bc);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      /*
+        SAY WHAT IS ACTUALLY MISSING: THE RETURN SCAN.
+
+        This read "Still out at a customer — adding it here brings it back
+        in-house and ends that rental", which describes the MECHANISM and
+        leaves the driver to infer the cause. The cause is the thing they can
+        act on: nobody scanned this bottle back, so shelving it as full would
+        close the rental with no evidence behind it.
+
+        Evan, 2 Sep 2026: "when locating as full, it should tell us that they
+        weren't scanned as return." Exactly right — and now that
+        'return-pending' is split out, every time this fires the return
+        really is missing.
+      */
       Alert.alert(
-        'Still out at a customer',
-        `${bc} is on ${known?.c}'s account with an open rental. Adding it here brings it back in-house and ends that rental.\n\nThe usual flow is to scan it empty when it comes back, then full once it has been refilled.`,
+        'No return scan for this one',
+        `${bc} is still on ${known?.c}'s account and nothing has been scanned back for it.\n\n`
+        + 'Shelving it as full will end that rental with no return on record. If it came back on '
+        + 'a delivery, scan it as a return there first — that way the order and the rental agree.',
         [
           { text: 'Skip', style: 'cancel', onPress: () => deciding.current.delete(bc) },
-          { text: 'Add anyway', onPress: () => { deciding.current.delete(bc); setCodes((c) => (c.includes(bc) ? c : [...c, bc])); } },
+          { text: 'Shelve it anyway', onPress: () => { deciding.current.delete(bc); setCodes((c) => (c.includes(bc) ? c : [...c, bc])); } },
         ],
         { onDismiss: () => deciding.current.delete(bc) },
       );
