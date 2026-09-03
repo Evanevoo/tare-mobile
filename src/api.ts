@@ -133,6 +133,10 @@ export interface AssetRec {
    * Locate interlock: a stale `c` alone must not warn — see interlock.ts.
    */
   or?: 0 | 1;
+  /** 1 = a RETURN is already recorded for this bottle on an unverified order.
+      Locate reads it so it stops warning about a bottle the yard has already
+      brought back — see interlock.ts. */
+  rp?: 0 | 1;
 }
 
 /** One catalogue row: pick the code, the other four fill in together. */
