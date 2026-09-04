@@ -35,10 +35,29 @@ export default function Login() {
   }, []);
 
   async function submit() {
-    if (!email || !password || busy) return;
+    if (busy) return;
+    /*
+      SAY WHY, RATHER THAN DOING NOTHING.
+
+      This used to return silently when either field was empty, which is fine
+      for a driver who can see the box is blank and useless for the case that
+      actually happened: iOS filled both fields from the keychain, they LOOKED
+      filled, state was empty, and the button did nothing at all. Reported 3
+      Sep 2026 as "the login button doesn't work" — the worst kind of report,
+      because there is nothing on screen to describe.
+
+      The onChange handlers below are the real fix. This is the guarantee that
+      a dead-looking button can never happen again for any other reason: from
+      here, pressing Sign in always produces something to read.
+    */
+    const addr = email.trim();
+    if (!addr || !password) {
+      setError(!addr && !password ? 'Enter your work email and password.'
+        : !addr ? 'Enter your work email.' : 'Enter your password.');
+      return;
+    }
     setBusy(true); setError(null); setSent(false);
     try {
-      const addr = email.trim();
       await signIn(addr, password);
       // Only after the credential is known good — otherwise a typo gets
       // remembered and refilled every morning.
@@ -111,6 +130,16 @@ export default function Login() {
                   autoCapitalize="none" autoCorrect={false}
                   keyboardType="email-address" textContentType="username"
                   value={email} onChangeText={setEmail} editable={!busy}
+                  /* iOS AUTOFILL DOES NOT ALWAYS FIRE onChangeText.
+                     textContentType invites iCloud Keychain to fill this
+                     field, and when it does the native text changes while
+                     React state stays empty — the box looks filled, `email`
+                     is '', and submit() returns silently on its own guard.
+                     Reported 3 Sep 2026 as "the login button doesn't work".
+                     onChange carries the native value, so filling either way
+                     lands in state. Both handlers set the same thing, so
+                     typing is unaffected. */
+                  onChange={(e) => setEmail(e.nativeEvent.text)}
                 />
 
                 <Text style={{ color: T.faint, fontSize: 12, fontWeight: '700', marginBottom: 8 }}>
@@ -122,6 +151,9 @@ export default function Login() {
                     placeholder="••••••••" placeholderTextColor={T.faint}
                     secureTextEntry={!show} textContentType="password"
                     value={password} onChangeText={setPassword} editable={!busy}
+                    /* Same as the email field above — keychain fill does not
+                       reliably fire onChangeText on iOS. */
+                    onChange={(e) => setPassword(e.nativeEvent.text)}
                     onSubmitEditing={submit} returnKeyType="go"
                   />
                   {/* A driver typing a password with gloved hands in daylight
@@ -215,7 +247,16 @@ export default function Login() {
             <Btn
               label="Sign in"
               busy={busy}
-              disabled={!email || !password}
+              /* NOT disabled on empty fields any more.
+                 With iOS keychain autofill the boxes look filled while React
+                 state is still empty, so this greyed the button out on a form
+                 the driver could see was complete — "the login button doesn't
+                 work", 3 Sep 2026. The onChange handlers above stop the state
+                 going stale in the first place; leaving the button live means
+                 that even if some other autofill path misses both handlers,
+                 pressing it produces a readable message instead of nothing.
+                 `busy` still guards the double-tap, which is the disable that
+                 was actually earning its place. */
               onPress={submit}
             />
 
