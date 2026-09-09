@@ -9,6 +9,7 @@ import { retagBlockedBy, type QueuedScan } from '@/outbox';
 import { decodeParam } from '@/route-param';
 import { editSentScan, fetchOrderDetail, type RemoteOrder } from '@/api';
 import { classify } from '@/scan-match';
+import { applyEditToRemote } from '@/remote-edit';
 import { ulid } from '@/ulid';
 import {
   T, Screen, Surface, Btn, Eyebrow, Tag, Rise, Icon, ICON, mono, useBottomInset, tint,
@@ -228,6 +229,24 @@ export default function OrderEdit() {
        * screen the driver is looking at.
        */
       dispatch({ type: 'APPLY_SERVER_EDIT', ...serverEditToLocal(body) });
+      /**
+       * AND ONTO THE SNAPSHOT, WHICH IS THE HALF THAT WAS MISSING.
+       *
+       * The line above keeps the outbox right. The screen also draws from one
+       * fetch of what the ledger says — taken once per visit, never taken
+       * again — and nothing kept THAT in step. `refresh()` below does not:
+       * its own note says it only refetches the bootstrap.
+       *
+       * The merge suppresses a server row when a local row matches it on
+       * barcode AND mode, which is the right key: AssetScan is unique on
+       * (org, order, barcode, mode) and a bottle really can go out and come
+       * back on one visit. But `mode` is exactly what a flip changes. Flip a
+       * sent bottle and the local row became (X, RETURN) while the snapshot
+       * still held (X, SHIP); the keys stopped matching, the server row
+       * stopped being suppressed, and the cylinder rendered under Went out
+       * AND Came back — labelled "on server" on both, because both were.
+       */
+      setRemote((r) => applyEditToRemote(r, body));
       await refresh().catch(() => {});
       Alert.alert('Saved', r.message);
       return true;
