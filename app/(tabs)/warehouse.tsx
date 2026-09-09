@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { admit } from '../../src/shelf-admit';
 import { View, Text, TextInput, Pressable, ScrollView, Alert } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { Vibration } from 'react-native';
@@ -154,12 +155,43 @@ export default function Locate() {
   */
   const deciding = useRef<Set<string>>(new Set());
 
+  /*
+    AND THE WINDOW BETWEEN THE TAP AND THE RE-RENDER.
+
+    `deciding` closed the stacked-dialog case above. It did not close this
+    one: its handlers delete the barcode and call setCodes in the same breath,
+    and `codes` does not contain it until the next render. A frame arriving in
+    between sees an empty ref and a stale array, passes both guards, and lands
+    on the append at the bottom of `add` — which was the one accept path with
+    no `includes` on it. Scan one warned bottle, save two.
+
+    A barcode goes in here at the same instant it is handed to setCodes, and
+    comes out when `codes` next changes. See src/shelf-admit.ts.
+  */
+  const justAdded = useRef<Set<string>>(new Set());
+
+  /* Cleared on ANY change to codes, not just ours — removing a chip, saving
+     the shelf and restoring a draft all rewrite the array, and each of them
+     makes it authoritative again. Clearing only after our own adds would
+     leave a removed bottle permanently unscannable. */
+  useEffect(() => { justAdded.current.clear(); }, [codes]);
+
+  /* The single way a barcode reaches the shelf. Both halves happen together
+     or the window above reopens. */
+  function keep(bc: string) {
+    justAdded.current.add(bc);
+    setCodes((c) => (c.includes(bc) ? c : [...c, bc]));
+  }
+
   function add(raw: string) {
     const bc = raw.trim().toUpperCase();
     if (!bc) return;
-    if (codes.includes(bc)) { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); return; }
-    // Already asking about this one — the camera is just still looking at it.
-    if (deciding.current.has(bc)) return;
+
+    const verdict = admit(bc, codes, justAdded.current, deciding.current);
+    // Already on the shelf: the light tick, and nothing else.
+    if (verdict === 'duplicate') { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); return; }
+    // A dialog is open about this one — the camera is just still looking.
+    if (verdict === 'deciding') return;
 
     const known = boot?.assets[bc];
 
@@ -192,7 +224,7 @@ export default function Locate() {
         `${bc} is not on the downloaded list. It may be new, or the barcode may have misread.\n\nAdding it still records the shelf — the office assigns what it is later.`,
         [
           { text: 'Skip it', style: 'cancel', onPress: () => deciding.current.delete(bc) },
-          { text: 'Add anyway', onPress: () => { deciding.current.delete(bc); setCodes((c) => (c.includes(bc) ? c : [...c, bc])); } },
+          { text: 'Add anyway', onPress: () => { deciding.current.delete(bc); keep(bc); } },
         ],
         // Dismissing without choosing has to clear it too, or the bottle can
         // never be scanned again this session.
@@ -246,7 +278,7 @@ export default function Locate() {
         + 'a delivery, scan it as a return there first — that way the order and the rental agree.',
         [
           { text: 'Skip', style: 'cancel', onPress: () => deciding.current.delete(bc) },
-          { text: 'Shelve it anyway', onPress: () => { deciding.current.delete(bc); setCodes((c) => (c.includes(bc) ? c : [...c, bc])); } },
+          { text: 'Shelve it anyway', onPress: () => { deciding.current.delete(bc); keep(bc); } },
         ],
         { onDismiss: () => deciding.current.delete(bc) },
       );
@@ -266,7 +298,7 @@ export default function Locate() {
      */
     if (known) { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); Vibration.vibrate(90); playScanAccept(); }
     else { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); Vibration.vibrate([0, 130, 90, 130]); playScanAlert(); }
-    setCodes((c) => [...c, bc]);
+    keep(bc);
   }
 
   async function save() {
