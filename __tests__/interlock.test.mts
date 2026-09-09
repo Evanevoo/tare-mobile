@@ -9,27 +9,48 @@ import { locateWarning, hasLocalReturn } from '../src/interlock.ts';
  * the routine case trains the yard to tap through the real one.
  */
 
+/* These pinned a boolean. `locateWarning` became three-way when
+   'return-pending' was split out of the loud case -- a driver who HAD scanned
+   twelve returns was being told all twelve were still out -- and the test was
+   never moved with it, so this file has been failing since. The cases below
+   are the same cases; only the vocabulary changed, except where noted. */
+
 test('no customer on the record — never warns', () => {
-  assert.equal(locateWarning(undefined, false), false);
-  assert.equal(locateWarning(null, false), false);
-  assert.equal(locateWarning({ c: null, or: 1 }, false), false);
-  assert.equal(locateWarning({ or: 1 }, false), false);
+  assert.equal(locateWarning(undefined, false), 'none');
+  assert.equal(locateWarning(null, false), 'none');
+  assert.equal(locateWarning({ c: null, or: 1 }, false), 'none');
+  assert.equal(locateWarning({ or: 1 }, false), 'none');
 });
 
-test('customer AND open rental — warns', () => {
-  assert.equal(locateWarning({ c: 'WELD01', or: 1 }, false), true);
+test('customer AND open rental AND no return anywhere — the loud one', () => {
+  assert.equal(locateWarning({ c: 'WELD01', or: 1 }, false), 'not-returned');
 });
 
 test('THE FIX: customer but the rental is already closed — silent', () => {
-  assert.equal(locateWarning({ c: 'WELD01', or: 0 }, false), false);
+  assert.equal(locateWarning({ c: 'WELD01', or: 0 }, false), 'none');
 });
 
-test('a RETURN already on this phone silences it — the outbox outruns the server', () => {
-  assert.equal(locateWarning({ c: 'WELD01', or: 1 }, true), false);
+/* THIS CASE CHANGED MEANING, not just spelling. It used to return false --
+   silence. It now returns 'return-pending', which the screen shows as a one
+   line note rather than a dialog: the driver did the right thing and the
+   office is behind, which is worth saying and not worth stopping for. */
+test('a RETURN already on this phone downgrades it to a note, not silence', () => {
+  assert.equal(locateWarning({ c: 'WELD01', or: 1 }, true), 'return-pending');
+});
+
+/* The branch the long comment in interlock.ts is about, and the one case in
+   that file with no test: `rp` is the SERVER reporting a return on an
+   unverified order, so it survives the outbox emptying after upload. */
+test('a RETURN the server knows about does too, after the outbox has emptied', () => {
+  assert.equal(locateWarning({ c: 'WELD01', or: 1, rp: 1 }, false), 'return-pending');
+});
+
+test('an old server that never sent `rp` falls through to the loud case', () => {
+  assert.equal(locateWarning({ c: 'WELD01', or: 1 }, false), 'not-returned');
 });
 
 test('an old server that never sent `or` — warn like before, the safe direction', () => {
-  assert.equal(locateWarning({ c: 'WELD01' }, false), true);
+  assert.equal(locateWarning({ c: 'WELD01' }, false), 'not-returned');
 });
 
 test('hasLocalReturn: only a RETURN for THAT barcode, any state including SENT', () => {
