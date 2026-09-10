@@ -155,9 +155,39 @@ function zxFormatsFor(types: readonly BarcodeType[]): ZXFormatName[] {
 }
 
 // Lowercase names are REQUIRED on iOS — uppercase silently matches nothing.
+/**
+ * FOUR SYMBOLOGIES REMOVED, BECAUSE A DECODER ONLY INVENTS NUMBERS YOU ASKED
+ * IT TO LOOK FOR.
+ *
+ * Reported as "scanning a barcode gives some random numbers", and the fleet
+ * explains it: 7,727 of 7,772 assets are NINE DIGITS, all numeric. The rest
+ * are 28 six-digit, 9 twelve-digit, and a handful of test rows.
+ *
+ * `itf14` and `codabar` carry no check digit and no length guard, so a
+ * decoder can read PART of a nine-digit label as a perfectly valid shorter
+ * code — a plausible number that was never on the bottle. `ean8` wants
+ * exactly eight digits, one short of ours, and its check digit passes by
+ * chance one time in ten; `upc_e` is worse, being six to eight. None of the
+ * four can represent a single barcode in this fleet, so every read they ever
+ * produce is a misread by construction.
+ *
+ * They stay removed rather than being filtered afterwards. A garbage decode
+ * that is rejected downstream has still fired the beep, still moved the
+ * reticle, and still cost the driver a second of doubt — and it is the same
+ * failure the double-read confirm below was already paying for. Not asking
+ * is cheaper than asking and discarding.
+ *
+ * `ean13` and `upc_a` STAY. They are the same family, but twelve and thirteen
+ * digits is longer than nine, so they cannot be produced by a partial read of
+ * one of ours — and ten assets in the fleet are that length, which may well
+ * be manufacturer labels somebody scans deliberately.
+ *
+ * The 2D codes stay too. A camera cannot mistake part of a linear label for a
+ * QR finder pattern, so they cost nothing here.
+ */
 const DEFAULT_TYPES: BarcodeType[] = [
-  'code128', 'code39', 'code93', 'codabar', 'itf14',
-  'ean13', 'ean8', 'upc_a', 'upc_e', 'qr', 'pdf417', 'datamatrix', 'aztec',
+  'code128', 'code39', 'code93',
+  'ean13', 'upc_a', 'qr', 'pdf417', 'datamatrix', 'aztec',
 ];
 
 /**
