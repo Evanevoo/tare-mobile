@@ -544,12 +544,65 @@ export function Scanner({
      * Net effect: pulsing while searching, still while working. Which is what
      * the periodic refocus was always trying to be.
      */
-    const iv = setInterval(() => {
+    /**
+     * AND BACK OFF WHEN IT IS NOT WORKING EITHER.
+     *
+     * The guard above goes quiet while reads land. The other half was never
+     * covered: when reads do NOT land, this fired at full rate, once a second,
+     * indefinitely. It is most aggressive exactly when it is failing.
+     *
+     * That is a trap on Android rather than merely wasteful. Toggling
+     * `autofocus` off and back on does not nudge the lens, it RESTARTS a full
+     * autofocus sweep, and on plenty of sensors a sweep takes longer than a
+     * second to converge. Firing again at 1000ms interrupts the sweep that was
+     * still running and starts another from wherever the lens happened to be.
+     * This file already knew the shape of that -- see the note on the two
+     * startup kicks being offset "so two cycles never fire together, because
+     * overlapping cycles cancel each other's off-window early and the refocus
+     * silently does not happen" -- but only the startup kicks were spaced.
+     * The repeating interval was not.
+     *
+     * So: bad focus, no reads, hunt harder, sweep never completes, still no
+     * reads. "Keeps focusing on and off, never lands sharp" is that loop.
+     *
+     * Each unproductive cycle now waits longer than the last, up to 3.5s,
+     * which is past the convergence time of the slow sensors this is failing
+     * on. A single read resets it to the original cadence, so a driver
+     * sweeping a pallet gets the responsive behaviour the moment anything
+     * decodes -- the case the fast interval exists for is also the case where
+     * it demonstrably works.
+     *
+     * THIS IS A HYPOTHESIS AND SHOULD BE TREATED AS ONE. It is derived from
+     * the mechanism rather than measured on the handset, because this file
+     * cannot see a camera. It is the third change to these timings; the first
+     * two were guessed constants and were reverted. What makes this one
+     * different is that it changes the SHAPE -- spacing sweeps so they can
+     * finish -- rather than picking a new number for the same shape. If it
+     * still hunts, the note above stands and the next step is a device.
+     */
+    const QUIET_MS = 3000;      // a read this recent means the lens is right
+    const BASE_MS = 1000;       // legacy cadence, kept for the working case
+    const MAX_MS = 3500;        // past a slow sensor's convergence time
+
+    let wait = BASE_MS;
+    let timer: ReturnType<typeof setTimeout>;
+
+    const tick = () => {
       const since = Date.now() - lastReadAt.current;
-      if (since < 3000) return;   // it is working; do not disturb the lens
-      cycle();
-    }, 1000);
-    return () => { timers.forEach(clearTimeout); clearInterval(iv); };
+      if (since < QUIET_MS) {
+        // Working. Do not disturb the lens, and forget any accumulated
+        // back-off so the next real search starts responsive.
+        wait = BASE_MS;
+      } else {
+        cycle();
+        // Unproductive: give the next sweep more room than this one had.
+        wait = Math.min(Math.round(wait * 1.5), MAX_MS);
+      }
+      timer = setTimeout(tick, wait);
+    };
+    timer = setTimeout(tick, wait);
+
+    return () => { timers.forEach(clearTimeout); clearTimeout(timer); };
   }, [ready, steadyFocus]);
 
   /**
