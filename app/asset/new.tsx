@@ -249,6 +249,7 @@ export default function NewAsset() {
                    it was trying to make: the same "autofocus never settles,
                    just blurry" complaint reported against this screen. */
                 <Scanner
+                  format={boot?.formats?.barcode}
                   onCode={take}
                   onClose={() => setScanning(false)}
                   steadyFocus

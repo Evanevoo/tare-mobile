@@ -464,6 +464,7 @@ export default function Delivery() {
       >
         <View style={{ flex: 1, backgroundColor: '#000' }}>
           <Scanner
+            format={scanning === 'order' ? boot?.formats?.orderNumber : boot?.formats?.barcode}
             onCode={handleCode}
             accept={acceptHere}
             onClose={() => setScanning(null)}

@@ -695,6 +695,7 @@ export default function Scan() {
           is the measured height of the bottom overlay, so Scanner's own
           torch/zoom/Snap/Read-text stack sits above it instead of under it. */}
       <Scanner
+        format={boot?.formats?.barcode}
         onCode={take}
         onDuplicate={onDuplicate}
         style={{ flex: 1 }}

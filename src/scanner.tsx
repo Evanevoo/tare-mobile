@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as Haptics from 'expo-haptics';
 import { T, Icon, ICON, wash } from '@/ui';
+import { matchesFormat } from '@/formats';
 import { useStore } from './store';
 import { candidatesFrom, matchKnown, recognizeText, OcrUnavailable } from './ocr';
 import { decodeBase64Image as zxDecode, type FormatName as ZXFormatName } from './zxing';
@@ -301,6 +302,32 @@ export interface ScannerProps {
   onDuplicate?: (code: string) => void;
   /** Reject values that cannot be right here (wrong shape, wrong length). */
   accept?: (code: string) => boolean;
+  /**
+   * THE ORG'S OWN NUMBER RULE, AS A GATE RATHER THAN A NOTE.
+   *
+   * `formats.ts` calls these patterns advisory and never a gate, and it is
+   * right about where a value is TYPED: a driver holding a bottle whose label
+   * was printed wrong still has to be able to record it, and the manual entry
+   * field on every one of these screens is where they do.
+   *
+   * A CAMERA IS NOT SOMEBODY TYPING. A decode that does not match the shape
+   * the company wrote down is far likelier to be the decoder reading part of
+   * a label, a price sticker or the box behind it than a real cylinder with a
+   * bad label — and unlike a person, the camera makes that mistake several
+   * times a second, silently, into a list somebody bills from. So on this
+   * surface the pattern gates, and the typed field beside it stays open as
+   * the way in for the genuinely odd one.
+   *
+   * Only when a pattern is actually SET. Empty means the company has not
+   * written the rule down, and `matchesFormat` accepts everything against an
+   * empty pattern on purpose — an org that has configured nothing must keep
+   * working exactly as it did.
+   *
+   * Rejection is silent, like `accept`: no beep, no reticle flash, the camera
+   * simply keeps looking. An ignored read should be indistinguishable from a
+   * frame that decoded nothing, because that is what it is worth.
+   */
+  format?: string | null;
   /** Narrow the symbologies to cut false positives — e.g. ['code39']. */
   types?: BarcodeType[];
   style?: StyleProp<ViewStyle>;
@@ -337,7 +364,7 @@ export interface ScannerProps {
 }
 
 export function Scanner({
-  onCode, onDuplicate, accept, types, style, children, reticle = true, onClose, cooldownMs = 2000,
+  onCode, onDuplicate, accept, format, types, style, children, reticle = true, onClose, cooldownMs = 2000,
   controlsBottomInset = 0, steadyFocus = false,
 }: ScannerProps) {
   const insets = useSafeAreaInsets();
@@ -539,6 +566,9 @@ export function Scanner({
   const deliver = useCallback((raw: string, symbology?: string) => {
     const code = raw.trim().toUpperCase();
     if (!code) return;
+    // Shape first, then the caller's own rule: the pattern is cheap and it is
+    // the check most likely to fire on a misread.
+    if (!matchesFormat(code, format)) return;
     if (accept && !accept(code)) return;
 
     const now = Date.now();
@@ -595,7 +625,7 @@ export function Scanner({
     lastReadAt.current = now;
     setStruggling(false);
     onCode(code);
-  }, [accept, cooldownMs, onCode, onDuplicate]);
+  }, [accept, format, cooldownMs, onCode, onDuplicate]);
 
   /**
    * The still-frame path, for labels the live decoder cannot crack.
@@ -810,7 +840,7 @@ export function Scanner({
         // a full-resolution photo does not produce the partial reads that a
         // motion-blurred video frame does.
         code = code.toUpperCase();
-        if (!accept || accept(code)) {
+        if (matchesFormat(code, format) && (!accept || accept(code))) {
           lastAccepted.current[code] = Date.now();
           lastReadAt.current = Date.now();
           setStruggling(false);
@@ -827,7 +857,7 @@ export function Scanner({
       // before: the decode above still holds these URIs.
       discard(...scratch);
     }
-  }, [accept, onCode, snapBusy, reticle, types]);
+  }, [accept, format, onCode, snapBusy, reticle, types]);
 
   /**
    * READ TEXT — the OCR still-frame fallback, one tier below Snap.

@@ -492,6 +492,7 @@ export default function BatchAssets() {
                        src/scanner.tsx. */
                     <View style={{ marginTop: 12 }}>
                       <Scanner
+                        format={boot?.formats?.barcode}
                         steadyFocus
                         onCode={(c) => {
                           setPending((p) => (p ? { ...p, serial: c } : p));
@@ -563,6 +564,7 @@ export default function BatchAssets() {
                 </View>
               ) : scanning ? (
                 <Scanner
+                  format={boot?.formats?.barcode}
                   onCode={take}
                   onClose={() => setScanning(false)}
                   style={{

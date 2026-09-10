@@ -614,6 +614,7 @@ export default function Locate() {
       <Sheet visible={scanning} onRequestClose={() => setScanning(false)}>
         <View style={{ flex: 1, backgroundColor: '#000' }}>
           <Scanner
+            format={boot?.formats?.barcode}
             onCode={add}
             onClose={() => setScanning(false)}
             style={{ flex: 1 }}
