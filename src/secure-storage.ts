@@ -2,6 +2,7 @@ import * as aesjs from 'aes-js';
 import * as Crypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { decryptSession, encryptSession, keyFromHex } from './session-crypto';
 
 /**
  * ═══ THE SESSION LIVED IN PLAIN TEXT ═══
@@ -39,7 +40,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 class LargeSecureStore {
   private async encryptionKeyFor(key: string): Promise<Uint8Array> {
     const existing = await SecureStore.getItemAsync(key);
-    if (existing) return aesjs.utils.hex.toBytes(existing);
+    // keyFromHex, not aes-js's hex.toBytes: that returns a plain Array, which
+    // the session cipher refuses. See session-crypto.ts.
+    if (existing) return keyFromHex(existing);
 
     const generated = await Crypto.getRandomBytesAsync(256 / 8);
     await SecureStore.setItemAsync(key, aesjs.utils.hex.fromBytes(generated));
@@ -58,12 +61,26 @@ class LargeSecureStore {
     // treat it as no session rather than throwing on every app launch.
     if (!encryptionKeyHex) return null;
 
-    const cipher = new aesjs.ModeOfOperation.ctr(
-      aesjs.utils.hex.toBytes(encryptionKeyHex),
-      new aesjs.Counter(1),
-    );
-    const decrypted = cipher.decrypt(aesjs.utils.hex.toBytes(encrypted));
-    return aesjs.utils.utf8.fromBytes(decrypted);
+    const encryptionKey = keyFromHex(encryptionKeyHex);
+
+    try {
+      if (encrypted.startsWith('v2:')) return decryptSession(encryptionKey, encrypted);
+
+      // Upgrade legacy AES-CTR sessions the next time they are read. Those
+      // blobs used a fixed counter and lacked authentication, but must remain
+      // readable long enough to avoid logging out every existing driver.
+      const legacyCipher = new aesjs.ModeOfOperation.ctr(encryptionKey, new aesjs.Counter(1));
+      const legacyValue = aesjs.utils.utf8.fromBytes(
+        legacyCipher.decrypt(aesjs.utils.hex.toBytes(encrypted)),
+      );
+      await this.setItem(key, legacyValue);
+      return legacyValue;
+    } catch {
+      // A manipulated/corrupt blob is not a session. Remove it so Supabase
+      // starts cleanly rather than repeatedly failing on every app launch.
+      await AsyncStorage.removeItem(key);
+      return null;
+    }
   }
 
   async setItem(key: string, value: string): Promise<void> {
@@ -74,9 +91,8 @@ class LargeSecureStore {
     // between the two awaits below leaves the OLD blob still decryptable by
     // the key already in SecureStore, instead of a blob nothing can open.
     const encryptionKey = await this.encryptionKeyFor(keyName);
-    const cipher = new aesjs.ModeOfOperation.ctr(encryptionKey, new aesjs.Counter(1));
-    const encrypted = cipher.encrypt(aesjs.utils.utf8.toBytes(value));
-    await AsyncStorage.setItem(key, aesjs.utils.hex.fromBytes(encrypted));
+    const nonce = await Crypto.getRandomBytesAsync(12);
+    await AsyncStorage.setItem(key, encryptSession(encryptionKey, nonce, value));
   }
 
   async removeItem(key: string): Promise<void> {
