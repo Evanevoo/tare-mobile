@@ -36,7 +36,20 @@ test('a key stored as hex and read back still encrypts and decrypts', () => {
   assert.equal(decryptSession(key, blob), 'session');
 });
 
-test('the cipher refuses a key that is a plain array, so no reader may produce one', () => {
-  const plain = Array.from(key) as unknown as Uint8Array;
-  assert.throws(() => encryptSession(plain, nonce(4), 'session'), /Uint8Array/);
+// 14 Sep 2026: the stored-key fix was not enough. A key or nonce straight from
+// expo-crypto can reach the cipher as an array-like that is not a Uint8Array,
+// and sign-in failed with the same message. The session functions now copy
+// their inputs into a real Uint8Array, so no source can trip noble's check.
+test('a key and nonce that arrive as plain arrays still encrypt and decrypt', () => {
+  const plainKey = Array.from(key) as unknown as Uint8Array;
+  const plainNonce = Array.from(nonce(4)) as unknown as Uint8Array;
+  const blob = encryptSession(plainKey, plainNonce, 'session');
+  assert.equal(decryptSession(plainKey, blob), 'session');
+  assert.equal(decryptSession(key, blob), 'session');
+});
+
+test('an array-like object (not an Array, not a Uint8Array) is accepted too', () => {
+  const like = { length: 32, ...Object.fromEntries(Array.from(key, (v, i) => [i, v])) } as unknown as Uint8Array;
+  const blob = encryptSession(like, nonce(5), 'session');
+  assert.equal(decryptSession(key, blob), 'session');
 });

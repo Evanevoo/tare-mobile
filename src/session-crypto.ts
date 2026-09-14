@@ -18,10 +18,26 @@ export function keyFromHex(hex: string): Uint8Array {
 }
 
 /**
+ * Whatever byte-ish thing arrived, as a plain Uint8Array of this realm.
+ *
+ * noble's check is strict: a real Uint8Array or nothing. keyFromHex fixed the
+ * stored-key path, but the other two sources still reached it unchecked — the
+ * key and nonce from expo-crypto's getRandomBytesAsync, which on a native
+ * build can come back as an array-like that is not a Uint8Array. Signing in
+ * with no stored key (a fresh install, or after sign-out cleared it) then
+ * failed with the same "key expected Uint8Array, got type=object". Copying
+ * into a new Uint8Array costs 44 bytes and makes the source irrelevant.
+ */
+function asBytes(value: ArrayLike<number> | ArrayBuffer): Uint8Array {
+  return value instanceof ArrayBuffer ? new Uint8Array(value.slice(0)) : Uint8Array.from(value as ArrayLike<number>);
+}
+
+/**
  * Encrypts an auth session with authenticated encryption. The nonce travels
  * with the ciphertext so every write can use a fresh random nonce.
  */
 export function encryptSession(key: Uint8Array, nonce: Uint8Array, session: string): string {
+  key = asBytes(key); nonce = asBytes(nonce);
   const encrypted = gcmsiv(key, nonce).encrypt(new TextEncoder().encode(session));
   return `${VERSION}:${bytesToHex(nonce)}:${bytesToHex(encrypted)}`;
 }
@@ -33,6 +49,6 @@ export function decryptSession(key: Uint8Array, value: string): string {
     throw new Error('Invalid encrypted session format');
   }
 
-  const decrypted = gcmsiv(key, hexToBytes(nonceHex)).decrypt(hexToBytes(encryptedHex));
+  const decrypted = gcmsiv(asBytes(key), hexToBytes(nonceHex)).decrypt(hexToBytes(encryptedHex));
   return new TextDecoder().decode(decrypted);
 }
