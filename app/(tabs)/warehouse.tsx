@@ -9,6 +9,7 @@ import { useStore } from '@/store';
 import { postFill } from '@/api';
 import { locateWarning, hasLocalReturn } from '@/interlock';
 import { cacheGet, cacheSet } from '@/db';
+import { locateDraftAction, type LocateDraft } from '@/locate-draft';
 import {
   T, Screen, Surface, Btn, Eyebrow, Tag, Rise, Icon, ICON, mono, useBottomInset, tint, wash,
 } from '@/ui';
@@ -28,15 +29,7 @@ import { useLiveData } from '@/live';
  * The count of closed rentals comes back and is shown, because ending twelve
  * rentals with one tap is not something to find out about later.
  */
-type LocateDraft = {
-  location: string; custom: boolean; state: 'full' | 'empty' | null; codes: string[];
-  /**
-   * When this draft was last touched. Optional because a draft written by an
-   * older build has no stamp — those load as before rather than being thrown
-   * away, since a missing timestamp is not evidence of staleness.
-   */
-  at?: number;
-};
+
 /** Same cache table startDelivery/endDelivery use for the job, one row over. */
 const DRAFT_KEY = 'locateDraft';
 
@@ -63,6 +56,8 @@ export default function Locate() {
   */
   const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Lock immediately: the button's disabled state takes effect on the next render.
+  const saveInFlight = useRef(false);
   const [scanning, setScanning] = useState(false);
   /** Guards the save-effect below from firing on the empty pre-load render
       and stomping a draft this same mount is about to restore. */
@@ -108,18 +103,36 @@ export default function Locate() {
         An older draft is dropped AND cleared, so this costs one read once
         rather than every launch for ever.
       */
-      const FRESH_MS = 6 * 60 * 60 * 1000;
-      const stale = d?.at != null && Date.now() - d.at > FRESH_MS;
-
-      if (d && !stale) {
+      const finishHydration = () => { if (!cancelled) setHydrated(true); };
+      const discardDraft = () => {
+        cacheSet(DRAFT_KEY, null).catch(() => {});
+        finishHydration();
+      };
+      const resumeDraft = () => {
+        if (cancelled || !d) return;
         setLocation(d.location);
         setCustom(d.custom);
         setState(d.state);
         setCodes(d.codes);
-      } else if (d) {
-        cacheSet(DRAFT_KEY, null).catch(() => {});
+        setHydrated(true);
+      };
+
+      if (locateDraftAction(d) === 'discard') {
+        if (d) discardDraft(); else finishHydration();
+        return;
       }
-      setHydrated(true);
+
+      // A saved shelf is evidence of unfinished work, never permission to
+      // submit it again. The driver must explicitly choose to resume it.
+      Alert.alert(
+        'Resume unfinished Locate?',
+        `${d!.codes.length} ${d!.codes.length === 1 ? 'bottle is' : 'bottles are'} staged as ${d!.state ?? 'unknown'}.`,
+        [
+          { text: 'Start new', style: 'destructive', onPress: discardDraft },
+          { text: 'Resume', onPress: resumeDraft },
+        ],
+        { cancelable: false },
+      );
     }).catch(() => { if (!cancelled) setHydrated(true); });
     return () => { cancelled = true; };
   }, []);
@@ -302,7 +315,8 @@ export default function Locate() {
   }
 
   async function save() {
-    if (!location || !state || !codes.length) return;
+    if (!location || !state || !codes.length || saveInFlight.current) return;
+    saveInFlight.current = true;
     setBusy(true);
     try {
       const r = await postFill(location, state, codes);
@@ -381,6 +395,7 @@ export default function Locate() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       Alert.alert('Could not save', e?.message ?? 'Try again when you have signal.');
     } finally {
+      saveInFlight.current = false;
       setBusy(false);
     }
   }
