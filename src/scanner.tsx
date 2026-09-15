@@ -14,6 +14,8 @@ import { decodeBase64Image as zxDecode, type FormatName as ZXFormatName } from '
 import { key } from './scan-match';
 import { RETICLE, withinReticle } from './reticle';
 import { discard } from './tmpfiles';
+import { scanAssist, type ScanAssist } from './scan-assist';
+import { focusPulseDelays } from './focus-policy';
 
 /**
  * The one camera surface.
@@ -361,11 +363,13 @@ export interface ScannerProps {
    * platforms — see PERIODIC REFOCUS below.
    */
   steadyFocus?: boolean;
+  /** Reports camera recovery guidance so a full-screen caller can present it in its own thumb zone. */
+  onAssistChange?: (assist: ScanAssist) => void;
 }
 
 export function Scanner({
   onCode, onDuplicate, accept, format, types, style, children, reticle = true, onClose, cooldownMs = 2000,
-  controlsBottomInset = 0, steadyFocus = false,
+  controlsBottomInset = 0, steadyFocus = false, onAssistChange,
 }: ScannerProps) {
   const insets = useSafeAreaInsets();
   const [perm, requestPerm] = useCameraPermissions();
@@ -398,6 +402,8 @@ export function Scanner({
    * the native camera never remounts over it.
    */
   const [embedded, setEmbedded] = useState(false);
+
+  useEffect(() => { onAssistChange?.(scanAssist(struggling, torch)); }, [onAssistChange, struggling, torch]);
 
   const cam = useRef<CameraView | null>(null);
   /**
@@ -509,16 +515,14 @@ export function Scanner({
     };
     cycleRef.current = cycle;
 
-    // Let the preview settle before touching focus at all, or the first second
-    // of every scan is a visible glitch.
-    timers.push(setTimeout(cycle, 600));
+    // A steady scan leaves the native continuous autofocus alone. Repeatedly
+    // forcing it off/on is a restart, not a gentle nudge, on both iOS and
+    // Android camera stacks. A moving rack scan keeps the staged recovery
+    // pulses below.
+    for (const delay of focusPulseDelays(steadyFocus)) {
+      timers.push(setTimeout(cycle, delay));
+    }
     if (steadyFocus) return () => timers.forEach(clearTimeout);
-
-    // Sweeping a pallet: keep re-acquiring. The later kicks are offset off the
-    // interval's own ticks (600+1400, 600+2500 against a 1000ms period) so two
-    // cycles never fire together — overlapping cycles cancel each other's
-    // off-window early and the refocus silently does not happen.
-    timers.push(setTimeout(cycle, 2000), setTimeout(cycle, 3100));
 
     /**
      * STOP HUNTING WHEN IT IS ALREADY READING.
@@ -1009,7 +1013,7 @@ export function Scanner({
         code = matchKnown(candidatesFrom(await recognizeText(photo.uri)), known);
       }
 
-      if (code && (!accept || accept(code))) {
+      if (code && matchesFormat(code, format) && (!accept || accept(code))) {
         lastAccepted.current[code] = Date.now();
         lastReadAt.current = Date.now();
         setStruggling(false);

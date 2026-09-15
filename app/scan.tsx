@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, Pressable, FlatList, Alert, TextInput, ActivityIndicator, Animated, Vibration,
 } from 'react-native';
@@ -19,6 +19,7 @@ import { editSentScan } from '@/api';
 import { Sheet } from '@/sheet';
 import { Redirecting } from '@/redirecting';
 import { formatExample } from '@/formats';
+import { scanAssist, type ScanAssist } from '@/scan-assist';
 
 /**
  * The scan loop.
@@ -69,6 +70,8 @@ export default function Scan() {
   >(null);
   const [manual, setManual] = useState(false);
   const [manualCode, setManualCode] = useState('');
+  const [assist, setAssist] = useState<ScanAssist>(() => scanAssist(false, false));
+  const onAssistChange = useCallback((next: ScanAssist) => setAssist(next), []);
   // The scan history (list, undo, submit) used to sit permanently below a
   // 36%-height camera box. The camera is now full-screen, so that content
   // moved into a sheet a driver opens on purpose — see the "Order · N" pill
@@ -698,6 +701,8 @@ export default function Scan() {
         format={boot?.formats?.barcode}
         onCode={take}
         onDuplicate={onDuplicate}
+        onAssistChange={onAssistChange}
+        steadyFocus
         style={{ flex: 1 }}
         controlsBottomInset={bottomH}
       >
@@ -712,15 +717,7 @@ export default function Scan() {
                    paddingHorizontal: 18, paddingBottom: 30 }}
         >
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <Pressable
-              onPress={() => finish()}
-              hitSlop={14}
-              accessibilityRole="button"
-              accessibilityLabel={c.total ? `Done. Submits ${c.total} scans on this order` : 'Done. Leave this order'}
-            >
-              <Text style={{ color: '#fff', fontSize: 15.5, fontWeight: '700' }}>Done</Text>
-            </Pressable>
-            <View style={{ marginLeft: 14, flex: 1 }}>
+            <View style={{ flex: 1 }}>
               <Text numberOfLines={1} style={{ color: '#fff', fontSize: 14.5, fontWeight: '700' }}>
                 {customerName}
               </Text>
@@ -746,10 +743,14 @@ export default function Scan() {
             >
               <Text style={[mono(13, '800'), { color: '#fff' }]}>{c.total}</Text>
             </Pressable>
-            <Pressable onPress={() => setManual(true)} hitSlop={14}
+            {/* Done sits on the right, where the thumb already is (Evan, 15 Sep). */}
+            <Pressable
+              onPress={() => finish()}
+              hitSlop={14}
               accessibilityRole="button"
-              accessibilityLabel="Type a barcode by hand">
-              <Text style={{ color: T.brandLit, fontSize: 14, fontWeight: '700' }}>Type code</Text>
+              accessibilityLabel={c.total ? `Done. Submits ${c.total} scans on this order` : 'Done. Leave this order'}
+            >
+              <Text style={{ color: '#fff', fontSize: 15.5, fontWeight: '700' }}>Done</Text>
             </Pressable>
           </View>
           {/* The moment this matters is right here, not on Home — this is
@@ -874,6 +875,26 @@ export default function Scan() {
               )}
             </Animated.View>
 
+            {/* A plain recovery instruction in the thumb zone. It reports the
+                camera's actual struggling state instead of pretending focus is
+                known, and gives the next useful action before a driver gives up. */}
+            <View style={{
+              marginTop: 12, minHeight: 54, borderRadius: T.radiusSm,
+              paddingHorizontal: 15, paddingVertical: 10,
+              flexDirection: 'row', alignItems: 'center', gap: 10,
+              backgroundColor: assist.tone === 'warning' ? 'rgba(224,164,58,0.16)' : 'rgba(255,255,255,0.08)',
+              borderWidth: 1,
+              borderColor: assist.tone === 'warning' ? 'rgba(224,164,58,0.60)' : 'rgba(255,255,255,0.18)',
+            }}>
+              <Text style={{ color: assist.tone === 'warning' ? T.amber : T.brandLit, fontSize: 17, fontWeight: '900' }}>
+                {assist.tone === 'warning' ? '◉' : '◎'}
+              </Text>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: '#fff', fontSize: 13.5, fontWeight: '800' }}>{assist.title}</Text>
+                <Text style={{ color: 'rgba(255,255,255,0.72)', fontSize: 11.5, marginTop: 1 }}>{assist.detail}</Text>
+              </View>
+            </View>
+
             {/* ── mode: the single most-pressed control on the phone ──
                 Translucent over the live feed on purpose — two clear boxes
                 over the camera, not two opaque tiles blocking it, so the
@@ -920,6 +941,22 @@ export default function Scan() {
                 );
               })}
             </View>
+
+            {/* Manual entry remains a first-class recovery path: big enough for
+                gloves, in the same thumb zone as the mode it will use. */}
+            <Pressable
+              onPress={() => setManual(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Type a barcode manually"
+              style={({ pressed }) => ({
+                marginTop: 12, minHeight: 56, borderRadius: T.radiusSm,
+                alignItems: 'center', justifyContent: 'center',
+                backgroundColor: pressed ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.10)',
+                borderWidth: 1, borderColor: 'rgba(255,255,255,0.28)',
+              })}
+            >
+              <Text style={{ color: '#fff', fontSize: 15, fontWeight: '800' }}>⌨  Type barcode manually</Text>
+            </Pressable>
           </LinearGradient>
         </View>
       </Scanner>
