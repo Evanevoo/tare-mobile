@@ -7,6 +7,7 @@ import { Scanner } from '@/scanner';
 import { useScanRoute, explainMiss } from '@/scan-route';
 import { classify } from '@/scan-match';
 import { formatExample, formatNudge } from '@/formats';
+import { acceptCustomerFieldScan } from '@/customer-scan';
 import { T, Screen, Surface, Btn, Eyebrow, Rise, Tag, mono, tint, wash } from '@/ui';
 import { Sheet } from '@/sheet';
 import { useLiveData } from '@/live';
@@ -112,6 +113,10 @@ export default function Delivery() {
    * that point is to work out which.
    */
   const acceptHere = useCallback((code: string) => {
+    if (scanning === 'customer') {
+      const t = classify(code, boot);
+      return acceptCustomerFieldScan(code, boot?.formats, !!t && t.kind !== 'text');
+    }
     if (scanning !== 'order') return true;
     const t = classify(code, boot);
     if (!t || t.kind === 'text') return true;
@@ -464,7 +469,7 @@ export default function Delivery() {
       >
         <View style={{ flex: 1, backgroundColor: '#000' }}>
           <Scanner
-            format={scanning === 'order' ? boot?.formats?.orderNumber : boot?.formats?.barcode}
+            format={scanning === 'order' ? boot?.formats?.orderNumber : undefined}
             onCode={handleCode}
             accept={acceptHere}
             onClose={() => setScanning(null)}
