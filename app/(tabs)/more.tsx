@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import { useStore } from '@/store';
 import { pending } from '@/outbox';
 import { signOut } from '@/api';
+import { finishSignOut } from '@/sign-out';
 import { T, Screen, Surface, Eyebrow, Rise, Hairline, Icon, ICON, tint } from '@/ui';
 
 /**
@@ -152,8 +153,17 @@ export default function More() {
                     // holding the last one's work and uploads it under their
                     // own name. See store.handOver.
                     onPress: async () => {
-                      await useStore.getState().handOver();
-                      await signOut();
+                      const result = await finishSignOut(
+                        () => useStore.getState().handOver(),
+                        signOut,
+                      );
+                      if (!result.handed) {
+                        Alert.alert(
+                          'Scans still need syncing',
+                          'You are still signed in, and your scans are safe on this phone. Sync them, or use Settings to deliberately discard them.',
+                        );
+                        return;
+                      }
                       router.replace('/login' as never);
                     },
                   },
