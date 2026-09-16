@@ -250,7 +250,7 @@ export default function EditAsset() {
             label="Add it as new instead"
             variant="ghost"
             style={{ marginTop: 10 }}
-            onPress={() => router.replace('/asset/new' as never)}
+            onPress={() => router.replace('/asset/batch' as never)}
           />
         </View>
       </Screen>

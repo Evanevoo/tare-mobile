@@ -113,8 +113,15 @@ export default function BatchAssets() {
   const plural = (boot?.org.assetPlural ?? 'assets').toLowerCase();
 
   const products = useMemo(
-    () => (boot?.products ?? []).map((p) => ({ key: p.code, sub: `${p.n} on fleet` })),
-    [boot?.products],
+    // One pick, and it has to be recognisable: the catalogue's own words for
+    // the type ("Industrial - Argon · 300 cu ft"), falling back to the count.
+    () => (boot?.products ?? []).map((p) => {
+      const t = boot?.types?.find((x) => x.code === p.code);
+      const kind = [t?.category, t?.gasType].filter(Boolean).join(' - ');
+      const sub = [kind, t?.description].filter(Boolean).join(' · ');
+      return { key: p.code, sub: sub || `${p.n} on fleet` };
+    }),
+    [boot?.products, boot?.types],
   );
   const locations = useMemo(
     () => (boot?.locations ?? []).map((l) => ({ key: l })),
@@ -460,7 +467,7 @@ export default function BatchAssets() {
 
           {/* ── the details first, like old Scanified: set once, every bottle gets them ── */}
           <Rise delay={40}>
-              <Field style={{ marginTop: 24 }} label="What kind" hint={products.length ? 'Commonest first. The whole batch gets this.' : undefined}>
+              <Field style={{ marginTop: 24 }} label="What kind" hint="Pick one. Gas type, category, group and description fill in from it.">
                 <Chips
                   options={products}
                   value={product}
@@ -492,44 +499,6 @@ export default function BatchAssets() {
 
               <Field label="Next requalification" hint="Optional. The date they next have to be tested.">
                 <DateField value={requal} onChange={setRequal} />
-              </Field>
-
-              {/* One pick of the product code fills these; the whole pallet
-                  gets them. Editable, optional, and saving them once teaches
-                  the pick list for next time.
-
-                  Chips, not boxes — same reason as Add and Edit: a value
-                  whose job is to match other rows must not be retyped. Here
-                  it matters most, because one typo lands on the whole pallet
-                  at once. */}
-              <Field
-                label="Gas type"
-                hint={boot?.types?.some((t) => t.code === product)
-                  ? 'Filled from the product code — change it if this pallet differs.'
-                  : 'Optional. The whole pallet gets this.'}
-              >
-                <Chips
-                  options={attrs.gas} value={gas} onChange={setGas}
-                  placeholder="Gas type — Oxygen, Acetylene…" freeLabel="Not on the list"
-                />
-              </Field>
-
-              <Field label="Category" hint="Optional. Industrial, medical, beverage.">
-                <Chips
-                  options={attrs.category} value={category} onChange={setCategory}
-                  placeholder="Category — Industrial, Medical…" freeLabel="Not on the list"
-                />
-              </Field>
-
-              <Field label="Group" hint="Optional. How it is grouped on reports.">
-                <Chips
-                  options={attrs.group} value={group} onChange={setGroup}
-                  placeholder="Group — High-Pressure, Cryo…" freeLabel="Not on the list"
-                />
-              </Field>
-
-              <Field label="Description" hint="Optional. The whole pallet gets this.">
-                <TextField value={desc} onChangeText={setDesc} placeholder="Description" code={false} />
               </Field>
 
               <Field
@@ -883,16 +852,6 @@ export default function BatchAssets() {
             </Rise>
           )}
 
-          {rows.length === 0 && !result && (
-            <Note
-              text={
-                'Just the one? The single-cylinder screen asks for everything about it, '
-                + 'including things this one does not — status, ownership, last test date.'
-              }
-              action={`Add one ${label} instead`}
-              onAction={() => router.replace('/asset/new')}
-            />
-          )}
         </ScrollView>
       </KeyboardAvoidingView>
 
