@@ -39,7 +39,7 @@ export default function AssetDetail() {
           {/* An unknown barcode in a driver's hand is usually a real thing
               nobody has recorded yet, so the useful next step is to record it. */}
           <Btn label="Add it to the fleet" style={{ marginTop: 24, minWidth: 220 }}
-               onPress={() => router.replace('/asset/new' as never)} />
+               onPress={() => router.replace('/asset/batch' as never)} />
           <Btn label="Back" variant="ghost" style={{ marginTop: 10, minWidth: 220 }}
                onPress={() => router.back()} />
         </View>
