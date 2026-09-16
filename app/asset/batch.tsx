@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, Pressable, ScrollView, Alert, KeyboardAvoidingView, Platform,
 } from 'react-native';
@@ -74,7 +74,7 @@ export default function BatchAssets() {
   const [rows, setRows] = useState<BatchRow[]>([]);
   /** The one just scanned, waiting for its serial. Not in the batch yet. */
   const [pending, setPending] = useState<{ barcode: string; serial: string } | null>(null);
-  const [scanning, setScanning] = useState(true);
+  const [scanning, setScanning] = useState(false);
   const [serialScanning, setSerialScanning] = useState(false);
   const [refusal, setRefusal] = useState<Refusal | null>(null);
   const [editing, setEditing] = useState<{ id: string; barcode: string; serial: string } | null>(null);
@@ -89,6 +89,14 @@ export default function BatchAssets() {
   const [group, setGroup] = useState('');
   const [desc, setDesc] = useState('');
   const [owner, setOwner] = useState('');
+
+  // Details sit above the camera now, so opening it (or the serial step)
+  // scrolls the page down to it instead of leaving it below the fold.
+  const scrollRef = useRef<ScrollView>(null);
+  const loopY = useRef(0);
+  useEffect(() => {
+    if (scanning || pending) scrollRef.current?.scrollTo({ y: Math.max(0, loopY.current - 12), animated: true });
+  }, [scanning, !!pending]);
 
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<BulkCreateResult | null>(null);
@@ -420,6 +428,7 @@ export default function BatchAssets() {
         style={{ flex: 1 }}
       >
         <ScrollView
+          ref={scrollRef}
           contentContainerStyle={{
             paddingHorizontal: 18,
             paddingTop: 10,
@@ -430,11 +439,11 @@ export default function BatchAssets() {
         >
           <Rise>
             <Text style={{ color: T.ink, fontSize: 29, fontWeight: '700', letterSpacing: -1 }}>
-              A whole pallet
+              Add {plural}
             </Text>
             <Text style={{ color: T.faint, fontSize: 14, marginTop: 5, lineHeight: 20 }}>
-              Scan each one and give it its serial. What kind, where and how full are asked
-              once, at the bottom. Nothing is added until you save.
+              Set the details once, then scan each one and give it its serial. Nothing is
+              added until you save.
             </Text>
           </Rise>
 
@@ -449,10 +458,96 @@ export default function BatchAssets() {
             />
           )}
 
-          {/* ── the loop: scan, serial, confirm, again ── */}
+          {/* ── the details first, like old Scanified: set once, every bottle gets them ── */}
+          <Rise delay={40}>
+              <Field style={{ marginTop: 24 }} label="What kind" hint={products.length ? 'Commonest first. The whole batch gets this.' : undefined}>
+                <Chips
+                  options={products}
+                  value={product}
+                  onChange={pickProduct}
+                  placeholder="Product code"
+                />
+              </Field>
+
+              <Field label="What is in them">
+                <Choice
+                  options={[
+                    { value: 'full', label: 'FULL', sub: 'ready to go out' },
+                    { value: 'empty', label: 'EMPTY', sub: 'needs filling' },
+                  ]}
+                  value={full === null ? null : full ? 'full' : 'empty'}
+                  onChange={(v) => setFull(v === 'full')}
+                />
+              </Field>
+
+              <Field label="Where they live" hint="Optional. Leave it blank if they have no shelf yet.">
+                <Chips
+                  options={locations}
+                  value={location}
+                  onChange={setLocation}
+                  placeholder="Bay 4, Rack B, Dock…"
+                  code={false}
+                />
+              </Field>
+
+              <Field label="Next requalification" hint="Optional. The date they next have to be tested.">
+                <DateField value={requal} onChange={setRequal} />
+              </Field>
+
+              {/* One pick of the product code fills these; the whole pallet
+                  gets them. Editable, optional, and saving them once teaches
+                  the pick list for next time.
+
+                  Chips, not boxes — same reason as Add and Edit: a value
+                  whose job is to match other rows must not be retyped. Here
+                  it matters most, because one typo lands on the whole pallet
+                  at once. */}
+              <Field
+                label="Gas type"
+                hint={boot?.types?.some((t) => t.code === product)
+                  ? 'Filled from the product code — change it if this pallet differs.'
+                  : 'Optional. The whole pallet gets this.'}
+              >
+                <Chips
+                  options={attrs.gas} value={gas} onChange={setGas}
+                  placeholder="Gas type — Oxygen, Acetylene…" freeLabel="Not on the list"
+                />
+              </Field>
+
+              <Field label="Category" hint="Optional. Industrial, medical, beverage.">
+                <Chips
+                  options={attrs.category} value={category} onChange={setCategory}
+                  placeholder="Category — Industrial, Medical…" freeLabel="Not on the list"
+                />
+              </Field>
+
+              <Field label="Group" hint="Optional. How it is grouped on reports.">
+                <Chips
+                  options={attrs.group} value={group} onChange={setGroup}
+                  placeholder="Group — High-Pressure, Cryo…" freeLabel="Not on the list"
+                />
+              </Field>
+
+              <Field label="Description" hint="Optional. The whole pallet gets this.">
+                <TextField value={desc} onChangeText={setDesc} placeholder="Description" code={false} />
+              </Field>
+
+              <Field
+                label="Belong to"
+                hint="Optional. A supplier label — WeldCor, Linde. Does NOT change billing."
+              >
+                <Chips
+                  options={attrs.supplier} value={owner} onChange={setOwner}
+                  placeholder="Ours — leave blank" freeLabel="A new supplier"
+                />
+              </Field>
+            </Rise>
+
+          {/* ── then the bottles: scan, serial, add, again ── */}
+          <View onLayout={(e) => { loopY.current = e.nativeEvent.layout.y; }}>
           <Rise delay={50}>
             <Field
-              label={pending ? 'Serial number' : rows.length ? 'The next one' : 'The first one'}
+              label={pending ? 'Serial number' : `Scan ${plural}`}
               hint={pending
                 ? 'Stamped on the collar. Type it — or scan it, if this fleet labels them.'
                 : undefined}
@@ -593,6 +688,7 @@ export default function BatchAssets() {
               )}
             </Field>
           </Rise>
+          </View>
 
           {/* The refusal. On screen, naming the barcode, because the driver is
               holding that bottle and needs to know why it did not go in. Not
@@ -784,93 +880,6 @@ export default function BatchAssets() {
                   ))}
                 </Surface>
               </View>
-            </Rise>
-          )}
-
-          {/* ── asked once, for all of them ── */}
-          {rows.length > 0 && (
-            <Rise delay={40}>
-              <Field label="What kind" hint={products.length ? 'Commonest first. The whole batch gets this.' : undefined}>
-                <Chips
-                  options={products}
-                  value={product}
-                  onChange={pickProduct}
-                  placeholder="Product code"
-                />
-              </Field>
-
-              <Field label="What is in them">
-                <Choice
-                  options={[
-                    { value: 'full', label: 'FULL', sub: 'ready to go out' },
-                    { value: 'empty', label: 'EMPTY', sub: 'needs filling' },
-                  ]}
-                  value={full === null ? null : full ? 'full' : 'empty'}
-                  onChange={(v) => setFull(v === 'full')}
-                />
-              </Field>
-
-              <Field label="Where they live" hint="Optional. Leave it blank if they have no shelf yet.">
-                <Chips
-                  options={locations}
-                  value={location}
-                  onChange={setLocation}
-                  placeholder="Bay 4, Rack B, Dock…"
-                  code={false}
-                />
-              </Field>
-
-              <Field label="Next requalification" hint="Optional. The date they next have to be tested.">
-                <DateField value={requal} onChange={setRequal} />
-              </Field>
-
-              {/* One pick of the product code fills these; the whole pallet
-                  gets them. Editable, optional, and saving them once teaches
-                  the pick list for next time.
-
-                  Chips, not boxes — same reason as Add and Edit: a value
-                  whose job is to match other rows must not be retyped. Here
-                  it matters most, because one typo lands on the whole pallet
-                  at once. */}
-              <Field
-                label="Gas type"
-                hint={boot?.types?.some((t) => t.code === product)
-                  ? 'Filled from the product code — change it if this pallet differs.'
-                  : 'Optional. The whole pallet gets this.'}
-              >
-                <Chips
-                  options={attrs.gas} value={gas} onChange={setGas}
-                  placeholder="Gas type — Oxygen, Acetylene…" freeLabel="Not on the list"
-                />
-              </Field>
-
-              <Field label="Category" hint="Optional. Industrial, medical, beverage.">
-                <Chips
-                  options={attrs.category} value={category} onChange={setCategory}
-                  placeholder="Category — Industrial, Medical…" freeLabel="Not on the list"
-                />
-              </Field>
-
-              <Field label="Group" hint="Optional. How it is grouped on reports.">
-                <Chips
-                  options={attrs.group} value={group} onChange={setGroup}
-                  placeholder="Group — High-Pressure, Cryo…" freeLabel="Not on the list"
-                />
-              </Field>
-
-              <Field label="Description" hint="Optional. The whole pallet gets this.">
-                <TextField value={desc} onChangeText={setDesc} placeholder="Description" code={false} />
-              </Field>
-
-              <Field
-                label="Belong to"
-                hint="Optional. A supplier label — WeldCor, Linde. Does NOT change billing."
-              >
-                <Chips
-                  options={attrs.supplier} value={owner} onChange={setOwner}
-                  placeholder="Ours — leave blank" freeLabel="A new supplier"
-                />
-              </Field>
             </Rise>
           )}
 

@@ -62,7 +62,7 @@ export default function More() {
               icon="plus-circle"
               label={`Add ${(boot?.org.assetPlural ?? 'assets').toLowerCase()}`}
               hint="New stock, or something found with no record"
-              onPress={() => router.push('/asset/new' as never)}
+              onPress={() => router.push('/asset/batch' as never)}
             />
             <Hairline />
             <Item
