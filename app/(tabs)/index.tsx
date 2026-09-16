@@ -58,7 +58,7 @@ import { useLiveData } from '@/live';
  * route that opens nothing costs more trust than a missing feature.
  */
 const ACTIONS = [
-  { key: 'add',       icon: 'plus',        label: 'Add',       hint: 'New to the fleet',     href: '/asset/new' },
+  { key: 'add',       icon: 'plus',        label: 'Add',       hint: 'New to the fleet',     href: '/asset/batch' },
   { key: 'edit',      icon: 'edit-2',      label: 'Edit',      hint: 'Correct a record',     href: '/search' },
   { key: 'locate',    icon: 'map-pin',     label: 'Locate',    hint: 'Shelf, full or empty', href: '/warehouse' },
   { key: 'history',   icon: 'clock',       label: 'History',   hint: 'What was scanned',     href: '/history' },
