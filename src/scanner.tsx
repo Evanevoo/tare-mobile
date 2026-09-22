@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Platform, Pressable, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import { AppState, Platform, Pressable, Text, View, type AppStateStatus, type StyleProp, type ViewStyle } from 'react-native';
 import {
   CameraView, useCameraPermissions, scanFromURLAsync, type BarcodeType,
 } from 'expo-camera';
@@ -14,6 +14,8 @@ import { decodeBase64Image as zxDecode, type FormatName as ZXFormatName } from '
 import { key } from './scan-match';
 import { RETICLE, withinReticle } from './reticle';
 import { discard } from './tmpfiles';
+import { scanAssist, type ScanAssist } from './scan-assist';
+import { focusPulseDelays } from './focus-policy';
 
 /**
  * The one camera surface.
@@ -361,11 +363,13 @@ export interface ScannerProps {
    * platforms — see PERIODIC REFOCUS below.
    */
   steadyFocus?: boolean;
+  /** Reports camera recovery guidance so a full-screen caller can present it in its own thumb zone. */
+  onAssistChange?: (assist: ScanAssist) => void;
 }
 
 export function Scanner({
   onCode, onDuplicate, accept, format, types, style, children, reticle = true, onClose, cooldownMs = 2000,
-  controlsBottomInset = 0, steadyFocus = false,
+  controlsBottomInset = 0, steadyFocus = false, onAssistChange,
 }: ScannerProps) {
   const insets = useSafeAreaInsets();
   const [perm, requestPerm] = useCameraPermissions();
@@ -383,6 +387,32 @@ export function Scanner({
   const [focusOff, setFocusOff] = useState(false);
   const [mounted, setMounted] = useState(Platform.OS !== 'android');
   /**
+   * NOTHING RENDERS WHILE THE APP IS LEAVING THE FOREGROUND.
+   *
+   * Sentry, 19 Sep 2026: EXC_BAD_ACCESS in
+   * RuntimeScheduler_Modern::updateRendering (iPhone 13, iOS 26.6.2, build
+   * 232). React Native 0.81's Fabric Scheduler hands a raw delegate pointer to
+   * a deferred rendering update; if the app is torn down (backgrounded and
+   * killed, swiped away, Updates.reloadAsync) while one is still queued, the
+   * JS thread drains it into freed memory. Upstream: react-native#58601 —
+   * fixed natively only behind enableSchedulerDelegateInvalidation in newer
+   * RN, which needs a store build.
+   *
+   * This screen was the worst offender: a 1s "struggling" tick and a 1–3.5s
+   * autofocus pulse each commit a render, and neither stopped when the app
+   * went to the background, so a transaction was almost always queued at the
+   * moment of teardown. While the app is not 'active' both timers stop and
+   * the camera session is paused (`active={false}`, not unmounted, so coming
+   * back does not cost a camera restart).
+   */
+  const [appActive, setAppActive] = useState(AppState.currentState === 'active');
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
+      setAppActive(next === 'active');
+    });
+    return () => sub.remove();
+  }, []);
+  /**
    * EMBEDDED OR FULL-SCREEN — measured, not declared.
    *
    * This one component serves two rooms: the full-bleed modal camera
@@ -398,6 +428,8 @@ export function Scanner({
    * the native camera never remounts over it.
    */
   const [embedded, setEmbedded] = useState(false);
+
+  useEffect(() => { onAssistChange?.(scanAssist(struggling, torch)); }, [onAssistChange, struggling, torch]);
 
   const cam = useRef<CameraView | null>(null);
   /**
@@ -429,7 +461,10 @@ export function Scanner({
     // nothing on a good label (the hint never appears) and saves two seconds
     // on precisely the scans that were already slowest.
     const t = setInterval(() => {
-      if (alive.current) setStruggling(Date.now() - lastReadAt.current > 3000);
+      // Paused off-screen — see NOTHING RENDERS WHILE THE APP IS LEAVING.
+      if (alive.current && AppState.currentState === 'active') {
+        setStruggling(Date.now() - lastReadAt.current > 3000);
+      }
     }, 1000);
     return () => { alive.current = false; clearInterval(t); };
   }, [perm?.granted]);
@@ -498,7 +533,12 @@ export function Scanner({
    */
   const cycleRef = useRef<() => void>(() => {});
   useEffect(() => {
-    if (!ready) return;
+    // No focus pulses in the background: each one is a render, and a render
+    // queued at teardown is the updateRendering crash.
+    if (!ready || !appActive) return;
+    // A pulse cut off by going to the background never ran its "focus back
+    // on" timer (the cleanup below cancelled it). Resuming starts focused.
+    setFocusOff(false);
     const timers: ReturnType<typeof setTimeout>[] = [];
     const cycle = () => {
       setFocusOff(true);
@@ -509,16 +549,14 @@ export function Scanner({
     };
     cycleRef.current = cycle;
 
-    // Let the preview settle before touching focus at all, or the first second
-    // of every scan is a visible glitch.
-    timers.push(setTimeout(cycle, 600));
+    // A steady scan leaves the native continuous autofocus alone. Repeatedly
+    // forcing it off/on is a restart, not a gentle nudge, on both iOS and
+    // Android camera stacks. A moving rack scan keeps the staged recovery
+    // pulses below.
+    for (const delay of focusPulseDelays(steadyFocus)) {
+      timers.push(setTimeout(cycle, delay));
+    }
     if (steadyFocus) return () => timers.forEach(clearTimeout);
-
-    // Sweeping a pallet: keep re-acquiring. The later kicks are offset off the
-    // interval's own ticks (600+1400, 600+2500 against a 1000ms period) so two
-    // cycles never fire together — overlapping cycles cancel each other's
-    // off-window early and the refocus silently does not happen.
-    timers.push(setTimeout(cycle, 2000), setTimeout(cycle, 3100));
 
     /**
      * STOP HUNTING WHEN IT IS ALREADY READING.
@@ -603,7 +641,7 @@ export function Scanner({
     timer = setTimeout(tick, wait);
 
     return () => { timers.forEach(clearTimeout); clearTimeout(timer); };
-  }, [ready, steadyFocus]);
+  }, [ready, steadyFocus, appActive]);
 
   /**
    * Stable identity, because this is a prop on a native view.
@@ -1009,7 +1047,7 @@ export function Scanner({
         code = matchKnown(candidatesFrom(await recognizeText(photo.uri)), known);
       }
 
-      if (code && (!accept || accept(code))) {
+      if (code && matchesFormat(code, format) && (!accept || accept(code))) {
         lastAccepted.current[code] = Date.now();
         lastReadAt.current = Date.now();
         setStruggling(false);
@@ -1130,7 +1168,7 @@ export function Scanner({
         <CameraView
           ref={cam}
           style={{ flex: 1 }}
-          active={!closing}
+          active={!closing && appActive}
           facing="back"
           enableTorch={torch}
           zoom={zoom}

@@ -19,6 +19,42 @@ export const API_URL =
   (Constants.expoConfig?.extra as any)?.apiUrl ??
   'http://localhost:3000';
 
+/**
+ * EVERY REQUEST GIVES UP EVENTUALLY.
+ *
+ * React Native's fetch has no timeout of its own — on Android OkHttp's read
+ * timeout is zero, i.e. for ever. A truck driving out of coverage mid-POST
+ * leaves a half-open socket that never settles, and whatever awaited it —
+ * Locate's Save, Add's Save, the outbox sync — stays spinning with its
+ * barcodes still on screen until the app is killed. That is how a shelf that
+ * WAS saved looked "stuck" (22 Sep 2026).
+ *
+ * The saves this guards are safe to repeat: marking a bottle full twice is
+ * the same row, and a bulk add that already landed comes back as skipped.
+ */
+export class TimeoutError extends Error {
+  constructor(what: string) {
+    super(`${what} — no answer from the server. It may still have gone through; `
+      + 'check signal and try again (saving twice is safe).');
+    this.name = 'TimeoutError';
+  }
+}
+
+export async function timedFetch(
+  url: string, init: RequestInit = {}, ms = 45_000, what = 'The request timed out',
+): Promise<Response> {
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), ms);
+  try {
+    return await fetch(url, { ...init, signal: ctl.signal });
+  } catch (e: any) {
+    if (ctl.signal.aborted) throw new TimeoutError(what);
+    throw e;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
 const SUPABASE_ANON = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
 
@@ -219,9 +255,9 @@ export interface Bootstrap {
 }
 
 export async function fetchBootstrap(): Promise<Bootstrap> {
-  const res = await fetch(`${API_URL}/api/mobile/bootstrap`, {
+  const res = await timedFetch(`${API_URL}/api/mobile/bootstrap`, {
     headers: { ...(await authHeader()) },
-  });
+  }, 60_000, 'Refreshing the fleet list timed out');
   if (res.status === 401) throw new Error('Your session expired. Sign in again.');
   if (!res.ok) throw new Error(`Bootstrap failed (${res.status})`);
   return res.json();
@@ -244,7 +280,7 @@ export interface BootstrapStamp {
 }
 
 export async function fetchBootstrapStamp(): Promise<BootstrapStamp> {
-  const res = await fetch(`${API_URL}/api/mobile/bootstrap/version`, {
+  const res = await timedFetch(`${API_URL}/api/mobile/bootstrap/version`, {
     headers: { ...(await authHeader()) },
   });
   if (!res.ok) throw new Error(`Stamp failed (${res.status})`);
@@ -276,7 +312,7 @@ export async function fetchHistory(
   const q = new URLSearchParams({ limit: String(limit) });
   if (opts.before) q.set('before', opts.before);
 
-  const res = await fetch(`${API_URL}/api/mobile/history?${q.toString()}`, {
+  const res = await timedFetch(`${API_URL}/api/mobile/history?${q.toString()}`, {
     headers: { ...(await authHeader()) },
   });
   if (res.status === 401) throw new Error('Your session expired. Sign in again.');
@@ -318,11 +354,11 @@ export class SyncRefused extends Error {
 }
 
 export async function postScans(scans: QueuedScan[]): Promise<SyncResult> {
-  const res = await fetch(`${API_URL}/api/scans`, {
+  const res = await timedFetch(`${API_URL}/api/scans`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
     body: JSON.stringify({ scans: scans.map(toWire) }),
-  });
+  }, 90_000, 'Sending scans timed out');
 
   /**
    * A REFUSAL IS NOT BAD RECEPTION.
@@ -399,7 +435,7 @@ export async function fetchFillHistory(
 ): Promise<FillHistoryPage> {
   const q = new URLSearchParams({ limit: String(Math.min(100, Math.max(1, opts.limit ?? 50))) });
   if (opts.before) q.set('before', opts.before);
-  const res = await fetch(`${API_URL}/api/mobile/fill-history?${q.toString()}`, {
+  const res = await timedFetch(`${API_URL}/api/mobile/fill-history?${q.toString()}`, {
     headers: { ...(await authHeader()) },
   });
   if (res.status === 401) throw new Error('Your session expired. Sign in again.');
@@ -417,11 +453,11 @@ export async function fetchFillHistory(
 export async function postFill(
   location: string, state: 'full' | 'empty', barcodes: string[],
 ): Promise<FillResult> {
-  const res = await fetch(`${API_URL}/api/mobile/fill`, {
+  const res = await timedFetch(`${API_URL}/api/mobile/fill`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
     body: JSON.stringify({ location, state, barcodes }),
-  });
+  }, 60_000, 'Saving the shelf timed out');
   if (res.status === 401) throw new Error('Your session expired. Sign in again.');
   if (!res.ok) {
     const j = await res.json().catch(() => null);
@@ -450,7 +486,7 @@ export async function editSentScan(body: {
   value?: string;
   reason: string;
 }): Promise<{ ok: true; message: string }> {
-  const res = await fetch(`${API_URL}/api/mobile/scan-edit`, {
+  const res = await timedFetch(`${API_URL}/api/mobile/scan-edit`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
     body: JSON.stringify(body),
@@ -488,7 +524,7 @@ export interface RemoteOrder {
  * of which phone is asking.
  */
 export async function fetchOrderDetail(orderNumber: string): Promise<RemoteOrder> {
-  const res = await fetch(`${API_URL}/api/mobile/order/${encodeURIComponent(orderNumber)}`, {
+  const res = await timedFetch(`${API_URL}/api/mobile/order/${encodeURIComponent(orderNumber)}`, {
     headers: { ...(await authHeader()) },
   });
   if (res.status === 401) throw new Error('Your session expired. Sign in again.');
@@ -518,7 +554,7 @@ export interface RemoteOrderTarget {
  * let it delay starting the scan loop. See store.ts's fetchTarget.
  */
 export async function fetchOrderTarget(orderNumber: string): Promise<RemoteOrderTarget> {
-  const res = await fetch(
+  const res = await timedFetch(
     `${API_URL}/api/mobile/order/${encodeURIComponent(orderNumber)}/target`,
     { headers: { ...(await authHeader()) } },
   );
@@ -565,11 +601,11 @@ export class ApiError extends Error {
 }
 
 async function send(path: string, method: 'POST' | 'PATCH', body: unknown) {
-  const res = await fetch(`${API_URL}${path}`, {
+  const res = await timedFetch(`${API_URL}${path}`, {
     method,
     headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
     body: JSON.stringify(body),
-  });
+  }, 60_000, 'Saving timed out');
   if (res.status === 401) throw new Error('Your session expired. Sign in again.');
   const json = await res.json().catch(() => null);
   if (!res.ok) {
@@ -656,7 +692,7 @@ export function updateAsset(
 export async function getAsset(barcode: string): Promise<{
   asset: (AssetRec & { barcode: string }) | null;
 }> {
-  const res = await fetch(`${API_URL}/api/mobile/assets/${encodeURIComponent(barcode)}`, {
+  const res = await timedFetch(`${API_URL}/api/mobile/assets/${encodeURIComponent(barcode)}`, {
     headers: { ...(await authHeader()) },
   });
   if (res.status === 401) throw new Error('Your session expired. Sign in again.');

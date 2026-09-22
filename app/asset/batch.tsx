@@ -342,7 +342,9 @@ export default function BatchAssets() {
       // Carry the serials across too, not just the barcodes — they are on the
       // fleet the instant this returns, and the next thirty scans have to be
       // checked against them even though the bootstrap has not caught up.
-      const made = new Set(r.createdBarcodes.map(normalizeCode));
+      // Skipped ones are on the fleet too (they leave the list — see
+      // applyResult), so they join the duplicate check the same way.
+      const made = new Set([...r.createdBarcodes, ...r.skipped.map((s) => s.barcode)].map(normalizeCode));
       setCreated((c) => [
         ...c,
         ...rows.filter((row) => made.has(row.barcode))

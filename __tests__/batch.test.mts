@@ -265,8 +265,24 @@ section('PARTIAL SUCCESS IS NORMAL — what is left in hand afterwards');
   };
   const left = applyResult(rows, result);
   ok('what was created leaves the screen', !left.some((r) => r.barcode === 'CYL-001'));
-  ok('what was refused stays in hand, so Save can go again without re-scanning',
-    left.length === 2 && left[0].barcode === 'CYL-002' && left[1].barcode === 'CYL-003');
+  ok('what is already on the fleet leaves too — Save could only ever skip it again',
+    !left.some((r) => r.barcode === 'CYL-002'));
+  ok('only what was refused stays in hand, so it can be fixed and saved again',
+    left.length === 1 && left[0].barcode === 'CYL-003');
+  ok('a save that landed but timed out converges: the retry reports all skipped and the batch empties',
+    applyResult(rows, {
+      created: 0, createdBarcodes: [],
+      skipped: [
+        { barcode: 'CYL-001', reason: 'exists' },
+        { barcode: 'CYL-002', reason: 'exists' },
+        { barcode: 'CYL-003', reason: 'exists' },
+      ],
+      invalid: [],
+    }).length === 0);
+  ok('server spelling (case, spaces) still matches the row it came from',
+    applyResult(rows, {
+      created: 1, createdBarcodes: ['cyl-001 '], skipped: [], invalid: [],
+    }).every((r) => r.barcode !== 'CYL-001'));
   ok('an all-created save empties the batch',
     applyResult(rows, {
       created: 3, createdBarcodes: ['CYL-001', 'CYL-002', 'CYL-003'], skipped: [], invalid: [],

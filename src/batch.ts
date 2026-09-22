@@ -389,8 +389,26 @@ export function toItems(rows: BatchRow[]): BatchItem[] {
  * the thirty-eight that worked.
  */
 export function applyResult(rows: BatchRow[], result: BulkCreateResult): BatchRow[] {
-  const done = new Set(result.createdBarcodes.map(normalizeCode));
-  return rows.filter((r) => !done.has(r.barcode));
+  /*
+    SKIPPED IS DONE TOO.
+
+    "Skipped" means the barcode is already on the fleet — there is nothing
+    left to do with it, and Save can only ever skip it again. Keeping it in
+    hand left it stuck on the Add screen for ever, and the likeliest way to
+    get one is exactly the case that matters most: a save that reached the
+    server but timed out on the phone. The retry finds every bottle already
+    created and reports them all as skipped (see the bulk route's note on
+    convergence), so the whole pallet sat there "unsaved" after it had gone
+    in. Reported 22 Sep 2026 as barcodes stuck at Add even after submitting.
+
+    Only `invalid` stays: those genuinely did not go in and need fixing.
+    The result panel still names the skipped ones, barcode by barcode.
+  */
+  const done = new Set([
+    ...result.createdBarcodes,
+    ...result.skipped.map((s) => s.barcode),
+  ].map(normalizeCode));
+  return rows.filter((r) => !done.has(normalizeCode(r.barcode)));
 }
 
 /**
