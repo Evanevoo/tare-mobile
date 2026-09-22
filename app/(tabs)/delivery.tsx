@@ -7,6 +7,7 @@ import { Scanner } from '@/scanner';
 import { useScanRoute, explainMiss } from '@/scan-route';
 import { classify } from '@/scan-match';
 import { formatExample, formatNudge } from '@/formats';
+import { formatForScanIntent } from '@/scan-format';
 import { T, Screen, Surface, Btn, Eyebrow, Rise, Tag, mono, tint, wash } from '@/ui';
 import { Sheet } from '@/sheet';
 import { useLiveData } from '@/live';
@@ -464,7 +465,7 @@ export default function Delivery() {
       >
         <View style={{ flex: 1, backgroundColor: '#000' }}>
           <Scanner
-            format={scanning === 'order' ? boot?.formats?.orderNumber : boot?.formats?.barcode}
+            format={scanning ? formatForScanIntent(scanning, boot?.formats) : undefined}
             onCode={handleCode}
             accept={acceptHere}
             onClose={() => setScanning(null)}
