@@ -558,7 +558,24 @@ export default function Scan() {
    * sheet to get out of it.
    */
   function finish(confirmed = false) {
-    const n = c.pending;
+    /**
+     * TOTAL, NOT PENDING. A synced scan is still a scan a driver needs to
+     * review before it leaves this screen.
+     *
+     * Auto-sync posts the outbox every 45s (auto-sync.ts), which on any
+     * delivery slower than that means most or all of the scans on this order
+     * are already `state: 'SENT'` by the time a driver taps Done. `pending`
+     * counts only the unsent ones, so on a fully-synced order it read 0 and
+     * this fell straight through to the silent-leave branch below —
+     * submitting and closing without ever showing the review sheet, on
+     * exactly the orders where a driver most needed to check what went out.
+     * Reported 23 Sep 2026: "clicking done sometimes takes you to submit and
+     * sometimes takes you back to delivery page" — this was the sometimes.
+     * The Done button's own accessibility label a few lines down already
+     * says `Submits ${c.total} scans`; the gate just wasn't reading the same
+     * number.
+     */
+    const n = c.total;
 
     if (n && !confirmed) {
       setReview(true);
