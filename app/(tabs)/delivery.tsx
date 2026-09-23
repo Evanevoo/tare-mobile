@@ -6,7 +6,7 @@ import { counts } from '@/outbox';
 import { Scanner } from '@/scanner';
 import { useScanRoute, explainMiss } from '@/scan-route';
 import { classify } from '@/scan-match';
-import { formatExample, formatNudge } from '@/formats';
+import { formatExample, formatNudge, matchesFormat } from '@/formats';
 import { formatForScanIntent } from '@/scan-format';
 import { T, Screen, Surface, Btn, Eyebrow, Rise, Tag, mono, tint, wash } from '@/ui';
 import { Sheet } from '@/sheet';
@@ -113,6 +113,26 @@ export default function Delivery() {
    * that point is to work out which.
    */
   const acceptHere = useCallback((code: string) => {
+    /**
+     * A CUSTOMER CARD ON FILE IS ALWAYS IN (23 Sep 2026).
+     *
+     * The customer camera used to gate on the company's customer-number
+     * format alone. WeldCor's rule was `********-***********`, and the card
+     * the paperwork prints encodes `%80000E8C-1789575264A` (printer `%`,
+     * trailing check letter): 3 of 1,897 cards passed, so drivers could not
+     * scan paperwork at all - silently, the camera just kept looking. A
+     * format written in Settings must never be able to lock out a customer
+     * the phone already knows. So: a card that resolves to a customer on file
+     * is accepted whatever the rule says; an unknown code still has to look
+     * like a customer number, which keeps half-labels and box barcodes out
+     * while letting a genuinely new account reach route() and its "not on
+     * file" explanation.
+     */
+    if (scanning === 'customer') {
+      const c = classify(code, boot);
+      if (c?.kind === 'customer') return true;
+      return matchesFormat(code, formatForScanIntent('customer', boot?.formats));
+    }
     if (scanning !== 'order') return true;
     const t = classify(code, boot);
     if (!t || t.kind === 'text') return true;
@@ -465,7 +485,9 @@ export default function Delivery() {
       >
         <View style={{ flex: 1, backgroundColor: '#000' }}>
           <Scanner
-            format={scanning ? formatForScanIntent(scanning, boot?.formats) : undefined}
+            // Customer: the format is applied in acceptHere, AFTER the customer
+            // list has had its say - see the note there. Order: gated here.
+            format={scanning === 'order' ? formatForScanIntent('order', boot?.formats) : undefined}
             onCode={handleCode}
             accept={acceptHere}
             onClose={() => setScanning(null)}
