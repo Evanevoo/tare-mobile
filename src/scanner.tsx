@@ -16,6 +16,8 @@ import { RETICLE, withinReticle } from './reticle';
 import { discard } from './tmpfiles';
 import { scanAssist, type ScanAssist } from './scan-assist';
 import { focusPulseDelays } from './focus-policy';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { parseZoom, nextZoom, zoomLabel, ZOOM_PREF_KEY } from './zoom-pref';
 
 /**
  * The one camera surface.
@@ -377,6 +379,15 @@ export function Scanner({
   const [closing, setClosing] = useState(false);
   const [torch, setTorch] = useState(false);
   const [zoom, setZoom] = useState(0);
+  // The zoom this phone last chose (zoom-pref.ts). Read once per camera; a
+  // failed read leaves 1x, which is exactly how every scan started before.
+  useEffect(() => {
+    let live = true;
+    AsyncStorage.getItem(ZOOM_PREF_KEY)
+      .then((v) => { if (live) setZoom(parseZoom(v)); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, []);
   const [struggling, setStruggling] = useState(false);
   const [snapBusy, setSnapBusy] = useState(false);
   const [aiBusy, setAiBusy] = useState(false);
@@ -1286,8 +1297,13 @@ export function Scanner({
           onPress={() => { setTorch((v) => !v); Haptics.selectionAsync(); }}
         />
         <Ctl
-          label={zoom === 0 ? '1×' : zoom === 0.15 ? '1.5×' : '2×'}
-          onPress={() => { setZoom((z) => (z === 0 ? 0.15 : z === 0.15 ? 0.3 : 0)); Haptics.selectionAsync(); }}
+          label={zoomLabel(zoom)}
+          onPress={() => {
+            const z = nextZoom(zoom);
+            setZoom(z);
+            AsyncStorage.setItem(ZOOM_PREF_KEY, String(z)).catch(() => {});
+            Haptics.selectionAsync();
+          }}
         />
       </View>
 
