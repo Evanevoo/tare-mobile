@@ -104,17 +104,31 @@ export default function OrderEdit() {
 
   const rows = outbox.scans.filter((s) => s.orderNumber === orderNumber);
 
+  /*
+    ALWAYS ASK THE LEDGER, NOT ONLY WHEN THIS PHONE IS SILENT.
+
+    This used to fetch only when the outbox had nothing for the order, on the
+    theory that a phone with any rows had scanned the whole thing. Wrong the
+    moment two people touch one order: 25 Sep 2026, order 79478 — Korbihn
+    scanned 9 out and 6 back, Evan added 3 back from his phone, and Evan's
+    screen showed "3 bottles · 0 out · 3 back" because his three local rows
+    stopped it from ever asking. Nothing was lost; the screen just never
+    looked. The merge below already handled local + server correctly — it was
+    only ever starved of the server half.
+
+    Once per visit, whatever the outbox holds. Local rows still draw
+    immediately; the server's arrive a moment later and fill in the rest.
+  */
   useEffect(() => {
-    if (rows.length || remoteStatus !== 'idle') return;
+    if (remoteStatus !== 'idle') return;
     setRemoteStatus('loading');
     fetchOrderDetail(orderNumber)
       .then((r) => { setRemote(r); setRemoteStatus('done'); })
       .catch(() => setRemoteStatus('error'));
-    // Only the outbox's own emptiness and the order number decide whether to
-    // ask — re-running this on every render would refetch on each keystroke
-    // elsewhere on this screen.
+    // Once per order — re-running on every render would refetch on each
+    // keystroke elsewhere on this screen.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orderNumber, rows.length]);
+  }, [orderNumber]);
 
   /**
    * WHAT THE SCREEN ACTUALLY EDITS.
@@ -464,8 +478,11 @@ export default function OrderEdit() {
         <Pressable onPress={() => flip(s)} hitSlop={10} disabled={busy}
                    accessibilityRole="button"
                    accessibilityLabel={`Change ${s.barcode} to ${s.mode === 'SHIP' ? 'came back' : 'went out'}`}>
+          {/* An action, so it says what it DOES. "→ back" on a bottle that
+              went out read as a status — "this came back" — and a driver
+              looking at S49986 saw the list as inverted (25 Sep 2026). */}
           <Text style={{ color: T.brandLit, fontSize: 12.5, fontWeight: '700' }}>
-            {s.mode === 'SHIP' ? '→ back' : '→ out'}
+            {s.mode === 'SHIP' ? 'Switch to back' : 'Switch to out'}
           </Text>
         </Pressable>
         <Pressable onPress={() => remove(s)} hitSlop={10} disabled={busy}
@@ -509,6 +526,18 @@ export default function OrderEdit() {
               {ret.length} back
             </Text>
           </View>
+          {/* Say when the counts are this phone's alone, so a partial order is
+              never mistaken for the whole one. */}
+          {remoteStatus === 'loading' && (
+            <Text style={{ color: T.faint, fontSize: 12, marginTop: 6 }}>
+              Checking the server for scans from other phones…
+            </Text>
+          )}
+          {remoteStatus === 'error' && (
+            <Text style={{ color: T.amber, fontSize: 12, marginTop: 6, lineHeight: 17 }}>
+              Could not reach the server — showing only what this phone scanned.
+            </Text>
+          )}
         </Rise>
 
         <Rise delay={40} style={{ marginTop: 22 }}>
