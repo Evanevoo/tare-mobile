@@ -150,6 +150,10 @@ export default function Login() {
                     style={[field, { paddingRight: 64 }]}
                     placeholder="••••••••" placeholderTextColor={T.faint}
                     secureTextEntry={!show} textContentType="password"
+                    /* With Show on, the phone treats this as ordinary text:
+                       it capitalised the first letter and "corrected" words,
+                       and a right password went up wrong (28 Sep 2026). */
+                    autoCapitalize="none" autoCorrect={false} spellCheck={false}
                     value={password} onChangeText={setPassword} editable={!busy}
                     /* Same as the email field above — keychain fill does not
                        reliably fire onChangeText on iOS. */
