@@ -22,7 +22,7 @@ import { T, Aurora, Surface, Btn, Rise, tint } from '@/ui';
  * bounce the driver to login before the screen built to sign them in ever ran.
  */
 export default function ResetPassword() {
-  const params = useLocalSearchParams<{ code?: string; error?: string }>();
+  const params = useLocalSearchParams<{ code?: string; token_hash?: string; error?: string }>();
   const router = useRouter();
 
   const [state, setState] = useState<'checking' | 'ready' | 'invalid'>('checking');
@@ -34,8 +34,15 @@ export default function ResetPassword() {
 
   useEffect(() => {
     const code = params.code;
-    if (params.error || !code) { setState('invalid'); return; }
-    supabase.auth.exchangeCodeForSession(code)
+    const tokenHash = params.token_hash;
+    if (params.error || (!code && !tokenHash)) { setState('invalid'); return; }
+    // Two shapes of link. The reset email now goes through
+    // scanified.com/auth/confirm (a link on the sender's own domain, so mail
+    // filters stop calling it a scam), which hands over a token hash. Older
+    // emails still carry a PKCE code straight from Supabase.
+    (tokenHash
+      ? supabase.auth.verifyOtp({ token_hash: tokenHash, type: 'recovery' })
+      : supabase.auth.exchangeCodeForSession(code!))
       .then(({ error }) => setState(error ? 'invalid' : 'ready'))
       .catch(() => setState('invalid'));
     // Off whatever the link carried on first mount, once — a code is
