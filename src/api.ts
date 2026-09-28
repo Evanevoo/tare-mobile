@@ -1,6 +1,7 @@
 import 'react-native-url-polyfill/auto';
 import { AppState } from 'react-native';
 import { createClient } from '@supabase/supabase-js';
+import { withDeadline, boundedFetch } from './deadline';
 import Constants from 'expo-constants';
 import * as Linking from 'expo-linking';
 import type { QueuedScan } from './outbox';
@@ -59,6 +60,10 @@ const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
 const SUPABASE_ANON = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON, {
+  // supabase-js refreshes an expired token over React Native's fetch, which
+  // never times out on its own. Bounded, so a refresh on a dead socket cannot
+  // leave the Send button on "Working…" (deadline.ts; order 79642, 23 Sep 2026).
+  global: { fetch: boundedFetch(30_000) },
   auth: {
     // Encrypted at rest — see secure-storage.ts for why plain AsyncStorage
     // was the wrong place for a live session token, and why SecureStore
@@ -108,7 +113,7 @@ AppState.addEventListener('change', (state) => {
 if (AppState.currentState === 'active') void supabase.auth.startAutoRefresh();
 
 async function authHeader(): Promise<Record<string, string>> {
-  const { data } = await supabase.auth.getSession();
+  const { data } = await withDeadline(supabase.auth.getSession(), 35_000, 'Checking your sign-in');
   const token = data.session?.access_token;
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
