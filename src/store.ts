@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { reduce, empty, pending, queued, type Action, type Outbox, type Mode, type QueuedScan }
   from './outbox';
 import { ulid } from './ulid';
+import { withDeadline } from './deadline';
 import { loadOutbox, saveOutbox, cacheGet, cacheSet, dbUnavailable as dbFlag, storageMode } from './db';
 import {
   fetchBootstrap, postScans, sessionIdentity, SyncRefused, BOOTSTRAP_VERSION, MAX_SYNC_BATCH,
@@ -470,7 +471,11 @@ export const useStore = create<State>((set, get) => ({
          * comes back to the driver so the unknown barcode gets dealt with
          * while the truck is still at the customer.
          */
-        const result = await postScans(chunk);
+        // The POST is bounded inside postScans, but getting a token first and
+        // reading the reply afterwards were not. The whole step is, now: a
+        // sync that cannot finish must fail, or `syncing` stays true and
+        // every later sync is skipped (deadline.ts).
+        const result = await withDeadline(postScans(chunk), 150_000, 'Sending scans');
         get().dispatch({ type: 'UPLOAD_OK', clientIds: ids });
         anyUploaded = true;
         if (result.unresolved?.length) allUnresolved.push(...result.unresolved);
