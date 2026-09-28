@@ -694,7 +694,7 @@ export default function Scan() {
       <View style={{ flex: 1, backgroundColor: T.zinc, alignItems: 'center', justifyContent: 'center', padding: 32 }}>
         <Text style={{ color: T.ink, fontSize: 20, fontWeight: '800' }}>Order sent</Text>
         <Text style={{ color: T.faint, fontSize: 13.5, marginTop: 8, textAlign: 'center', lineHeight: 20 }}>
-          Uploading in the background. It is safe to close the app.
+          Saved on this phone. It uploads as soon as there is signal — closing the app is safe.
         </Text>
       </View>
     );
