@@ -5,15 +5,18 @@ import {
 import * as SecureStore from 'expo-secure-store';
 import { signIn, requestPasswordReset } from '@/api';
 import { T, Aurora, Surface, Btn, Rise, tint, wash } from '@/ui';
+import { canSavePassword, savedEmail, savePassword, forgetPassword, unlockSavedLogin } from '@/saved-login';
 
 /**
- * The email is remembered, the password never is.
+ * The email is remembered; the password only if the driver asks, and then
+ * only behind the phone's own fingerprint or face (src/saved-login.ts).
  *
  * A driver signs into the same phone every morning and should not retype their
- * address with cold hands. Storing the password would be a different trade
- * entirely — a stolen phone would be a stolen account — so it is not offered.
- * SecureStore rather than AsyncStorage because it is already a dependency and
- * an email address is still personal data.
+ * address with cold hands. A plain saved password would be a different trade
+ * — a stolen phone would be a stolen account — which is why the saved one
+ * never opens without the owner's biometric check, and is not offered at all
+ * on a phone without one. SecureStore rather than AsyncStorage because it is
+ * already a dependency and an email address is still personal data.
  */
 const REMEMBERED = 'tare.lastEmail';
 
@@ -25,14 +28,45 @@ export default function Login() {
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
   const [remember, setRemember] = useState(true);
+  const [canSave, setCanSave] = useState(false);
+  const [savePw, setSavePw] = useState(true);
+  const [savedFor, setSavedFor] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
     SecureStore.getItemAsync(REMEMBERED)
       .then((v) => { if (alive && v) { setEmail(v); setRemember(true); } })
       .catch(() => { /* a missing keychain entry is the normal first run */ });
+    Promise.all([canSavePassword(), savedEmail()])
+      .then(([ok, who]) => { if (alive) { setCanSave(ok); setSavedFor(ok ? who : null); } })
+      .catch(() => {});
     return () => { alive = false; };
   }, []);
+
+  /** Fingerprint or face, then the saved password - no typing. */
+  async function quickSignIn() {
+    if (busy) return;
+    setError(null);
+    const login = await unlockSavedLogin();
+    if (!login) return; // cancelled, or the check failed: the form is still there
+    setBusy(true);
+    try {
+      await signIn(login.email, login.password);
+    } catch (e: any) {
+      // A password changed elsewhere makes the saved one wrong for ever - drop
+      // it rather than failing the same way every morning.
+      if (/invalid login/i.test(e?.message ?? '')) {
+        await forgetPassword();
+        setSavedFor(null);
+        setEmail(login.email);
+        setError('Your saved password no longer works. Type the new one — you can save it again.');
+      } else {
+        setError(e?.message ?? 'Could not sign in');
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function submit() {
     if (busy) return;
@@ -63,6 +97,8 @@ export default function Login() {
       // remembered and refilled every morning.
       if (remember) SecureStore.setItemAsync(REMEMBERED, addr).catch(() => {});
       else SecureStore.deleteItemAsync(REMEMBERED).catch(() => {});
+      if (canSave && savePw) await savePassword(addr, password);
+      else await forgetPassword();
     }
     catch (e: any) { setError(e?.message ?? 'Could not sign in'); }
     finally { setBusy(false); }
@@ -129,6 +165,7 @@ export default function Login() {
                   placeholder="you@company.com" placeholderTextColor={T.faint}
                   autoCapitalize="none" autoCorrect={false}
                   keyboardType="email-address" textContentType="username"
+                  autoComplete="email" importantForAutofill="yes"
                   value={email} onChangeText={setEmail} editable={!busy}
                   /* iOS AUTOFILL DOES NOT ALWAYS FIRE onChangeText.
                      textContentType invites iCloud Keychain to fill this
@@ -154,6 +191,9 @@ export default function Login() {
                        it capitalised the first letter and "corrected" words,
                        and a right password went up wrong (28 Sep 2026). */
                     autoCapitalize="none" autoCorrect={false} spellCheck={false}
+                    /* Lets the phone's own password manager offer to save and
+                       fill it, as well as the in-app saved password below. */
+                    autoComplete="password" importantForAutofill="yes"
                     value={password} onChangeText={setPassword} editable={!busy}
                     /* Same as the email field above — keychain fill does not
                        reliably fire onChangeText on iOS. */
@@ -203,10 +243,39 @@ export default function Login() {
                       Remember my email
                     </Text>
                     <Text style={{ color: T.faint, fontSize: 11.5, marginTop: 1 }}>
-                      Password is never saved on the phone.
+                      {canSave ? 'Your email, ready for next time.' : 'Password is never saved on the phone.'}
                     </Text>
                   </View>
                 </Pressable>
+
+                {canSave && (
+                  <Pressable
+                    onPress={() => setSavePw((v) => !v)}
+                    hitSlop={8}
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: savePw }}
+                    accessibilityLabel="Save my password on this phone"
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 11, marginTop: 14 }}
+                  >
+                    <View
+                      style={{
+                        width: 24, height: 24, borderRadius: 7,
+                        alignItems: 'center', justifyContent: 'center',
+                        backgroundColor: savePw ? T.bottle : 'transparent',
+                        borderWidth: savePw ? 0 : 1.5,
+                        borderColor: T.faint,
+                      }}
+                    >
+                      {savePw && <Text style={{ color: T.onBrand, fontSize: 14, fontWeight: '900' }}>✓</Text>}
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: T.ink, fontSize: 14, fontWeight: '600' }}>Save my password</Text>
+                      <Text style={{ color: T.faint, fontSize: 11.5, marginTop: 1 }}>
+                        Only opens with this phone&apos;s fingerprint or face.
+                      </Text>
+                    </View>
+                  </Pressable>
+                )}
 
                 <Pressable
                   onPress={forgot}
@@ -263,6 +332,17 @@ export default function Login() {
                  was actually earning its place. */
               onPress={submit}
             />
+
+            {savedFor && (
+              <Btn
+                variant="ghost"
+                label={`Sign in as ${savedFor}`}
+                sub="Uses your fingerprint or face"
+                style={{ marginTop: 10 }}
+                onPress={quickSignIn}
+                disabled={busy}
+              />
+            )}
 
             <Text
               style={{

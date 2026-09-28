@@ -116,7 +116,13 @@
           }
         }
       ],
-      "expo-audio"
+      "expo-audio",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Scanified uses Face ID to unlock your saved sign-in and the optional app lock."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
