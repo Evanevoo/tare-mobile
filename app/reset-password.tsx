@@ -131,6 +131,7 @@ export default function ResetPassword() {
                     style={[field, { paddingRight: 64, marginBottom: 16 }]}
                     placeholder="••••••••" placeholderTextColor={T.faint}
                     secureTextEntry={!show} textContentType="newPassword"
+                    autoCapitalize="none" autoCorrect={false} spellCheck={false}
                     autoFocus value={password} onChangeText={setPassword} editable={!busy}
                   />
                   <Pressable
@@ -150,6 +151,7 @@ export default function ResetPassword() {
                   style={[field, { marginBottom: 6 }]}
                   placeholder="••••••••" placeholderTextColor={T.faint}
                   secureTextEntry={!show} textContentType="newPassword"
+                  autoCapitalize="none" autoCorrect={false} spellCheck={false}
                   value={again} onChangeText={setAgain} editable={!busy}
                   onSubmitEditing={submit} returnKeyType="go"
                 />
