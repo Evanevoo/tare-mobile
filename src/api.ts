@@ -10,6 +10,7 @@ import type { BatchItem, BulkCreateResult } from './batch';
 import type { HistoryPage } from './history';
 import type { PendingShipRec } from './pending-ship';
 import { supabaseSecureStorage } from './secure-storage';
+import { parseStoredSession, sessionVerdict, SESSION_CHECK_MS, type SessionCheck, type Verdict } from './offline-session';
 
 /**
  * One base URL, set at build time per EAS profile. Nothing else in the app
@@ -112,6 +113,32 @@ AppState.addEventListener('change', (state) => {
 // driver had backgrounded and returned once.
 if (AppState.currentState === 'active') void supabase.auth.startAutoRefresh();
 
+/**
+ * Signed in or not, WITHOUT needing signal to decide - see offline-session.ts.
+ * getSession() alone answers "no" on a cold start in a dead zone once the
+ * access token has aged out, though the session on the phone is fine.
+ */
+const STORAGE_KEY = (supabase.auth as unknown as { storageKey: string }).storageKey;
+
+export async function storedSession(): Promise<{ email: string | null } | null> {
+  try {
+    return parseStoredSession(await supabaseSecureStorage.getItem(STORAGE_KEY));
+  } catch {
+    return null;
+  }
+}
+
+export async function sessionState(): Promise<Verdict> {
+  const check = await Promise.race<SessionCheck>([
+    supabase.auth.getSession()
+      .then(({ data, error }): SessionCheck => ({ kind: 'done', hasSession: !!data.session, errorName: error?.name ?? null }))
+      .catch((e: any): SessionCheck => ({ kind: 'done', hasSession: false, errorName: e?.name ?? null })),
+    new Promise<SessionCheck>((r) => setTimeout(() => r({ kind: 'slow' }), SESSION_CHECK_MS)),
+  ]);
+  if (check.kind === 'done' && check.hasSession) return 'in';
+  return sessionVerdict(check, !!(await storedSession()));
+}
+
 async function authHeader(): Promise<Record<string, string>> {
   const { data } = await withDeadline(supabase.auth.getSession(), 35_000, 'Checking your sign-in');
   const token = data.session?.access_token;
@@ -132,7 +159,9 @@ async function authHeader(): Promise<Record<string, string>> {
  */
 export async function sessionIdentity(): Promise<{ email: string } | null> {
   const { data } = await supabase.auth.getSession();
-  const email = data.session?.user?.email;
+  // Offline with an aged-out token, getSession() says null; the stored
+  // session still knows who signed in (offline-session.ts).
+  const email = data.session?.user?.email ?? (await storedSession())?.email;
   return email ? { email } : null;
 }
 

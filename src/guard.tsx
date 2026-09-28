@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, AppState, Pressable, Text, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { supabase, signOut } from './api';
+import { supabase, signOut, sessionState } from './api';
+import { verdictForEvent } from './offline-session';
 import { useStore } from './store';
 import { pending } from './outbox';
 import { hasNativeModule } from './notifications';
@@ -75,8 +76,13 @@ export function SessionGuards({ children }: { children: React.ReactNode }) {
   useEffect(() => { held.current = heldBack !== null; }, [heldBack]);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => setSignedIn(!!data.session));
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setSignedIn(!!s));
+    // Same verdict as the root layout, so the idle sign-out and the app lock
+    // keep running when the phone is signed in with no signal.
+    sessionState().then((v) => setSignedIn(v === 'in'));
+    const { data: sub } = supabase.auth.onAuthStateChange((e, s) => {
+      const v = verdictForEvent(e, !!s);
+      if (v) setSignedIn(v === 'in');
+    });
     return () => sub.subscription.unsubscribe();
   }, []);
 

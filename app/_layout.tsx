@@ -4,7 +4,8 @@ import { View, ActivityIndicator, useColorScheme } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import * as Sentry from '@sentry/react-native';
-import { supabase } from '@/api';
+import { supabase, sessionState } from '@/api';
+import { verdictForEvent } from '@/offline-session';
 import { useStore } from '@/store';
 import { T, Aurora, applyPalette } from '@/ui';
 import { useTheme } from '@/theme';
@@ -115,8 +116,13 @@ function RootLayout() {
   applyPalette(mode);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => setSession(data.session ? 'in' : 'out'));
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setSession(s ? 'in' : 'out'));
+    // Not getSession() alone: offline, it says "signed out" about a session
+    // that is fine (src/offline-session.ts).
+    sessionState().then(setSession);
+    const { data: sub } = supabase.auth.onAuthStateChange((e, s) => {
+      const v = verdictForEvent(e, !!s);
+      if (v) setSession(v);
+    });
     return () => sub.subscription.unsubscribe();
   }, []);
 
