@@ -13,7 +13,9 @@ import {
   shouldCheck, bannerVisible, bannerRoute, restartHint, statusLine,
   CHECK_INTERVAL_MS, RETRY_INTERVAL_MS, type Phase,
   shouldCheckStore, storeBuildIsNewer, storeBannerVisible, STORE_CHECK_INTERVAL_MS,
+  storeCheckWorthReporting,
 } from '../src/update-policy.ts';
+import { readFileSync } from 'node:fs';
 
 let passed = 0, failed = 0;
 const ok = (n: string, c: boolean, d = '') => {
@@ -191,6 +193,40 @@ section('A store update is a different fact than an OTA bundle');
   ok('same placement rule as the OTA banner — never on the scan screen',
     !storeBannerVisible({ ...vbase, segment: 'scan' }));
   ok('nor on login', !storeBannerVisible({ ...vbase, segment: 'login' }));
+}
+
+/*
+  NO SIGNAL IS NOT AN ERROR.
+
+  On 28 Sep 2026 the owner was emailed a "high priority issue": TypeError,
+  Network request failed, kind store-version-check-failed. Nothing was wrong.
+  One phone had asked the server a question during a moment with no
+  connection, which in this app is the ordinary case and not the edge one.
+  Every driver in every dead spot would send the same alert, and an alert
+  that fires for nothing is how the one that matters gets deleted unread.
+*/
+section('store check: which failures are worth an alert');
+{
+  const named = (name: string, message: string) => Object.assign(new Error(message), { name });
+
+  ok('the phone could not reach anything: not news',
+    !storeCheckWorthReporting(new TypeError('Network request failed')));
+  ok('it reached nothing before giving up: not news',
+    !storeCheckWorthReporting(new Error('Network request timed out')));
+  ok('the request was cancelled: not news',
+    !storeCheckWorthReporting(named('AbortError', 'Aborted')));
+  ok('the server answered and said 500: news',
+    storeCheckWorthReporting(new Error('store-version failed (500)')));
+  ok('the server answered with something that is not JSON: news',
+    storeCheckWorthReporting(new SyntaxError('JSON Parse error: Unexpected character: <')));
+  ok('a TypeError that is a real bug is still news',
+    storeCheckWorthReporting(new TypeError("Cannot read property 'build' of undefined")));
+  ok('something thrown that is not an Error at all: news',
+    storeCheckWorthReporting('boom') && storeCheckWorthReporting(undefined));
+
+  const src = readFileSync('src/store-update.ts', 'utf8');
+  ok('the store check asks before it reports',
+    /if \(storeCheckWorthReporting\(e\)\)\s*\{?\s*Sentry\.captureException/.test(src));
 }
 
 console.log(`\n\x1b[1m${passed} passed, ${failed} failed\x1b[0m\n`);

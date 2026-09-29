@@ -18,7 +18,7 @@ import * as Sentry from '@sentry/react-native';
 import { API_URL } from './api';
 import { NATIVE_BUILD } from './updates';
 import { useStore } from './store';
-import { shouldCheckStore, storeBuildIsNewer } from './update-policy';
+import { shouldCheckStore, storeBuildIsNewer, storeCheckWorthReporting } from './update-policy';
 
 interface StoreRelease {
   ios: { version: string; build: number; storeUrl: string };
@@ -83,8 +83,11 @@ export const useStoreUpdate = create<StoreUpdateState>((set, get) => ({
       // path for "the server can't be reached", and a second, near-identical
       // banner for the same underlying cause (no signal) would just be
       // noise. Reported to Sentry so a genuine break in the endpoint itself
-      // is still visible somewhere.
-      Sentry.captureException(e, { tags: { kind: 'store-version-check-failed' } });
+      // is still visible somewhere — but only when the server answered. A
+      // phone that reached nobody is not news; see storeCheckWorthReporting.
+      if (storeCheckWorthReporting(e)) {
+        Sentry.captureException(e, { tags: { kind: 'store-version-check-failed' } });
+      }
       set({ checking: false, lastCheckAt: Date.now() });
     }
   },
