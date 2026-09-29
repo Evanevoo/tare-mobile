@@ -8,6 +8,7 @@ import {
   fetchHistory, fetchFillHistory, HISTORY_PAGE, type FillHistoryEntry,
 } from '@/api';
 import { cacheGet, cacheSet } from '@/db';
+import { ownedBy } from '@/cache-owner';
 import {
   appendPage, mergeHistory, offlineNotice,
   type CachedHistory, type ServerOrder,
@@ -90,6 +91,8 @@ interface CachedFills {
   entries: FillHistoryEntry[];
   before: string | null;
   fetchedAt: string | null;
+  /** The login that downloaded it. See src/cache-owner.ts. */
+  owner?: string | null;
 }
 
 export default function History() {
@@ -132,6 +135,7 @@ export default function History() {
         orders: page.orders ?? [],
         nextBefore: page.nextBefore ?? null,
         fetchedAt: new Date().toISOString(),
+        owner: email,
       };
       setOrders(fresh.orders);
       setNextBefore(fresh.nextBefore);
@@ -145,7 +149,7 @@ export default function History() {
     } finally {
       if (alive.current) { setRefreshing(false); setLoading(false); }
     }
-  }, []);
+  }, [email]);
 
   /**
    * What was on disk goes up first, then the network is asked.
@@ -153,11 +157,15 @@ export default function History() {
    * In that order deliberately: the driver sees a list in the time it takes to
    * read SQLite rather than watching a spinner decide whether there is signal.
    * If the fetch lands, it replaces this; if it does not, this is what stays.
+   *
+   * ONLY IF THIS LOGIN DOWNLOADED IT. The page on disk used to go up whoever
+   * was signed in, so a phone that had been signed in to another company
+   * drew that company's orders until the fetch replaced them a second later.
    */
   useEffect(() => {
     let live = true;
     (async () => {
-      const cached = await cacheGet<CachedHistory>('history');
+      const cached = ownedBy(await cacheGet<CachedHistory>('history'), email);
       if (live && cached && Array.isArray(cached.orders)) {
         setOrders(cached.orders);
         setNextBefore(cached.nextBefore ?? null);
@@ -166,7 +174,7 @@ export default function History() {
       if (live) await load(false);
     })();
     return () => { live = false; };
-  }, [load]);
+  }, [load, email]);
 
   /** The next page down, asked for when the driver reaches the bottom. */
   const more = useCallback(async () => {
@@ -204,6 +212,7 @@ export default function History() {
         entries: page.entries ?? [],
         before: page.before ?? null,
         fetchedAt: new Date().toISOString(),
+        owner: email,
       };
       setFills(fresh.entries);
       setFillBefore(fresh.before);
@@ -215,7 +224,7 @@ export default function History() {
     } finally {
       if (alive.current) { setRefreshing(false); setFillLoaded(true); }
     }
-  }, []);
+  }, [email]);
 
   /** Lazily, on the first switch — most opens never leave Orders, and the
       yard tab should not cost every open a second request. */
@@ -223,7 +232,7 @@ export default function History() {
     if (mode !== 'locate' || fillLoaded) return;
     let live = true;
     (async () => {
-      const cached = await cacheGet<CachedFills>('fill-history');
+      const cached = ownedBy(await cacheGet<CachedFills>('fill-history'), email);
       if (live && cached && Array.isArray(cached.entries)) {
         setFills(cached.entries);
         setFillBefore(cached.before ?? null);
@@ -232,7 +241,7 @@ export default function History() {
       if (live) await loadFills(false);
     })();
     return () => { live = false; };
-  }, [mode, fillLoaded, loadFills]);
+  }, [mode, fillLoaded, loadFills, email]);
 
   const moreFills = useCallback(async () => {
     if (fillPaging || refreshing || !fillBefore) return;

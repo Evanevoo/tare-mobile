@@ -50,6 +50,8 @@ export interface HistoryPage {
  */
 export interface CachedHistory extends HistoryPage {
   fetchedAt: string;
+  /** The login that downloaded it. A page is shown to nobody else — see cache-owner.ts. */
+  owner?: string | null;
 }
 
 /**
