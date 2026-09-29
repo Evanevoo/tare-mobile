@@ -594,7 +594,7 @@ export default function OrderEdit() {
               <TextInput
                 value={addCode} onChangeText={(v) => setAddCode(v.toUpperCase())}
                 autoCapitalize="characters" autoCorrect={false}
-                placeholder="PW-K-041827" placeholderTextColor={T.faint}
+                placeholder="Type the barcode" placeholderTextColor={T.faint}
                 style={[field, mono(15.5, '600')]}
                 onSubmitEditing={addBottle}
               />

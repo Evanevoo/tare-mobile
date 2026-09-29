@@ -420,7 +420,7 @@ export default function EditAsset() {
 
             <Field
               label="Belongs to"
-              hint="A supplier label — WeldCor, Linde. Blank means ours. This does NOT change billing."
+              hint="A supplier label — Linde, Air Liquide. Blank means ours. This does NOT change billing."
             >
               <Chips
                 options={attrs.supplier}

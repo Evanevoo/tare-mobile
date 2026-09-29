@@ -475,8 +475,9 @@ function LockToggle() {
         </Pressable>
       </Surface>
       <Text style={{ color: T.faint, fontSize: 12, marginTop: 11, lineHeight: 18 }}>
-        No password is ever stored on this phone. This locks opening the app — scans,
-        customers and the queue stay behind it.
+        This locks opening the app — scans, customers and the queue stay behind it. If you
+        chose to save your password when signing in, it is kept in this phone's secure
+        storage, behind the same fingerprint or face.
       </Text>
     </>
   );

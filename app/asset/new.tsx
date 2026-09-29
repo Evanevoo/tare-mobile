@@ -432,7 +432,7 @@ export default function NewAsset() {
 
               <Field
                 label="Belongs to"
-                hint="Optional. A supplier label — WeldCor, Linde. This does NOT change billing."
+                hint="Optional. A supplier label — Linde, Air Liquide. This does NOT change billing."
               >
                 <Chips
                   options={attrs.supplier} value={owner} onChange={setOwner}
