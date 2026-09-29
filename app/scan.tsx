@@ -1281,7 +1281,7 @@ export default function Scan() {
               <TextInput
                 value={manualCode} onChangeText={(v) => setManualCode(v.toUpperCase())}
                 autoFocus autoCapitalize="characters" autoCorrect={false}
-                placeholder="PW-K-041827" placeholderTextColor={T.faint}
+                placeholder="Type the barcode" placeholderTextColor={T.faint}
                 style={[
                   {
                     minHeight: 54, borderRadius: T.radiusSm, paddingHorizontal: 15, color: T.ink,

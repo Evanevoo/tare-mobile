@@ -866,7 +866,7 @@ export default function BatchAssets() {
 
               <Field
                 label="Belong to"
-                hint="Optional. A supplier label — WeldCor, Linde. Does NOT change billing."
+                hint="Optional. A supplier label — Linde, Air Liquide. Does NOT change billing."
               >
                 <Chips
                   options={attrs.supplier} value={owner} onChange={setOwner}
