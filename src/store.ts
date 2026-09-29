@@ -11,6 +11,7 @@ import {
 import type { TargetLine } from './target-progress.ts';
 import { registerPush, deregisterPush } from './notifications';
 import { matchesFormat } from './formats';
+import { ACCOUNT_CACHES, OWNER_KEY, ownerVerdict } from './cache-owner';
 
 interface State {
   ready: boolean;
@@ -102,14 +103,29 @@ export const useStore = create<State>((set, get) => ({
   orderTarget: null,
 
   async hydrate() {
-    const [loaded, cached, lastSync, job, who] = await Promise.all([
+    /*
+      WHOSE CACHES ARE THESE? ASKED BEFORE ANY OF THEM IS READ.
+
+      Sign-out clears them (handOver, below), but a login can change without
+      passing through Sign out: a password reset, a session the server ended.
+      Everything read a few lines down was downloaded for the last login, and
+      restoring it for a different one puts one company's customers on
+      another company's screen. See src/cache-owner.ts.
+    */
+    const who = await sessionIdentity().catch(() => null);
+    const stamp = await cacheGet<string>(OWNER_KEY);
+    if (ownerVerdict(stamp, who?.email) === 'wipe') {
+      await Promise.all(ACCOUNT_CACHES.map((k) => cacheSet(k, null).catch(() => {})));
+    }
+    if (who?.email) cacheSet(OWNER_KEY, who.email).catch(() => {});
+
+    const [loaded, cached, lastSync, job] = await Promise.all([
       loadOutbox(),
       cacheGet<Bootstrap>('bootstrap'),
       cacheGet<string>('lastSync'),
       cacheGet<{
         customerListId: string; customerName: string; orderNumber: string; mode: Mode;
       }>('delivery'),
-      sessionIdentity().catch(() => null),
     ]);
 
     // A cache written by an older build has a different shape: `assets` used to
@@ -270,11 +286,13 @@ export const useStore = create<State>((set, get) => ({
       unresolved: [],
       orderTarget: null,
     });
+    // Every account cache, from the one list. This named three of them by
+    // hand and so missed the two History pages and the Locate draft, which
+    // the next login then saw. A cache added later is covered by being added
+    // to that list, and a test fails until it is.
     await Promise.all([
       saveOutbox(empty).catch(() => {}),
-      cacheSet('delivery', null).catch(() => {}),
-      cacheSet('bootstrap', null).catch(() => {}),
-      cacheSet('lastSync', null).catch(() => {}),
+      ...ACCOUNT_CACHES.map((k) => cacheSet(k, null).catch(() => {})),
     ]);
     return { handed: true, unsent: 0 };
   },
