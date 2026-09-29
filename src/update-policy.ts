@@ -177,6 +177,30 @@ export function shouldCheckStore(o: {
 }
 
 /**
+ * IS THIS FAILURE NEWS?
+ *
+ * The store check reported every failure to Sentry, "so a genuine break in
+ * the endpoint itself is still visible somewhere". A phone with no signal
+ * fails the same way a broken endpoint does, as far as `catch` can tell, so
+ * what arrived was an alert for every driver in every dead spot.
+ *
+ * The two can be told apart by who spoke. If the server answered — a 500, a
+ * page of HTML where JSON should be — something of ours is broken and that is
+ * worth an email. If nothing answered, the phone was out of reach, which here
+ * is the ordinary case: report nothing, try again at the next interval.
+ *
+ * Matched on the message React Native gives a fetch that reached nobody,
+ * because its type is a bare TypeError and a TypeError that is a real bug
+ * must still get through.
+ */
+export function storeCheckWorthReporting(e: unknown): boolean {
+  const err = e as { name?: unknown; message?: unknown } | null | undefined;
+  if (err?.name === 'AbortError') return false;
+  const message = typeof err?.message === 'string' ? err.message : '';
+  return !/network request (failed|timed out)/i.test(message);
+}
+
+/**
  * Strictly greater than, never `!==`. The server's answer is occasionally
  * stale in the SAFE direction — bumped a little early, or not yet bumped
  * right after a submit — and `!==` would tell a driver already on the
