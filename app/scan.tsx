@@ -734,15 +734,7 @@ export default function Scan() {
                    paddingHorizontal: 18, paddingBottom: 30 }}
         >
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <Pressable
-              onPress={() => finish()}
-              hitSlop={14}
-              accessibilityRole="button"
-              accessibilityLabel={c.total ? `Done. Submits ${c.total} scans on this order` : 'Done. Leave this order'}
-            >
-              <Text style={{ color: '#fff', fontSize: 15.5, fontWeight: '700' }}>Done</Text>
-            </Pressable>
-            <View style={{ marginLeft: 14, flex: 1 }}>
+            <View style={{ flex: 1 }}>
               <Text numberOfLines={1} style={{ color: '#fff', fontSize: 14.5, fontWeight: '700' }}>
                 {customerName}
               </Text>
@@ -768,7 +760,17 @@ export default function Scan() {
             >
               <Text style={[mono(13, '800'), { color: '#fff' }]}>{c.total}</Text>
             </Pressable>
-
+            {/* Done sits on the right, where the thumb already is (Evan, 15 Sep;
+                restored 30 Sep after over-the-air updates from master had
+                put it back on the left). */}
+            <Pressable
+              onPress={() => finish()}
+              hitSlop={14}
+              accessibilityRole="button"
+              accessibilityLabel={c.total ? `Done. Submits ${c.total} scans on this order` : 'Done. Leave this order'}
+            >
+              <Text style={{ color: '#fff', fontSize: 15.5, fontWeight: '700' }}>Done</Text>
+            </Pressable>
           </View>
           {/* The moment this matters is right here, not on Home — this is
               the screen where a scan that never reaches disk is happening. */}

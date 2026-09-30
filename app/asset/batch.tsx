@@ -168,6 +168,14 @@ export default function BatchAssets() {
   const dateOk = !requal || isRealDate(requal);
   const whyNot = whyNotReady(rows, { productCode: product, isFull: full, dateOk });
 
+  /**
+   * What these bottles are, in words: the product's description, else its
+   * category and gas. Shown at the pick, beside each bottle as it is scanned,
+   * and over the batch list, so the driver can check the bottle in their hand
+   * against it without remembering what a product code means (Evan, 30 Sep).
+   */
+  const describe = desc.trim() || [category, gas].filter(Boolean).join(' - ');
+
   /** Legacy's one-pick rule — same as asset/new.tsx. */
   function pickProduct(code: string) {
     setProduct(code);
@@ -476,6 +484,17 @@ export default function BatchAssets() {
                   onChange={pickProduct}
                   placeholder="Product code"
                 />
+                {!!product.trim() && (
+                  <View style={{
+                    marginTop: 10, paddingHorizontal: 14, paddingVertical: 10,
+                    borderRadius: T.radiusSm, backgroundColor: wash(0.08),
+                  }}>
+                    <Text style={[mono(12, '700'), { color: T.steel }]}>{product.trim()}</Text>
+                    <Text style={{ color: describe ? T.ink : T.faint, fontSize: 15, fontWeight: '700', marginTop: 2 }}>
+                      {describe || 'No description on file for this product'}
+                    </Text>
+                  </View>
+                )}
               </Field>
 
               <Field label="What is in them">
@@ -549,6 +568,11 @@ export default function BatchAssets() {
                       number {rows.length + 1}
                     </Text>
                   </View>
+                  {!!describe && (
+                    <Text numberOfLines={2} style={{ color: T.steel, fontSize: 14, fontWeight: '600', marginTop: 4 }}>
+                      {describe}
+                    </Text>
+                  )}
 
                   {serialScanning ? (
                     /* The same camera, told to hold its focus. A serial is read
@@ -695,6 +719,11 @@ export default function BatchAssets() {
                   {rows.length}
                 </Text>
               </View>
+              {!!describe && (
+                <Text numberOfLines={2} style={{ color: T.ink, fontSize: 14, fontWeight: '600', marginTop: -4, marginBottom: 10 }}>
+                  {product.trim()} · {describe}
+                </Text>
+              )}
               <Surface>
                 {numbered.map(({ row, n }, i) => (
                   editing?.id === row.id ? (
