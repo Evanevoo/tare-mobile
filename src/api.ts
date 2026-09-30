@@ -120,7 +120,7 @@ if (AppState.currentState === 'active') void supabase.auth.startAutoRefresh();
  */
 const STORAGE_KEY = (supabase.auth as unknown as { storageKey: string }).storageKey;
 
-export async function storedSession(): Promise<{ email: string | null } | null> {
+export async function storedSession(): Promise<{ email: string | null; id: string | null } | null> {
   try {
     return parseStoredSession(await supabaseSecureStorage.getItem(STORAGE_KEY));
   } catch {
@@ -157,12 +157,16 @@ async function authHeader(): Promise<Record<string, string>> {
  * Name and role still come from the bootstrap when it is there, because
  * Supabase only knows the address that signed in.
  */
-export async function sessionIdentity(): Promise<{ email: string } | null> {
+export async function sessionIdentity(): Promise<{ email: string; id: string | null } | null> {
   const { data } = await supabase.auth.getSession();
   // Offline with an aged-out token, getSession() says null; the stored
   // session still knows who signed in (offline-session.ts).
-  const email = data.session?.user?.email ?? (await storedSession())?.email;
-  return email ? { email } : null;
+  const user = data.session?.user;
+  const stored = user?.email && user.id ? null : await storedSession();
+  const email = user?.email ?? stored?.email;
+  // The user id is what a queued scan is stamped with (outbox.ts sendable).
+  const id = user?.id ?? stored?.id ?? null;
+  return email ? { email, id } : null;
 }
 
 /** One asset, as it arrives. Keys are short because there are forty thousand. */

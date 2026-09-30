@@ -4,7 +4,7 @@ import {
 import { useState } from 'react';
 import { useRouter } from 'expo-router';
 import { useStore } from '@/store';
-import { pending, counts } from '@/outbox';
+import { counts, unsentMine, waitingForOthers, waitingLine } from '@/outbox';
 import { useScanRoute, explainMiss } from '@/scan-route';
 import { Scanner } from '@/scanner';
 import {
@@ -69,7 +69,7 @@ export default function Home() {
   const router = useRouter();
   const {
     boot, ready, online, outbox, refresh, lastSync, dbUnavailable,
-    orderNumber, customerName, customerListId, endDelivery, sync,
+    orderNumber, customerName, customerListId, endDelivery, sync, userId,
   } = useStore();
   const [busy, setBusy] = useState(false);
   const [scanning, setScanning] = useState(false);
@@ -78,7 +78,10 @@ export default function Home() {
      cheap 45s stamp check — so the numbers on the custody bar are not last
      time somebody remembered to swipe. */
   const refreshNow = useLiveData();
-  const unsent = pending(outbox).length;
+  // Another driver's unsent scans are not this driver's queue; they are named
+  // on their own line below and go up when that driver signs in (outbox.ts).
+  const unsent = unsentMine(outbox, userId).length;
+  const waiting = waitingForOthers(outbox, userId);
 
   if (!ready) {
     return (
@@ -393,6 +396,11 @@ export default function Home() {
                       : (online ? 'Online' : 'Offline — nothing is lost')
                         + (lastSync ? ` · synced ${short(lastSync)}` : '')}
                   </Text>
+                  {waiting.map((w) => (
+                    <Text key={w.name} style={{ color: T.amber, fontSize: 12, marginTop: 3 }}>
+                      {waitingLine(w)}
+                    </Text>
+                  ))}
                 </View>
                 <Icon name="chevron-right" size={ICON.md} color={T.faint} />
               </View>

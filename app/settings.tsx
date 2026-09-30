@@ -5,7 +5,7 @@ import { Sheet } from '@/sheet';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { useStore } from '@/store';
-import { pending } from '@/outbox';
+import { unsentMine } from '@/outbox';
 import { signOut, API_URL } from '@/api';
 import { APP_LOCK_KEY } from '@/guard';
 import { hasNativeModule } from '@/notifications';
@@ -25,8 +25,9 @@ import { displayLogin } from '@/who';
  */
 export default function Settings() {
   const router = useRouter();
-  const { boot, email, outbox, lastSync, online, refresh, dispatch } = useStore();
-  const unsent = pending(outbox).length;
+  const { boot, email, outbox, lastSync, online, refresh, dispatch, userId } = useStore();
+  // Yours only: another driver's waiting scans survive a sign-out (store.handOver).
+  const unsent = unsentMine(outbox, userId).length;
 
   // Who you are should never be a blank card. `boot` needs the server; `email`
   // is on the phone. Falling back through both means the worst case is an

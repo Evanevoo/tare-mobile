@@ -35,8 +35,8 @@ test('INITIAL_SESSION never overrides the launch check; SIGNED_OUT always wins',
 });
 
 test('only a session that could renew counts as stored', () => {
-  assert.deepEqual(parseStoredSession(stored), { email: 'driver@example.com' });
-  assert.deepEqual(parseStoredSession(JSON.stringify({ currentSession: JSON.parse(stored) })), { email: 'driver@example.com' });
+  assert.deepEqual(parseStoredSession(stored), { email: 'driver@example.com', id: null });
+  assert.deepEqual(parseStoredSession(JSON.stringify({ currentSession: JSON.parse(stored) })), { email: 'driver@example.com', id: null });
   assert.equal(parseStoredSession(JSON.stringify({ access_token: 'a' })), null);
   assert.equal(parseStoredSession('not json'), null);
   assert.equal(parseStoredSession(null), null);

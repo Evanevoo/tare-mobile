@@ -1,7 +1,7 @@
 import { View, Text, ScrollView, Pressable, Alert, Linking } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useStore } from '@/store';
-import { pending } from '@/outbox';
+import { unsentMine } from '@/outbox';
 import { signOut } from '@/api';
 import { finishSignOut } from '@/sign-out';
 import { displayLogin } from '@/who';
@@ -19,8 +19,8 @@ import { T, Screen, Surface, Eyebrow, Rise, Hairline, Icon, ICON, tint } from '@
  */
 export default function More() {
   const router = useRouter();
-  const { boot, email, outbox } = useStore();
-  const unsent = pending(outbox).length;
+  const { boot, email, outbox, userId } = useStore();
+  const unsent = unsentMine(outbox, userId).length;
   const isAdmin = boot?.user.role === 'admin' || boot?.user.role === 'owner';
 
   // Same fallback as Settings: the session on the phone knows the address even

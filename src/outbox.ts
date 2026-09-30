@@ -32,6 +32,15 @@ export interface QueuedScan {
    * Not sent to the server — see toWire below, which deliberately omits it.
    */
   offFormat?: boolean;
+  /**
+   * Who scanned it: the Supabase user id signed in at the moment of the scan,
+   * and how to name them on screen. The server credits a scan to whoever's
+   * token uploads it, so a row may only go up under this login — see
+   * `sendable`. Absent on rows queued by builds before 30 Sep, which upload
+   * as they always did. Local only, like offFormat; toWire omits both.
+   */
+  ownerId?: string;
+  ownerName?: string;
 }
 
 export interface Outbox {
@@ -329,6 +338,47 @@ export function retagBlockedBy(
 export const pending = (o: Outbox) => o.scans.filter((s) => s.state !== 'SENT');
 export const queued = (o: Outbox) => o.scans.filter((s) => s.state === 'QUEUED');
 export const inFlight = (o: Outbox) => o.scans.filter((s) => s.state === 'UPLOADING');
+
+/**
+ * SCANS GO UP UNDER THE NAME OF WHOEVER SCANNED THEM.
+ *
+ * A login that expired mid-shift left its queue on disk, the next person
+ * signed in, and the next sync posted that queue with their token — so the
+ * ledger credited every bottle to someone who never touched it. A stamped row
+ * now waits for its own scanner: it is never sent under another login and
+ * never discarded, and it goes up the next time they sign in on this phone.
+ *
+ * `me` unknown (no session readable) holds back every stamped row, since
+ * nothing proves the token is theirs. Unstamped rows predate the stamp and
+ * upload exactly as before, so an update strands nothing already queued.
+ */
+export const heldForOther = (s: QueuedScan, me: string | null | undefined) =>
+  !!s.ownerId && s.ownerId !== me;
+
+/** What this login may upload now. */
+export const sendable = (o: Outbox, me: string | null | undefined) =>
+  queued(o).filter((s) => !heldForOther(s, me));
+
+/** Unsent work this login answers for — what a sign-out has to account for. */
+export const unsentMine = (o: Outbox, me: string | null | undefined) =>
+  pending(o).filter((s) => !heldForOther(s, me));
+
+/** Unsent scans waiting for somebody else to sign in, per person. */
+export function waitingForOthers(o: Outbox, me: string | null | undefined) {
+  const by = new Map<string, { name: string; count: number }>();
+  for (const s of pending(o)) {
+    if (!heldForOther(s, me)) continue;
+    const w = by.get(s.ownerId!) ?? { name: s.ownerName || 'another driver', count: 0 };
+    w.count++;
+    by.set(s.ownerId!, w);
+  }
+  return [...by.values()];
+}
+
+/** "3 scans saved by mike.t are waiting for them to sign in." */
+export const waitingLine = (w: { name: string; count: number }) =>
+  `${w.count} scan${w.count === 1 ? '' : 's'} saved by ${w.name} `
+  + `${w.count === 1 ? 'is' : 'are'} waiting for them to sign in.`;
 
 export function forOrder(o: Outbox, orderNumber: string) {
   return o.scans.filter((s) => s.orderNumber === orderNumber);
