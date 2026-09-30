@@ -373,14 +373,16 @@ export function ownerStamp(me: Me, name?: string | null): Pick<QueuedScan, 'owne
 }
 
 /**
- * Matched by user id when both sides have one, otherwise by address; a stamp
- * the signed-in login cannot be compared with is held, not guessed at.
+ * Mine if the user ids are equal, or the addresses are (case aside). The
+ * address alone is enough on purpose: a person removed and re-added with the
+ * same address gets a new id, and their queue must still go up once they sign
+ * in. A stamp the signed-in login matches neither way is held, not guessed at.
  */
 export function heldForOther(s: QueuedScan, me: Me): boolean {
   if (!s.ownerId && !s.ownerEmail) return false;
-  if (s.ownerId && me?.id) return s.ownerId !== me.id;
+  if (s.ownerId && me?.id && s.ownerId === me.id) return false;
   const mine = norm(me?.email);
-  if (s.ownerEmail && mine) return norm(s.ownerEmail) !== mine;
+  if (s.ownerEmail && mine && norm(s.ownerEmail) === mine) return false;
   return true;
 }
 
@@ -416,6 +418,12 @@ export function waitingForOthers(o: Outbox, me: Me) {
  * that login may not carry and nothing is sent: `OwnerChanged` puts the chunk
  * back in line (UPLOAD_FAILED) and the next sync chooses again. Unstamped rows
  * ride with any token, as they always have.
+ *
+ * No live session is not a change of owner. It goes up with no token, exactly
+ * as before this check: the server credits nobody and answers 401, which the
+ * driver sees as "sign in again" (api.ts postScans), or there is no signal
+ * and it fails as offline. Calling it OwnerChanged told a driver whose token
+ * had merely aged out that someone else had signed in, every 45 seconds.
  */
 export class OwnerChanged extends Error {
   constructor() {
@@ -432,8 +440,9 @@ export async function sendAs<T>(
   send: (token: string | null) => Promise<T>,
 ): Promise<T> {
   const session = await readSession();
+  if (!session?.token) return send(null);
   if (scans.some((s) => heldForOther(s, session))) throw new OwnerChanged();
-  return send(session?.token ?? null);
+  return send(session.token);
 }
 
 /** "3 scans saved by mike.t are waiting for them to sign in." */

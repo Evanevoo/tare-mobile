@@ -101,8 +101,10 @@ section('offline, the address alone is enough to stamp and to match');
   ok('an id-only stamp is held from a login known only by address',
     heldForOther(scan({ id: 'u-mike', name: 'mike.t' }), { email: mike.email }));
   const both = scan(mike);
-  ok('ids decide when both sides have one',
-    heldForOther(both, { id: 'u-other', email: mike.email }) && !heldForOther(both, { id: 'u-mike', email: 'x@y' }));
+  ok('the same id is mine whatever the address says', !heldForOther(both, { id: 'u-mike', email: 'x@y' }));
+  ok('removed and re-added: a new id, the same address, still mine',
+    !heldForOther(both, { id: 'u-mike-again', email: 'Mike.T@crew.scanified.com' }));
+  ok('a different id and a different address is not', heldForOther(both, { id: 'u-other', email: 'x@y' }));
   const o: Outbox = { scans: [m] };
   ok("and it waits for Mike by name on Jace's phone",
     waitingForOthers(o, jace)[0]?.name === 'mike.t' && sendable(o, jace).length === 0);
@@ -124,9 +126,16 @@ section('the token that goes up is the one that was checked');
   ok('a different login aborts the chunk', r instanceof OwnerChanged);
   ok('and nothing is sent', sent.length === 0);
 
+  // Signed in offline from the stored session, token aged out: not a new owner.
+  // It goes up unauthenticated as it always did, and the server's 401 (or no
+  // signal) is what the driver hears — never "someone else signed in".
   sent = [];
   r = await sendAs([m1], async () => null, send).catch((e) => e);
-  ok('no session at all sends nothing stamped', r instanceof OwnerChanged && sent.length === 0);
+  ok('no live session is not reported as a change of owner', r === 'ok' && sent.length === 1);
+  ok('and carries no token, so the server credits nobody', sent[0] === null);
+  sent = [];
+  r = await sendAs([m1], async () => ({ token: null, id: 'u-jace', email: jace.email }), send).catch((e) => e);
+  ok('nor is a session with no token', r === 'ok' && sent.join() === '');
 
   sent = [];
   r = await sendAs([old], async () => token(jace), send);
@@ -161,6 +170,8 @@ section('and the store and the upload are wired to it');
   const post = api.slice(api.indexOf('export async function postScans('), api.indexOf('A REFUSAL IS NOT BAD RECEPTION'));
   ok('postScans sends through the check, with the token it checked',
     /await sendAs\(scans,/.test(post) && !/authHeader\(\)/.test(post));
+  ok('and an unauthenticated upload still reads as "sign in again"',
+    /res\.status === 401[\s\S]{0,120}SyncRefused\(res\.status,\s*'Your session has expired\. Sign in again/.test(api));
 }
 
 console.log(`\n${failed ? '\x1b[31m' : '\x1b[32m'}${passed} passed, ${failed} failed\x1b[0m\n`);
