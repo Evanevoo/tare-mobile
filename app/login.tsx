@@ -86,8 +86,8 @@ export default function Login() {
     */
     const addr = email.trim();
     if (!addr || !password) {
-      setError(!addr && !password ? 'Enter your work email and password.'
-        : !addr ? 'Enter your work email.' : 'Enter your password.');
+      setError(!addr && !password ? 'Enter your email or username, and your password.'
+        : !addr ? 'Enter your email or username.' : 'Enter your password.');
       return;
     }
     setBusy(true); setError(null); setSent(false);
@@ -113,6 +113,12 @@ export default function Login() {
     if (busy) return;
     const addr = email.trim();
     if (!addr) { setError('Type your work email first, then tap this again.'); return; }
+    // A reset link goes to an email. The server will not say which email a
+    // username belongs to, so a username gets words instead of a link.
+    if (!addr.includes('@')) {
+      setError('Reset links go to your email. Type your work email, or ask your manager to set a new password for you.');
+      return;
+    }
     setBusy(true); setError(null);
     try { await requestPasswordReset(addr); setSent(true); }
     catch (e: any) { setError(e?.message ?? 'Could not send the link'); }
@@ -158,14 +164,16 @@ export default function Login() {
             <Surface style={{ marginBottom: 14 }} level={3}>
               <View style={{ padding: 18 }}>
                 <Text style={{ color: T.faint, fontSize: 12, fontWeight: '700', marginBottom: 8 }}>
-                  Work email
+                  Email or username
                 </Text>
                 <TextInput
                   style={[field, { marginBottom: 16 }]}
-                  placeholder="you@company.com" placeholderTextColor={T.faint}
+                  placeholder="you@company.com or username" placeholderTextColor={T.faint}
                   autoCapitalize="none" autoCorrect={false}
+                  /* The email keyboard still has every character a username
+                     can use (letters, digits, . - _), with @ and . up front. */
                   keyboardType="email-address" textContentType="username"
-                  autoComplete="email" importantForAutofill="yes"
+                  autoComplete="username" importantForAutofill="yes"
                   value={email} onChangeText={setEmail} editable={!busy}
                   /* iOS AUTOFILL DOES NOT ALWAYS FIRE onChangeText.
                      textContentType invites iCloud Keychain to fill this
