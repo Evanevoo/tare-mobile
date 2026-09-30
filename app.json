@@ -109,9 +109,7 @@
         {
           "android": {
             "compileSdkVersion": 36,
-            "targetSdkVersion": 36,
-            "enableMinifyInReleaseBuilds": true,
-            "enableShrinkResourcesInReleaseBuilds": true
+            "targetSdkVersion": 36
           },
           "ios": {
             "deploymentTarget": "16.0"
