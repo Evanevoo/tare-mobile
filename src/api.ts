@@ -758,8 +758,39 @@ export function bulkUpdateAssets(barcodes: string[], patch: BulkAssetPatch) {
   }>;
 }
 
-export async function signIn(email: string, password: string) {
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
+/**
+ * Sign in with an email or a username.
+ *
+ * An email goes straight to Supabase, as it always has. A username (no "@")
+ * cannot: only the server knows which email it belongs to, and it will not
+ * say. So the username and password go to /api/mobile/session together, the
+ * server signs in, and hands back the session's two tokens. setSession puts
+ * them in this app's own Supabase client, so from here on the phone is signed
+ * in exactly as if the email had been typed — same session, same refresh,
+ * same session.user.email for the cache-owner check.
+ *
+ * A wrong username and a wrong password both come back as "Invalid login
+ * credentials", which is also what quickSignIn looks for to drop a stale
+ * saved password.
+ */
+export async function signIn(login: string, password: string) {
+  if (!login.includes('@')) {
+    const res = await timedFetch(`${API_URL}/api/mobile/session`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ login, password }),
+    }, 30_000, 'Signing in timed out');
+    const json = await res.json().catch(() => null);
+    if (!res.ok || !json?.access_token || !json?.refresh_token) {
+      throw new Error(json?.error ?? `Could not sign in (${res.status})`);
+    }
+    const { error } = await supabase.auth.setSession({
+      access_token: json.access_token, refresh_token: json.refresh_token,
+    });
+    if (error) throw new Error(error.message);
+    return;
+  }
+  const { error } = await supabase.auth.signInWithPassword({ email: login, password });
   if (error) throw new Error(error.message);
 }
 
