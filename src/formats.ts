@@ -133,3 +133,34 @@ export function formatNudge(
     ? `That does not look like one of your ${label} — yours look like ${eg}.`
     : `That does not look like one of your ${label}.`;
 }
+
+/**
+ * A TYPED BARCODE FOLLOWS THE COMPANY'S RULE TOO. (30 Sep 2026)
+ *
+ * The camera has refused off-format reads since 9 Sep (scanner.tsx `format`),
+ * but every "type it in" box only warned and let the code through. From the
+ * field: "the app will scan anything even if the format isn't the same as
+ * what's set on the website" — and the ledger agreed: "A" and "QQ" landed on
+ * real orders, typed, and had to be voided.
+ *
+ * So a typed code that does not match is refused, with the reason and an
+ * example. Two things keep that from stopping the yard:
+ *   - a barcode ALREADY IN THE FLEET is right by definition (labelled before
+ *     the rule was written), so `known` passes it, exactly as the scan loop's
+ *     off-format flag already reasoned;
+ *   - a company whose bottles really do come labelled another way fixes it
+ *     where the rule lives — the website's barcode format, which accepts
+ *     several shapes separated by commas — and the message says so.
+ * No rule set (empty pattern) refuses nothing, as before.
+ */
+export function barcodeRefusal(
+  value: string,
+  pattern: string | null | undefined,
+  known: boolean,
+): string | null {
+  const v = value.trim();
+  if (!v || known || matchesFormat(v, pattern)) return null;
+  const eg = formatExample(pattern);
+  return `${eg ? `Barcodes here look like ${eg}. ` : ''}Check the label and try again. `
+    + 'If some of your bottles really are labelled another way, the office can add that shape to the barcode format on the website.';
+}

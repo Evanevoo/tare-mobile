@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, Pressable, ScrollView, Alert, KeyboardAvoidingView, Platform,
 } from 'react-native';
@@ -16,7 +16,7 @@ import {
   Field, TextField, Chips, Choice, DateField, Note, isRealDate,
 } from '@/form';
 import { Scanner } from '@/scanner';
-import { formatNudge } from '@/formats';
+import { barcodeRefusal } from '@/formats';
 import { useAttributeOptions } from '@/attributes';
 import { ulid } from '@/ulid';
 import {
@@ -74,7 +74,7 @@ export default function BatchAssets() {
   const [rows, setRows] = useState<BatchRow[]>([]);
   /** The one just scanned, waiting for its serial. Not in the batch yet. */
   const [pending, setPending] = useState<{ barcode: string; serial: string } | null>(null);
-  const [scanning, setScanning] = useState(true);
+  const [scanning, setScanning] = useState(false);
   const [serialScanning, setSerialScanning] = useState(false);
   const [refusal, setRefusal] = useState<Refusal | null>(null);
   const [editing, setEditing] = useState<{ id: string; barcode: string; serial: string } | null>(null);
@@ -89,6 +89,14 @@ export default function BatchAssets() {
   const [group, setGroup] = useState('');
   const [desc, setDesc] = useState('');
   const [owner, setOwner] = useState('');
+
+  // Details sit above the camera now, so opening it (or the serial step)
+  // scrolls the page down to it instead of leaving it below the fold.
+  const scrollRef = useRef<ScrollView>(null);
+  const loopY = useRef(0);
+  useEffect(() => {
+    if (scanning || pending) scrollRef.current?.scrollTo({ y: Math.max(0, loopY.current - 12), animated: true });
+  }, [scanning, !!pending]);
 
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<BulkCreateResult | null>(null);
@@ -105,8 +113,15 @@ export default function BatchAssets() {
   const plural = (boot?.org.assetPlural ?? 'assets').toLowerCase();
 
   const products = useMemo(
-    () => (boot?.products ?? []).map((p) => ({ key: p.code, sub: `${p.n} on fleet` })),
-    [boot?.products],
+    // One pick, and it has to be recognisable: the catalogue's own words for
+    // the type ("Industrial - Argon · 300 cu ft"), falling back to the count.
+    () => (boot?.products ?? []).map((p) => {
+      const t = boot?.types?.find((x) => x.code === p.code);
+      const kind = [t?.category, t?.gasType].filter(Boolean).join(' - ');
+      const sub = [kind, t?.description].filter(Boolean).join(' · ');
+      return { key: p.code, sub: sub || `${p.n} on fleet` };
+    }),
+    [boot?.products, boot?.types],
   );
   const locations = useMemo(
     () => (boot?.locations ?? []).map((l) => ({ key: l })),
@@ -153,6 +168,14 @@ export default function BatchAssets() {
   const dateOk = !requal || isRealDate(requal);
   const whyNot = whyNotReady(rows, { productCode: product, isFull: full, dateOk });
 
+  /**
+   * What these bottles are, in words: the product's description, else its
+   * category and gas. Shown at the pick, beside each bottle as it is scanned,
+   * and over the batch list, so the driver can check the bottle in their hand
+   * against it without remembering what a product code means (Evan, 30 Sep).
+   */
+  const describe = desc.trim() || [category, gas].filter(Boolean).join(' - ');
+
   /** Legacy's one-pick rule — same as asset/new.tsx. */
   function pickProduct(code: string) {
     setProduct(code);
@@ -171,17 +194,15 @@ export default function BatchAssets() {
     && (boot?.stats.total ?? 0) + created.length + rows.length > limit;
 
   /**
-   * The same nudge the single screen shows, moved one step earlier.
+   * Why the last barcode was refused for not matching the company's format.
    *
-   * There, a barcode that does not look like the org's others is pointed at
-   * while the form is being filled in. Here there is no per-cylinder form to
-   * put it under, so it goes on the serial step — the one moment the driver is
-   * looking at that barcode and can still drop it before it joins the list.
-   * Still a warning and never a block, for the reason given in asset/new.tsx.
+   * This used to be a yellow "it will still go in" note on the serial step.
+   * Since 30 Sep a new bottle's barcode has to follow the rule, typed or
+   * scanned (formats.ts barcodeRefusal, where the reasoning is): a new bottle
+   * is never "already in the fleet", so nothing here is excused. Checked in
+   * take(), before the code becomes the bottle being added.
    */
-  const nudge = pending
-    ? formatNudge(pending.barcode, boot?.formats?.barcode, `${label} barcodes`)
-    : null;
+  const [formatError, setFormatError] = useState<string | null>(null);
 
   /**
    * Leaving with rows in hand.
@@ -234,6 +255,15 @@ export default function BatchAssets() {
       return;
     }
     setRefusal(null);
+    const bad = barcodeRefusal(normalizeCode(raw), boot?.formats?.barcode, false);
+    if (bad) {
+      setFormatError(bad);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Vibration.vibrate([0, 160, 90, 160]);
+      playScanAlert();
+      return;
+    }
+    setFormatError(null);
     setPending({ barcode: normalizeCode(raw), serial: '' });
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     Vibration.vibrate(90);
@@ -422,6 +452,7 @@ export default function BatchAssets() {
         style={{ flex: 1 }}
       >
         <ScrollView
+          ref={scrollRef}
           contentContainerStyle={{
             paddingHorizontal: 18,
             paddingTop: 10,
@@ -432,11 +463,11 @@ export default function BatchAssets() {
         >
           <Rise>
             <Text style={{ color: T.ink, fontSize: 29, fontWeight: '700', letterSpacing: -1 }}>
-              A whole pallet
+              Add {plural}
             </Text>
             <Text style={{ color: T.faint, fontSize: 14, marginTop: 5, lineHeight: 20 }}>
-              Scan each one and give it its serial. What kind, where and how full are asked
-              once, at the bottom. Nothing is added until you save.
+              Set the details once, then scan each one and give it its serial. Nothing is
+              added until you save.
             </Text>
           </Rise>
 
@@ -451,10 +482,69 @@ export default function BatchAssets() {
             />
           )}
 
-          {/* ── the loop: scan, serial, confirm, again ── */}
+          {/* ── the details first, like old Scanified: set once, every bottle gets them ── */}
+          <Rise delay={40}>
+              <Field style={{ marginTop: 24 }} label="What kind" hint="Pick one. Gas type, category, group and description fill in from it.">
+                <Chips
+                  options={products}
+                  value={product}
+                  onChange={pickProduct}
+                  placeholder="Product code"
+                />
+                {!!product.trim() && (
+                  <View style={{
+                    marginTop: 10, paddingHorizontal: 14, paddingVertical: 10,
+                    borderRadius: T.radiusSm, backgroundColor: wash(0.08),
+                  }}>
+                    <Text style={[mono(12, '700'), { color: T.steel }]}>{product.trim()}</Text>
+                    <Text style={{ color: describe ? T.ink : T.faint, fontSize: 15, fontWeight: '700', marginTop: 2 }}>
+                      {describe || 'No description on file for this product'}
+                    </Text>
+                  </View>
+                )}
+              </Field>
+
+              <Field label="What is in them">
+                <Choice
+                  options={[
+                    { value: 'full', label: 'FULL', sub: 'ready to go out' },
+                    { value: 'empty', label: 'EMPTY', sub: 'needs filling' },
+                  ]}
+                  value={full === null ? null : full ? 'full' : 'empty'}
+                  onChange={(v) => setFull(v === 'full')}
+                />
+              </Field>
+
+              <Field label="Where they live" hint="Optional. Leave it blank if they have no shelf yet.">
+                <Chips
+                  options={locations}
+                  value={location}
+                  onChange={setLocation}
+                  placeholder="Bay 4, Rack B, Dock…"
+                  code={false}
+                />
+              </Field>
+
+              <Field label="Next requalification" hint="Optional. The date they next have to be tested.">
+                <DateField value={requal} onChange={setRequal} />
+              </Field>
+
+              <Field
+                label="Belong to"
+                hint="Optional. A supplier label — Linde, Air Liquide. Does NOT change billing."
+              >
+                <Chips
+                  options={attrs.supplier} value={owner} onChange={setOwner}
+                  placeholder="Ours — leave blank" freeLabel="A new supplier"
+                />
+              </Field>
+            </Rise>
+
+          {/* ── then the bottles: scan, serial, add, again ── */}
+          <View onLayout={(e) => { loopY.current = e.nativeEvent.layout.y; }}>
           <Rise delay={50}>
             <Field
-              label={pending ? 'Serial number' : rows.length ? 'The next one' : 'The first one'}
+              label={pending ? 'Serial number' : `Scan ${plural}`}
               hint={pending
                 ? 'Stamped on the collar. Type it — or scan it, if this fleet labels them.'
                 : undefined}
@@ -485,6 +575,11 @@ export default function BatchAssets() {
                       number {rows.length + 1}
                     </Text>
                   </View>
+                  {!!describe && (
+                    <Text numberOfLines={2} style={{ color: T.steel, fontSize: 14, fontWeight: '600', marginTop: 4 }}>
+                      {describe}
+                    </Text>
+                  )}
 
                   {serialScanning ? (
                     /* The same camera, told to hold its focus. A serial is read
@@ -595,6 +690,7 @@ export default function BatchAssets() {
               )}
             </Field>
           </Rise>
+          </View>
 
           {/* The refusal. On screen, naming the barcode, because the driver is
               holding that bottle and needs to know why it did not go in. Not
@@ -615,8 +711,8 @@ export default function BatchAssets() {
 
           {/* Not while a viewfinder is open — the camera fills that space and
               the note would sit under a live preview being aimed. */}
-          {!!nudge && !serialScanning && (
-            <Note icon="alert-triangle" tone={T.amber} text={`${nudge} Check the label — it will still go in.`} />
+          {!!formatError && !pending && (
+            <Note icon="alert-triangle" tone={T.needle} text={formatError} />
           )}
 
           {/* ── what is in hand ── */}
@@ -630,6 +726,11 @@ export default function BatchAssets() {
                   {rows.length}
                 </Text>
               </View>
+              {!!describe && (
+                <Text numberOfLines={2} style={{ color: T.ink, fontSize: 14, fontWeight: '600', marginTop: -4, marginBottom: 10 }}>
+                  {product.trim()} · {describe}
+                </Text>
+              )}
               <Surface>
                 {numbered.map(({ row, n }, i) => (
                   editing?.id === row.id ? (
@@ -789,103 +890,6 @@ export default function BatchAssets() {
             </Rise>
           )}
 
-          {/* ── asked once, for all of them ── */}
-          {rows.length > 0 && (
-            <Rise delay={40}>
-              <Field label="What kind" hint={products.length ? 'Commonest first. The whole batch gets this.' : undefined}>
-                <Chips
-                  options={products}
-                  value={product}
-                  onChange={pickProduct}
-                  placeholder="Product code"
-                />
-              </Field>
-
-              <Field label="What is in them">
-                <Choice
-                  options={[
-                    { value: 'full', label: 'FULL', sub: 'ready to go out' },
-                    { value: 'empty', label: 'EMPTY', sub: 'needs filling' },
-                  ]}
-                  value={full === null ? null : full ? 'full' : 'empty'}
-                  onChange={(v) => setFull(v === 'full')}
-                />
-              </Field>
-
-              <Field label="Where they live" hint="Optional. Leave it blank if they have no shelf yet.">
-                <Chips
-                  options={locations}
-                  value={location}
-                  onChange={setLocation}
-                  placeholder="Bay 4, Rack B, Dock…"
-                  code={false}
-                />
-              </Field>
-
-              <Field label="Next requalification" hint="Optional. The date they next have to be tested.">
-                <DateField value={requal} onChange={setRequal} />
-              </Field>
-
-              {/* One pick of the product code fills these; the whole pallet
-                  gets them. Editable, optional, and saving them once teaches
-                  the pick list for next time.
-
-                  Chips, not boxes — same reason as Add and Edit: a value
-                  whose job is to match other rows must not be retyped. Here
-                  it matters most, because one typo lands on the whole pallet
-                  at once. */}
-              <Field
-                label="Gas type"
-                hint={boot?.types?.some((t) => t.code === product)
-                  ? 'Filled from the product code — change it if this pallet differs.'
-                  : 'Optional. The whole pallet gets this.'}
-              >
-                <Chips
-                  options={attrs.gas} value={gas} onChange={setGas}
-                  placeholder="Gas type — Oxygen, Acetylene…" freeLabel="Not on the list"
-                />
-              </Field>
-
-              <Field label="Category" hint="Optional. Industrial, medical, beverage.">
-                <Chips
-                  options={attrs.category} value={category} onChange={setCategory}
-                  placeholder="Category — Industrial, Medical…" freeLabel="Not on the list"
-                />
-              </Field>
-
-              <Field label="Group" hint="Optional. How it is grouped on reports.">
-                <Chips
-                  options={attrs.group} value={group} onChange={setGroup}
-                  placeholder="Group — High-Pressure, Cryo…" freeLabel="Not on the list"
-                />
-              </Field>
-
-              <Field label="Description" hint="Optional. The whole pallet gets this.">
-                <TextField value={desc} onChangeText={setDesc} placeholder="Description" code={false} />
-              </Field>
-
-              <Field
-                label="Belong to"
-                hint="Optional. A supplier label — Linde, Air Liquide. Does NOT change billing."
-              >
-                <Chips
-                  options={attrs.supplier} value={owner} onChange={setOwner}
-                  placeholder="Ours — leave blank" freeLabel="A new supplier"
-                />
-              </Field>
-            </Rise>
-          )}
-
-          {rows.length === 0 && !result && (
-            <Note
-              text={
-                'Just the one? The single-cylinder screen asks for everything about it, '
-                + 'including things this one does not — status, ownership, last test date.'
-              }
-              action={`Add one ${label} instead`}
-              onAction={() => router.replace('/asset/new')}
-            />
-          )}
         </ScrollView>
       </KeyboardAvoidingView>
 

@@ -18,7 +18,7 @@ import type { AssetRec } from '@/api';
 import { editSentScan } from '@/api';
 import { Sheet } from '@/sheet';
 import { Redirecting } from '@/redirecting';
-import { formatExample } from '@/formats';
+import { formatExample, barcodeRefusal } from '@/formats';
 import { scanAssist, type ScanAssist } from '@/scan-assist';
 
 /**
@@ -70,6 +70,9 @@ export default function Scan() {
   >(null);
   const [manual, setManual] = useState(false);
   const [manualCode, setManualCode] = useState('');
+  // Why the last typed code was refused (formats.ts barcodeRefusal). Checked
+  // on Add rather than per keystroke, so a number half-typed is not scolded.
+  const [manualError, setManualError] = useState<string | null>(null);
   const [assist, setAssist] = useState<ScanAssist>(() => scanAssist(false, false));
   const onAssistChange = useCallback((next: ScanAssist) => setAssist(next), []);
   // The scan history (list, undo, submit) used to sit permanently below a
@@ -378,6 +381,27 @@ export default function Scan() {
       cooldownNoted.current[barcode] = true;
       Haptics.selectionAsync();
     }
+  }
+
+  /**
+   * The typed barcode, held to the company's rule like the camera is.
+   * Known bottles pass (they are right by definition); anything else that
+   * does not match stays in the box with the reason, instead of landing on
+   * the order as "A" or "QQ" did on 24–30 Sep.
+   */
+  function submitManual() {
+    const code = manualCode.trim().toUpperCase();
+    if (!code) return;
+    const refused = barcodeRefusal(code, boot?.formats?.barcode, !!boot?.assets?.[code]);
+    if (refused) {
+      setManualError(refused);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      return;
+    }
+    take(code);
+    setManualCode('');
+    setManualError(null);
+    setManual(false);
   }
 
   function take(raw: string) {
@@ -734,15 +758,7 @@ export default function Scan() {
                    paddingHorizontal: 18, paddingBottom: 30 }}
         >
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <Pressable
-              onPress={() => finish()}
-              hitSlop={14}
-              accessibilityRole="button"
-              accessibilityLabel={c.total ? `Done. Submits ${c.total} scans on this order` : 'Done. Leave this order'}
-            >
-              <Text style={{ color: '#fff', fontSize: 15.5, fontWeight: '700' }}>Done</Text>
-            </Pressable>
-            <View style={{ marginLeft: 14, flex: 1 }}>
+            <View style={{ flex: 1 }}>
               <Text numberOfLines={1} style={{ color: '#fff', fontSize: 14.5, fontWeight: '700' }}>
                 {customerName}
               </Text>
@@ -768,7 +784,17 @@ export default function Scan() {
             >
               <Text style={[mono(13, '800'), { color: '#fff' }]}>{c.total}</Text>
             </Pressable>
-
+            {/* Done sits on the right, where the thumb already is (Evan, 15 Sep;
+                restored 30 Sep after over-the-air updates from master had
+                put it back on the left). */}
+            <Pressable
+              onPress={() => finish()}
+              hitSlop={14}
+              accessibilityRole="button"
+              accessibilityLabel={c.total ? `Done. Submits ${c.total} scans on this order` : 'Done. Leave this order'}
+            >
+              <Text style={{ color: '#fff', fontSize: 15.5, fontWeight: '700' }}>Done</Text>
+            </Pressable>
           </View>
           {/* The moment this matters is right here, not on Home — this is
               the screen where a scan that never reaches disk is happening. */}
@@ -1279,7 +1305,7 @@ export default function Scan() {
                 })}
               </View>
               <TextInput
-                value={manualCode} onChangeText={(v) => setManualCode(v.toUpperCase())}
+                value={manualCode} onChangeText={(v) => { setManualCode(v.toUpperCase()); setManualError(null); }}
                 autoFocus autoCapitalize="characters" autoCorrect={false}
                 placeholder="Type the barcode" placeholderTextColor={T.faint}
                 style={[
@@ -1289,17 +1315,22 @@ export default function Scan() {
                   },
                   mono(18, '600'),
                 ]}
-                onSubmitEditing={() => { take(manualCode); setManualCode(''); setManual(false); }}
+                onSubmitEditing={submitManual}
               />
+              {!!manualError && (
+                <Text style={{ color: T.needle, fontSize: 13, fontWeight: '600', marginTop: 10, lineHeight: 19 }}>
+                  {manualError}
+                </Text>
+              )}
               <View style={{ flexDirection: 'row', gap: 11, marginTop: 16 }}>
                 <Btn
                   label="Cancel" variant="quiet" style={{ flex: 1 }}
-                  onPress={() => { setManual(false); setManualCode(''); }}
+                  onPress={() => { setManual(false); setManualCode(''); setManualError(null); }}
                 />
                 <Btn
                   label="Add" style={{ flex: 1 }}
                   disabled={!manualCode.trim()}
-                  onPress={() => { take(manualCode); setManualCode(''); setManual(false); }}
+                  onPress={submitManual}
                 />
               </View>
             </View>

@@ -13,7 +13,7 @@ import {
   Field, TextField, Chips, Choice, DateField, Note, isRealDate,
 } from '@/form';
 import { Scanner } from '@/scanner';
-import { formatNudge } from '@/formats';
+import { barcodeRefusal } from '@/formats';
 import { useAttributeOptions } from '@/attributes';
 import { useLiveDuplicateCheck } from '@/live-dupe-check';
 
@@ -111,21 +111,21 @@ export default function NewAsset() {
   const atLimit = limit !== null && (boot?.stats.total ?? 0) + added.length >= limit;
 
   /**
-   * A barcode that does not look like the fleet's other barcodes.
+   * A barcode that does not follow the company's barcode format.
    *
-   * This catches the one that matters most: a driver adding a bottle and
-   * reading a digit wrong off a worn label, or scanning the wrong symbol on a
-   * receipt entirely. It stays a warning rather than a block because the
-   * moment a fleet buys a batch from a supplier who prints differently, a gate
-   * here would stop the yard working and nobody in the yard can change the
-   * setting — but the odd one out is still worth pointing at.
+   * This was a warning ("it will still save") for fear that a supplier who
+   * prints differently would stop the yard. Since 30 Sep it blocks Save: the
+   * office can add a second shape to the format on the website, and the
+   * refusal says so (formats.ts barcodeRefusal has the whole reasoning). A
+   * barcode already on the fleet is shown as such above and never reaches here.
    */
-  const barcodeNudge = knownElsewhere
+  const barcodeProblem = knownElsewhere
     ? null
-    : formatNudge(barcode, boot?.formats?.barcode, `${label.toLowerCase()} barcodes`);
+    : barcodeRefusal(barcode, boot?.formats?.barcode, false);
 
   const dateOk = !requal || isRealDate(requal);
-  const ready = !!barcode && !knownElsewhere && !!product.trim() && full !== null && dateOk;
+  const ready = !!barcode && !knownElsewhere && !barcodeProblem
+    && !!product.trim() && full !== null && dateOk;
 
   // Dedupe and misread-rejection live inside Scanner; this only lands the
   // accepted value in the form.
@@ -327,8 +327,8 @@ export default function NewAsset() {
 
           {/* Not while the viewfinder is open — the camera fills this space and
               the note would sit under a live preview the driver is aiming. */}
-          {!scanning && !!barcodeNudge && (
-            <Note icon="alert-triangle" tone={T.amber} text={`${barcodeNudge} Check the label — it will still save.`} />
+          {!scanning && !!barcodeProblem && (
+            <Note icon="alert-triangle" tone={T.needle} text={barcodeProblem} />
           )}
 
           {/* ── the rest only matters once the barcode is new ── */}

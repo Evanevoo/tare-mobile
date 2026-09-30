@@ -8,7 +8,8 @@
  * somebody is still typing is the fastest way to teach them to stop reading
  * warnings.
  */
-import { formatNudge, formatExample, matchesFormat } from '../src/formats.ts';
+import { formatNudge, formatExample, matchesFormat, barcodeRefusal } from '../src/formats.ts';
+import { readFileSync } from 'node:fs';
 
 let passed = 0, failed = 0;
 const ok = (n: string, c: boolean, d = '') => {
@@ -78,6 +79,38 @@ section('The gate must not be defeated by a long rule');
     b('ABCDEFGH') === null);
   ok('nine wrong characters speak', b('ABCDEFGHI') !== null, String(b('ABCDEFGHI')));
   ok('nine right characters stay silent', b('123456789') === null);
+}
+
+section('barcodeRefusal — a typed barcode follows the rule too (30 Sep)');
+{
+  // From the field: "the app will scan anything even if the format isn't the
+  // same". "A" and "QQ" were typed onto real orders on 24–30 Sep.
+  const r = (v: string, known = false) => barcodeRefusal(v, '#########', known);
+  ok('"A" is refused', r('A') !== null);
+  ok('"QQ" is refused', r('QQ') !== null);
+  ok('eight digits are refused', r('12345678') !== null);
+  ok('nine digits pass', r('123456789') === null);
+  ok('a bottle already in the fleet passes whatever it looks like', r('A', true) === null);
+  ok('the reason gives an example and where to change the rule',
+    /123456789/.test(r('A') ?? '') && /format on the website/.test(r('A') ?? ''));
+  ok('no rule set refuses nothing', barcodeRefusal('A', '', false) === null);
+  ok('several shapes: any one passes', barcodeRefusal('AB1234', '#########, AA####', false) === null);
+
+  const read = (p: string) => readFileSync(new URL(p, import.meta.url), 'utf8');
+  const scan = read('../app/scan.tsx');
+  ok('the scan screen checks a typed code before taking it',
+    /function submitManual\(\)[\s\S]*?barcodeRefusal\(code, boot\?\.formats\?\.barcode, !!boot\?\.assets\?\.\[code\]\)[\s\S]*?take\(code\)/.test(scan));
+  ok('and both ways of submitting go through that check',
+    /onSubmitEditing=\{submitManual\}/.test(scan) && /onPress=\{submitManual\}/.test(scan)
+    && !/take\(manualCode\)/.test(scan));
+  const batch = read('../app/asset/batch.tsx');
+  ok('Add bottles refuses before the code becomes the bottle being added',
+    batch.indexOf('barcodeRefusal(normalizeCode(raw)') > 0
+    && batch.indexOf('barcodeRefusal(normalizeCode(raw)') < batch.indexOf("setPending({ barcode: normalizeCode(raw), serial: '' })"));
+  const single = read('../app/asset/new.tsx');
+  ok('the single Add screen will not save one', /const ready = [^;]*!barcodeProblem/.test(single));
+  ok('no screen still says it will go in anyway',
+    !/Check the label — it will still/.test(batch + single));
 }
 
 console.log(`\n\x1b[1m${passed} passed, ${failed} failed\x1b[0m`);

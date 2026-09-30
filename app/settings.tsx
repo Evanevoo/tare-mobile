@@ -14,6 +14,7 @@ import { useTheme, type Pref } from '@/theme';
 import { useUpdates, APP_VERSION, BUNDLE_VERSION, UPDATES_ENABLED, runningBundle } from '@/updates';
 import { statusLine } from '@/update-policy';
 import { useStoreUpdate, openStore } from '@/store-update';
+import { displayLogin } from '@/who';
 
 /**
  * Settings, kept short on purpose.
@@ -43,7 +44,7 @@ export default function Settings() {
   const [testing, setTesting] = useState(false);
 
   const who = boot?.user.name || email || '—';
-  const sub = [boot?.user.email || email, boot?.user.role].filter(Boolean).join(' · ');
+  const sub = [displayLogin(boot?.user.email || email), boot?.user.role].filter(Boolean).join(' · ');
 
   return (
     <Screen intensity={0.7}>

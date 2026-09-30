@@ -95,6 +95,25 @@ export const empty: Outbox = { scans: [] };
 const sameScan = (a: QueuedScan, orderNumber: string, barcode: string) =>
   a.orderNumber === orderNumber && a.barcode === barcode;
 
+/**
+ * The most recent scan of this bottle on this order, whatever its state.
+ *
+ * Rows are appended in scan order and a correction replaces its row in place,
+ * so the last match is the bottle's current direction on this order. That is
+ * the one thing a new scan has to be compared with: same direction means the
+ * driver scanned it again, not a second unit — whether the first scan is still
+ * waiting or went up seconds ago (30 Sep: "I was able to scan the same bottle
+ * twice"; scans upload almost at once, so the first one was nearly always
+ * SENT and was never compared). Shared by ENQUEUE and store.addScan so the
+ * buzz and the queue can never disagree again.
+ */
+export function latestScan(scans: QueuedScan[], orderNumber: string, barcode: string): QueuedScan | undefined {
+  for (let i = scans.length - 1; i >= 0; i--) {
+    if (sameScan(scans[i], orderNumber, barcode)) return scans[i];
+  }
+  return undefined;
+}
+
 export function reduce(state: Outbox, action: Action): Outbox {
   switch (action.type) {
     case 'ENQUEUE': {
@@ -118,10 +137,18 @@ export function reduce(state: Outbox, action: Action): Outbox {
        * same way APPLY_SERVER_EDIT excludes anything NOT SENT; this is the
        * mirror case.
        */
-      const existing = state.scans.find(
-        (s) => sameScan(s, scan.orderNumber, scan.barcode) && s.state !== 'SENT');
+      /*
+        30 Sep, the other half: excluding SENT rows went too far. A bottle
+        whose scan had already uploaded (seconds, usually) could be scanned
+        the same way again and land as a second row. The comparison is now
+        against the LATEST row for this bottle on this order, in any state:
+        that is SHIP·RETURN·RETURN's live RETURN, and it is also the SENT SHIP
+        a repeat SHIP must match. The replace below still only rewrites a row
+        that is QUEUED, never the server's history.
+      */
+      const existing = latestScan(state.scans, scan.orderNumber, scan.barcode);
 
-      // Already queued in the same direction — a double beep, not a second unit.
+      // Same direction as its latest scan — a double beep, not a second unit.
       if (existing && existing.mode === scan.mode) return state;
 
       // Same bottle, opposite direction: the driver corrected themselves.
