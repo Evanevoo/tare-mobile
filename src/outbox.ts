@@ -33,15 +33,21 @@ export interface QueuedScan {
    */
   offFormat?: boolean;
   /**
-   * Who scanned it: the Supabase user id signed in at the moment of the scan,
-   * and how to name them on screen. The server credits a scan to whoever's
-   * token uploads it, so a row may only go up under this login — see
-   * `sendable`. Absent on rows queued by builds before 30 Sep, which upload
-   * as they always did. Local only, like offFormat; toWire omits both.
+   * Who scanned it: the Supabase user id and lower-cased address signed in at
+   * the moment of the scan (either may be missing offline, never both once
+   * anyone is known), and how to name them on screen. The server credits a
+   * scan to whoever's token uploads it, so a row may only go up under this
+   * login — see `sendable`. Absent on rows queued by builds before 30 Sep,
+   * which upload as they always did. Local only, like offFormat; toWire omits
+   * all three.
    */
   ownerId?: string;
+  ownerEmail?: string;
   ownerName?: string;
 }
+
+/** Who is signed in, as far as the phone can tell. Either half may be unknown. */
+export type Me = { id?: string | null; email?: string | null } | null | undefined;
 
 export interface Outbox {
   scans: QueuedScan[];
@@ -352,27 +358,82 @@ export const inFlight = (o: Outbox) => o.scans.filter((s) => s.state === 'UPLOAD
  * nothing proves the token is theirs. Unstamped rows predate the stamp and
  * upload exactly as before, so an update strands nothing already queued.
  */
-export const heldForOther = (s: QueuedScan, me: string | null | undefined) =>
-  !!s.ownerId && s.ownerId !== me;
+const norm = (e: string | null | undefined) => e?.trim().toLowerCase() || null;
+
+/** The owner fields a scan taken now should carry, or none if nobody is known. */
+export function ownerStamp(me: Me, name?: string | null): Pick<QueuedScan, 'ownerId' | 'ownerEmail' | 'ownerName'> {
+  const id = me?.id || undefined;
+  const email = norm(me?.email) ?? undefined;
+  if (!id && !email) return {};
+  return {
+    ...(id ? { ownerId: id } : {}),
+    ...(email ? { ownerEmail: email } : {}),
+    ...(name ? { ownerName: name } : {}),
+  };
+}
+
+/**
+ * Matched by user id when both sides have one, otherwise by address; a stamp
+ * the signed-in login cannot be compared with is held, not guessed at.
+ */
+export function heldForOther(s: QueuedScan, me: Me): boolean {
+  if (!s.ownerId && !s.ownerEmail) return false;
+  if (s.ownerId && me?.id) return s.ownerId !== me.id;
+  const mine = norm(me?.email);
+  if (s.ownerEmail && mine) return norm(s.ownerEmail) !== mine;
+  return true;
+}
 
 /** What this login may upload now. */
-export const sendable = (o: Outbox, me: string | null | undefined) =>
+export const sendable = (o: Outbox, me: Me) =>
   queued(o).filter((s) => !heldForOther(s, me));
 
 /** Unsent work this login answers for — what a sign-out has to account for. */
-export const unsentMine = (o: Outbox, me: string | null | undefined) =>
+export const unsentMine = (o: Outbox, me: Me) =>
   pending(o).filter((s) => !heldForOther(s, me));
 
 /** Unsent scans waiting for somebody else to sign in, per person. */
-export function waitingForOthers(o: Outbox, me: string | null | undefined) {
+export function waitingForOthers(o: Outbox, me: Me) {
   const by = new Map<string, { name: string; count: number }>();
   for (const s of pending(o)) {
     if (!heldForOther(s, me)) continue;
-    const w = by.get(s.ownerId!) ?? { name: s.ownerName || 'another driver', count: 0 };
+    const key = s.ownerEmail || s.ownerId!;
+    const w = by.get(key) ?? { name: s.ownerName || s.ownerEmail || 'another driver', count: 0 };
     w.count++;
-    by.set(s.ownerId!, w);
+    by.set(key, w);
   }
   return [...by.values()];
+}
+
+/**
+ * THE CHECK AND THE TOKEN ARE THE SAME READ.
+ *
+ * sync() chooses rows for whoever was signed in when it started, but the
+ * token is fetched again for each POST. A sign-in in between — above all
+ * between two chunks — would send the first person's rows under the second
+ * person's token. So the session that supplies the token is the session the
+ * rows are checked against, in one read, immediately before the send. Any row
+ * that login may not carry and nothing is sent: `OwnerChanged` puts the chunk
+ * back in line (UPLOAD_FAILED) and the next sync chooses again. Unstamped rows
+ * ride with any token, as they always have.
+ */
+export class OwnerChanged extends Error {
+  constructor() {
+    super('Someone else signed in while scans were sending. They are still on this phone.');
+    this.name = 'OwnerChanged';
+  }
+}
+
+export type TokenSession = { token: string | null; id: string | null; email: string | null } | null;
+
+export async function sendAs<T>(
+  scans: QueuedScan[],
+  readSession: () => Promise<TokenSession>,
+  send: (token: string | null) => Promise<T>,
+): Promise<T> {
+  const session = await readSession();
+  if (scans.some((s) => heldForOther(s, session))) throw new OwnerChanged();
+  return send(session?.token ?? null);
 }
 
 /** "3 scans saved by mike.t are waiting for them to sign in." */

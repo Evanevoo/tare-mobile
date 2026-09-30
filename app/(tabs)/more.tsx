@@ -20,7 +20,7 @@ import { T, Screen, Surface, Eyebrow, Rise, Hairline, Icon, ICON, tint } from '@
 export default function More() {
   const router = useRouter();
   const { boot, email, outbox, userId } = useStore();
-  const unsent = unsentMine(outbox, userId).length;
+  const unsent = unsentMine(outbox, { id: userId, email }).length;
   const isAdmin = boot?.user.role === 'admin' || boot?.user.role === 'owner';
 
   // Same fallback as Settings: the session on the phone knows the address even

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import {
-  reduce, empty, pending, queued, latestScan, sendable, unsentMine, heldForOther,
+  reduce, empty, pending, queued, latestScan, sendable, unsentMine, heldForOther, ownerStamp, OwnerChanged,
   type Action, type Outbox, type Mode, type QueuedScan,
 } from './outbox';
 import { ulid } from './ulid';
@@ -279,7 +279,7 @@ export const useStore = create<State>((set, get) => ({
       signs in (outbox.ts sendable). Counting them here would refuse every
       sign-out, and the owner could never get the phone back to send them.
     */
-    const me = get().userId;
+    const me = { id: get().userId, email: get().email };
     const unsent = unsentMine(get().outbox, me).length;
     if (unsent && !opts?.force) return { handed: false, unsent };
     const kept: Outbox = {
@@ -381,8 +381,10 @@ export const useStore = create<State>((set, get) => ({
       lat: geo?.lat ?? null, lng: geo?.lng ?? null, accuracyM: geo?.accuracyM ?? null,
       state: 'QUEUED',
       offFormat,
-      // Whose scan this is, so it only ever uploads under their login.
-      ...(userId ? { ownerId: userId, ownerName: boot?.user.name || displayLogin(email) } : {}),
+      // Whose scan this is, so it only ever uploads under their login. Stamped
+      // with whatever the phone knows — the id, the address, or both — since
+      // an unstamped row would upload under anybody (outbox.ts heldForOther).
+      ...ownerStamp({ id: userId, email }, boot?.user.name || displayLogin(email)),
     };
     get().dispatch({ type: 'ENQUEUE', scan });
 
@@ -475,9 +477,10 @@ export const useStore = create<State>((set, get) => ({
 
     // Asked now, beside the token that is about to go up, not remembered from
     // sign-in: the server credits every row in the POST to that token's owner.
-    const me = (await withDeadline(sessionIdentity(), 35_000, 'Checking your sign-in')
-      .catch(() => null))?.id ?? null;
-    if (me) set({ userId: me });
+    // postScans checks each chunk again against the token it sends (sendAs).
+    const me = await withDeadline(sessionIdentity(), 35_000, 'Checking your sign-in')
+      .catch(() => null);
+    if (me?.id) set({ userId: me.id });
     const toSend = sendable(get().outbox, me);
     if (!toSend.length) { set({ syncing: false }); return; }
     set({ lastError: null });
@@ -526,6 +529,14 @@ export const useStore = create<State>((set, get) => ({
         // retries it (and anything after it that never got a turn); if the
         // server did receive it, the replay posts zero.
         get().dispatch({ type: 'UPLOAD_FAILED', clientIds: ids });
+
+        // The login changed under this sync. Nothing was sent; the next sync
+        // chooses again for whoever is signed in by then.
+        if (e instanceof OwnerChanged) {
+          set({ syncing: false, lastError: e.message });
+          if (anyUploaded) await persistProgress();
+          return;
+        }
 
         /*
           A REFUSAL IS NOT OFFLINE. Setting `online: false` on every failure is

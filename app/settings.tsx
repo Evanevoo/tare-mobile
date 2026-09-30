@@ -27,7 +27,7 @@ export default function Settings() {
   const router = useRouter();
   const { boot, email, outbox, lastSync, online, refresh, dispatch, userId } = useStore();
   // Yours only: another driver's waiting scans survive a sign-out (store.handOver).
-  const unsent = unsentMine(outbox, userId).length;
+  const unsent = unsentMine(outbox, { id: userId, email }).length;
 
   // Who you are should never be a blank card. `boot` needs the server; `email`
   // is on the phone. Falling back through both means the worst case is an
