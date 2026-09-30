@@ -4,6 +4,7 @@ import { useStore } from '@/store';
 import { pending } from '@/outbox';
 import { signOut } from '@/api';
 import { finishSignOut } from '@/sign-out';
+import { displayLogin } from '@/who';
 import { T, Screen, Surface, Eyebrow, Rise, Hairline, Icon, ICON, tint } from '@/ui';
 
 /**
@@ -25,7 +26,7 @@ export default function More() {
   // Same fallback as Settings: the session on the phone knows the address even
   // when the console is unreachable, so this card is never empty.
   const who = boot?.user.name || email || '—';
-  const sub = [boot?.user.email || email, boot?.user.role].filter(Boolean).join(' · ');
+  const sub = [displayLogin(boot?.user.email || email), boot?.user.role].filter(Boolean).join(' · ');
 
   return (
     <Screen intensity={0.7}>
@@ -118,7 +119,7 @@ export default function More() {
               onPress={() =>
                 Linking.openURL(
                   `mailto:hello@scanified.com?subject=Scanified%20app&body=%0A%0A---%0A${
-                    encodeURIComponent(`${boot?.org.name ?? ''} · ${boot?.user.email ?? ''}`)}`,
+                    encodeURIComponent(`${boot?.org.name ?? ''} · ${displayLogin(boot?.user.email)}`)}`,
                 ).catch(() => {})}
             />
             <Hairline />
