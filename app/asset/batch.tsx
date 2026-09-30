@@ -16,7 +16,7 @@ import {
   Field, TextField, Chips, Choice, DateField, Note, isRealDate,
 } from '@/form';
 import { Scanner } from '@/scanner';
-import { formatNudge } from '@/formats';
+import { barcodeRefusal } from '@/formats';
 import { useAttributeOptions } from '@/attributes';
 import { ulid } from '@/ulid';
 import {
@@ -194,17 +194,15 @@ export default function BatchAssets() {
     && (boot?.stats.total ?? 0) + created.length + rows.length > limit;
 
   /**
-   * The same nudge the single screen shows, moved one step earlier.
+   * Why the last barcode was refused for not matching the company's format.
    *
-   * There, a barcode that does not look like the org's others is pointed at
-   * while the form is being filled in. Here there is no per-cylinder form to
-   * put it under, so it goes on the serial step — the one moment the driver is
-   * looking at that barcode and can still drop it before it joins the list.
-   * Still a warning and never a block, for the reason given in asset/new.tsx.
+   * This used to be a yellow "it will still go in" note on the serial step.
+   * Since 30 Sep a new bottle's barcode has to follow the rule, typed or
+   * scanned (formats.ts barcodeRefusal, where the reasoning is): a new bottle
+   * is never "already in the fleet", so nothing here is excused. Checked in
+   * take(), before the code becomes the bottle being added.
    */
-  const nudge = pending
-    ? formatNudge(pending.barcode, boot?.formats?.barcode, `${label} barcodes`)
-    : null;
+  const [formatError, setFormatError] = useState<string | null>(null);
 
   /**
    * Leaving with rows in hand.
@@ -257,6 +255,15 @@ export default function BatchAssets() {
       return;
     }
     setRefusal(null);
+    const bad = barcodeRefusal(normalizeCode(raw), boot?.formats?.barcode, false);
+    if (bad) {
+      setFormatError(bad);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Vibration.vibrate([0, 160, 90, 160]);
+      playScanAlert();
+      return;
+    }
+    setFormatError(null);
     setPending({ barcode: normalizeCode(raw), serial: '' });
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     Vibration.vibrate(90);
@@ -704,8 +711,8 @@ export default function BatchAssets() {
 
           {/* Not while a viewfinder is open — the camera fills that space and
               the note would sit under a live preview being aimed. */}
-          {!!nudge && !serialScanning && (
-            <Note icon="alert-triangle" tone={T.amber} text={`${nudge} Check the label — it will still go in.`} />
+          {!!formatError && !pending && (
+            <Note icon="alert-triangle" tone={T.needle} text={formatError} />
           )}
 
           {/* ── what is in hand ── */}
