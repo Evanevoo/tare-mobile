@@ -81,6 +81,35 @@ section('A SENT row is history, not a live match — the SHIP·RETURN·RETURN bu
     s.scans.find((x) => x.state === 'SENT')?.mode === 'SHIP');
 }
 
+section('Same bottle, same direction, after it uploaded — still one scan (30 Sep)');
+{
+  // Reported from the yard: "I was able to scan the same bottle twice". Scans
+  // upload within seconds, so the first one was already SENT by the time the
+  // bottle was scanned again, and a SENT row was never compared. The phone
+  // showed two; the server's unique index kept one.
+  const sent = (o: Outbox) => {
+    const ids = o.scans.filter((x) => x.state !== 'SENT').map((x) => x.clientId);
+    return reduce(reduce(o, { type: 'BEGIN_UPLOAD', clientIds: ids }),
+      { type: 'UPLOAD_OK', clientIds: ids });
+  };
+
+  let s = sent(run([{ type: 'ENQUEUE', scan: scan('B9', 'SHIP') }]));
+  s = reduce(s, { type: 'ENQUEUE', scan: scan('B9', 'SHIP') });
+  ok('a second SHIP of a bottle already shipped and sent is not a second row',
+    s.scans.length === 1, String(s.scans.length));
+
+  // The direction still matters: brought back after going out is a new event.
+  s = reduce(s, { type: 'ENQUEUE', scan: scan('B9', 'RETURN') });
+  ok('a RETURN after that SHIP is still recorded', s.scans.length === 2, String(s.scans.length));
+  s = sent(s);
+  s = reduce(s, { type: 'ENQUEUE', scan: scan('B9', 'RETURN') });
+  ok('and a second RETURN after that one uploaded is not', s.scans.length === 2, String(s.scans.length));
+
+  // Another order is another job: the same bottle may go out on both.
+  s = reduce(s, { type: 'ENQUEUE', scan: scan('B9', 'SHIP', 'INV-9002') });
+  ok('the same bottle on a different order is its own scan', s.scans.length === 3, String(s.scans.length));
+}
+
 section('Upload lifecycle');
 {
   const base = run([

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { reduce, empty, pending, queued, type Action, type Outbox, type Mode, type QueuedScan }
+import { reduce, empty, pending, queued, latestScan, type Action, type Outbox, type Mode, type QueuedScan }
   from './outbox';
 import { ulid } from './ulid';
 import { withDeadline } from './deadline';
@@ -338,13 +338,11 @@ export const useStore = create<State>((set, get) => ({
     const { orderNumber, customerListId, mode, outbox, boot } = get();
     if (!orderNumber || !customerListId) return { kind: 'unknown', offFormat: false };
 
-    // Only a row still pending can be "already scanned this trip" — a SENT
-    // row is history from an earlier sync in this same job and must not
-    // silently swallow a legitimate new scan of the same bottle. Mirrors the
-    // fix in outbox.ts's ENQUEUE reducer; see the comment there for the
-    // SHIP-then-RETURN-then-RETURN case this was dropping.
-    const existing = outbox.scans.find(
-      (s) => s.orderNumber === orderNumber && s.barcode === barcode && s.state !== 'SENT');
+    // Compared with the bottle's LATEST scan on this order, sent or not — the
+    // same rule ENQUEUE applies (outbox.ts latestScan). Leaving SENT rows out
+    // let a bottle scanned again seconds after it uploaded buzz as "added" and
+    // count twice on the phone (30 Sep).
+    const existing = latestScan(outbox.scans, orderNumber, barcode);
     if (existing && existing.mode === mode) return { kind: 'duplicate', offFormat: false };
 
     // Unknown barcodes are still accepted — never rejected in the field.
