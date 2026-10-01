@@ -76,7 +76,8 @@ export function useLiveData(enabled = true) {
          */
         const stamp = await fetchBootstrapStamp().catch(() => null);
         if (stamp) {
-          const key = `${stamp.at ?? ''}|${stamp.assets}|${stamp.customers}`;
+          // `terms` moves when a customer goes on or off hold in QuickBooks.
+          const key = `${stamp.at ?? ''}|${stamp.assets}|${stamp.customers}|${stamp.terms ?? ''}`;
           if (seen.current === key) return;   // nothing moved; do not spend 700 KB
           seen.current = key;
         }

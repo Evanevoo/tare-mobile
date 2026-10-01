@@ -11,6 +11,7 @@ import { formatForScanIntent } from '@/scan-format';
 import { T, Screen, Surface, Btn, Eyebrow, Rise, Tag, mono, tint, wash } from '@/ui';
 import { Sheet } from '@/sheet';
 import { useLiveData } from '@/live';
+import { holdFor, holdNotice } from '@/hold';
 
 /**
  * Delivery setup: who, and against what document.
@@ -225,6 +226,18 @@ export default function Delivery() {
   const canStart = !!picked && order.trim().length >= 3 && !openJob;
 
   /**
+   * ON HOLD IN QUICKBOOKS — SAID, NEVER ENFORCED.
+   *
+   * Read off the customer list rather than carried on `picked`, so a hold the
+   * office sets or lifts while this screen is open shows up on the next live
+   * sync. Deliberately not part of `canStart`: the office decides what a hold
+   * means for this delivery, and a driver at the door must still be able to
+   * scan. See src/hold.ts.
+   */
+  const pickedHold = picked ? holdFor(boot?.customers, picked.id) : null;
+  const pickedHoldTone = pickedHold?.severe ? T.needle : T.amber;
+
+  /**
    * "That does not look like one of yours."
    *
    * The console has had a place to write down what an order number looks like
@@ -327,7 +340,7 @@ export default function Delivery() {
                   accessibilityRole="button"
                   accessibilityLabel={`Customer ${picked.name}. Tap to change`}
                 >
-                  <Surface tint={wash(0.13)} style={{ marginBottom: 22 }}>
+                  <Surface tint={wash(0.13)} style={{ marginBottom: pickedHold ? 12 : 22 }}>
                     <View style={{ padding: 16 }}>
                       <Text style={{ color: T.ink, fontSize: 17, fontWeight: '700' }}>
                         {picked.name}
@@ -338,7 +351,27 @@ export default function Delivery() {
                     </View>
                   </Surface>
                 </Pressable>
-              ) : (
+              ) : null}
+              {picked && pickedHold ? (
+                <View
+                  accessible
+                  accessibilityRole="alert"
+                  accessibilityLabel={pickedHold.text}
+                  style={{
+                    marginBottom: 22, padding: 12, borderRadius: T.radiusSm,
+                    backgroundColor: wash(0.12, pickedHoldTone),
+                    borderWidth: 1, borderColor: wash(0.34, pickedHoldTone),
+                  }}
+                >
+                  <Text style={{ color: pickedHoldTone, fontSize: 11.5, fontWeight: '800', letterSpacing: 0.4 }}>
+                    ON HOLD
+                  </Text>
+                  <Text style={{ color: T.ink, fontSize: 13.5, lineHeight: 19, marginTop: 4 }}>
+                    {pickedHold.text}
+                  </Text>
+                </View>
+              ) : null}
+              {picked ? null : (
                 <View style={{ marginBottom: 12 }}>
                   <TextInput
                     value={q} onChangeText={setQ}
@@ -452,7 +485,7 @@ export default function Delivery() {
           <Pressable
             onPress={() => { setPicked({ id: item.customerListId, name: item.name }); setQ(''); }}
             accessibilityRole="button"
-            accessibilityLabel={`Pick ${item.name}`}
+            accessibilityLabel={`Pick ${item.name}${holdNotice(item.hold) ? '. On hold in QuickBooks' : ''}`}
             style={({ pressed }) => ({
               paddingHorizontal: 18, paddingVertical: 15,
               borderBottomWidth: 1, borderBottomColor: T.soft,
@@ -467,6 +500,12 @@ export default function Delivery() {
                 {item.city ? ` · ${item.city}` : ''}
               </Text>
             </View>
+            {/* Before the driver even picks: the same word the notice uses,
+                so the row and the card below it agree. */}
+            {(() => {
+              const h = holdNotice(item.hold);
+              return h ? <Tag label="ON HOLD" tone={h.severe ? T.needle : T.amber} /> : null;
+            })()}
             {item.tmp
               ? <Tag label="HOLDING" tone={T.amber} />
               : item.held > 0 && <Tag label={`${item.held} out`} tone={T.bottle} />}
