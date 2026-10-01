@@ -1,6 +1,8 @@
 import { create } from 'zustand';
-import { reduce, empty, pending, queued, latestScan, type Action, type Outbox, type Mode, type QueuedScan }
-  from './outbox';
+import {
+  reduce, empty, pending, queued, latestScan, sendable, unsentMine, heldForOther, ownerStamp, OwnerChanged,
+  type Action, type Outbox, type Mode, type QueuedScan,
+} from './outbox';
 import { ulid } from './ulid';
 import { withDeadline } from './deadline';
 import { loadOutbox, saveOutbox, cacheGet, cacheSet, dbUnavailable as dbFlag, storageMode } from './db';
@@ -12,6 +14,7 @@ import type { TargetLine } from './target-progress.ts';
 import { registerPush, deregisterPush } from './notifications';
 import { matchesFormat } from './formats';
 import { ACCOUNT_CACHES, OWNER_KEY, ownerVerdict } from './cache-owner';
+import { displayLogin } from './who';
 
 interface State {
   ready: boolean;
@@ -22,6 +25,8 @@ interface State {
    * download. Survives a dead server; `boot` does not.
    */
   email: string | null;
+  /** The signed-in Supabase user id — what each new scan is stamped with. */
+  userId: string | null;
   online: boolean;
   syncing: boolean;
   lastError: string | null;
@@ -89,6 +94,7 @@ export const useStore = create<State>((set, get) => ({
   outbox: empty,
   boot: null,
   email: null,
+  userId: null,
   online: true,
   syncing: false,
   lastError: null,
@@ -195,6 +201,7 @@ export const useStore = create<State>((set, get) => ({
     set({
       outbox, boot, lastSync, ready: true,
       email: who?.email ?? null,
+      userId: who?.id ?? null,
       // Set by loadOutbox()'s own call to open() above, so it is current by
       // the time this reads it — an ES module `let` export is a live binding,
       // not a snapshot taken at import time.
@@ -265,17 +272,29 @@ export const useStore = create<State>((set, get) => ({
       // Offline. The count below decides; a failed send is not a reason to
       // discard, it is the reason the guard exists.
     }
-    const unsent = pending(get().outbox).length;
+    /*
+      Only this login's work counts, and only this login's work goes. Scans
+      another driver saved before their session ran out were never this
+      person's to upload or to discard: they stay, and go up when their owner
+      signs in (outbox.ts sendable). Counting them here would refuse every
+      sign-out, and the owner could never get the phone back to send them.
+    */
+    const me = { id: get().userId, email: get().email };
+    const unsent = unsentMine(get().outbox, me).length;
     if (unsent && !opts?.force) return { handed: false, unsent };
+    const kept: Outbox = {
+      scans: get().outbox.scans.filter((s) => s.state !== 'SENT' && heldForOther(s, me)),
+    };
 
     // The push token first, while the session still exists to authorize the
     // request — after signOut nothing can. Never blocks the hand-over; a
     // dead zone just leaves a token the send-side prunes on first bounce.
     await deregisterPush();
     set({
-      outbox: empty,
+      outbox: kept,
       boot: null,
       email: null,
+      userId: null,
       lastError: null,
       lastSync: null,
       customerListId: null,
@@ -291,7 +310,7 @@ export const useStore = create<State>((set, get) => ({
     // the next login then saw. A cache added later is covered by being added
     // to that list, and a test fails until it is.
     await Promise.all([
-      saveOutbox(empty).catch(() => {}),
+      saveOutbox(kept).catch(() => {}),
       ...ACCOUNT_CACHES.map((k) => cacheSet(k, null).catch(() => {})),
     ]);
     return { handed: true, unsent: 0 };
@@ -335,7 +354,7 @@ export const useStore = create<State>((set, get) => ({
    * matches what they saw.
    */
   addScan(barcode, geo) {
-    const { orderNumber, customerListId, mode, outbox, boot } = get();
+    const { orderNumber, customerListId, mode, outbox, boot, userId, email } = get();
     if (!orderNumber || !customerListId) return { kind: 'unknown', offFormat: false };
 
     // Compared with the bottle's LATEST scan on this order, sent or not — the
@@ -362,6 +381,10 @@ export const useStore = create<State>((set, get) => ({
       lat: geo?.lat ?? null, lng: geo?.lng ?? null, accuracyM: geo?.accuracyM ?? null,
       state: 'QUEUED',
       offFormat,
+      // Whose scan this is, so it only ever uploads under their login. Stamped
+      // with whatever the phone knows — the id, the address, or both — since
+      // an unstamped row would upload under anybody (outbox.ts heldForOther).
+      ...ownerStamp({ id: userId, email }, boot?.user.name || displayLogin(email)),
     };
     get().dispatch({ type: 'ENQUEUE', scan });
 
@@ -449,12 +472,18 @@ export const useStore = create<State>((set, get) => ({
    * still queued is lost.
    */
   async sync() {
-    const { outbox, syncing } = get();
-    if (syncing) return;
-    const toSend = queued(outbox);
-    if (!toSend.length) return;
+    if (get().syncing || !queued(get().outbox).length) return;
+    set({ syncing: true });
 
-    set({ syncing: true, lastError: null });
+    // Asked now, beside the token that is about to go up, not remembered from
+    // sign-in: the server credits every row in the POST to that token's owner.
+    // postScans checks each chunk again against the token it sends (sendAs).
+    const me = await withDeadline(sessionIdentity(), 35_000, 'Checking your sign-in')
+      .catch(() => null);
+    if (me?.id) set({ userId: me.id });
+    const toSend = sendable(get().outbox, me);
+    if (!toSend.length) { set({ syncing: false }); return; }
+    set({ lastError: null });
 
     const allUnresolved: string[] = [];
     let anyUploaded = false;
@@ -500,6 +529,14 @@ export const useStore = create<State>((set, get) => ({
         // retries it (and anything after it that never got a turn); if the
         // server did receive it, the replay posts zero.
         get().dispatch({ type: 'UPLOAD_FAILED', clientIds: ids });
+
+        // The login changed under this sync. Nothing was sent; the next sync
+        // chooses again for whoever is signed in by then.
+        if (e instanceof OwnerChanged) {
+          set({ syncing: false, lastError: e.message });
+          if (anyUploaded) await persistProgress();
+          return;
+        }
 
         /*
           A REFUSAL IS NOT OFFLINE. Setting `online: false` on every failure is

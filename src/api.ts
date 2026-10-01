@@ -5,7 +5,7 @@ import { withDeadline, boundedFetch } from './deadline';
 import Constants from 'expo-constants';
 import * as Linking from 'expo-linking';
 import type { QueuedScan } from './outbox';
-import { toWire } from './outbox';
+import { toWire, sendAs } from './outbox';
 import type { BatchItem, BulkCreateResult } from './batch';
 import type { HistoryPage } from './history';
 import type { PendingShipRec } from './pending-ship';
@@ -120,7 +120,7 @@ if (AppState.currentState === 'active') void supabase.auth.startAutoRefresh();
  */
 const STORAGE_KEY = (supabase.auth as unknown as { storageKey: string }).storageKey;
 
-export async function storedSession(): Promise<{ email: string | null } | null> {
+export async function storedSession(): Promise<{ email: string | null; id: string | null } | null> {
   try {
     return parseStoredSession(await supabaseSecureStorage.getItem(STORAGE_KEY));
   } catch {
@@ -139,9 +139,13 @@ export async function sessionState(): Promise<Verdict> {
   return sessionVerdict(check, !!(await storedSession()));
 }
 
-async function authHeader(): Promise<Record<string, string>> {
+async function authSession() {
   const { data } = await withDeadline(supabase.auth.getSession(), 35_000, 'Checking your sign-in');
-  const token = data.session?.access_token;
+  return data.session;
+}
+
+async function authHeader(): Promise<Record<string, string>> {
+  const token = (await authSession())?.access_token;
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
@@ -157,12 +161,16 @@ async function authHeader(): Promise<Record<string, string>> {
  * Name and role still come from the bootstrap when it is there, because
  * Supabase only knows the address that signed in.
  */
-export async function sessionIdentity(): Promise<{ email: string } | null> {
+export async function sessionIdentity(): Promise<{ email: string; id: string | null } | null> {
   const { data } = await supabase.auth.getSession();
   // Offline with an aged-out token, getSession() says null; the stored
   // session still knows who signed in (offline-session.ts).
-  const email = data.session?.user?.email ?? (await storedSession())?.email;
-  return email ? { email } : null;
+  const user = data.session?.user;
+  const stored = user?.email && user.id ? null : await storedSession();
+  const email = user?.email ?? stored?.email;
+  // The user id is what a queued scan is stamped with (outbox.ts sendable).
+  const id = user?.id ?? stored?.id ?? null;
+  return email ? { email, id } : null;
 }
 
 /** One asset, as it arrives. Keys are short because there are forty thousand. */
@@ -388,11 +396,16 @@ export class SyncRefused extends Error {
 }
 
 export async function postScans(scans: QueuedScan[]): Promise<SyncResult> {
-  const res = await timedFetch(`${API_URL}/api/scans`, {
+  // The token that goes up is the one whose user was just checked against
+  // every row's owner — see sendAs in outbox.ts. A mismatch sends nothing.
+  const res = await sendAs(scans, async () => {
+    const s = await authSession();
+    return s ? { token: s.access_token ?? null, id: s.user?.id ?? null, email: s.user?.email ?? null } : null;
+  }, (token) => timedFetch(`${API_URL}/api/scans`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     body: JSON.stringify({ scans: scans.map(toWire) }),
-  }, 90_000, 'Sending scans timed out');
+  }, 90_000, 'Sending scans timed out'));
 
   /**
    * A REFUSAL IS NOT BAD RECEPTION.

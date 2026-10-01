@@ -4,7 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase, signOut, sessionState } from './api';
 import { verdictForEvent } from './offline-session';
 import { useStore } from './store';
-import { pending } from './outbox';
+import { unsentMine } from './outbox';
 import { hasNativeModule } from './notifications';
 import { T } from './ui';
 
@@ -59,7 +59,7 @@ export function SessionGuards({ children }: { children: React.ReactNode }) {
   const [sendErr, setSendErr] = useState<string | null>(null);
   const [tries, setTries] = useState(0);
   const sync = useStore((s) => s.sync);
-  const unsentNow = useStore((s) => pending(s.outbox).length);
+  const unsentNow = useStore((s) => unsentMine(s.outbox, { id: s.userId, email: s.email }).length);
 
   const lastActive = useRef(Date.now());
   const warned = useRef(false);
@@ -231,7 +231,8 @@ export function SessionGuards({ children }: { children: React.ReactNode }) {
                 }
                 // Only stand down when there is genuinely nothing left. Clearing
                 // on a failed send is how this becomes the bug it replaced.
-                if (pending(useStore.getState().outbox).length === 0) {
+                const st = useStore.getState();
+                if (unsentMine(st.outbox, { id: st.userId, email: st.email }).length === 0) {
                   setHeldBack(null);
                   setTries(0);
                   setSendErr(null);

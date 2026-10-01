@@ -32,7 +32,22 @@ export interface QueuedScan {
    * Not sent to the server — see toWire below, which deliberately omits it.
    */
   offFormat?: boolean;
+  /**
+   * Who scanned it: the Supabase user id and lower-cased address signed in at
+   * the moment of the scan (either may be missing offline, never both once
+   * anyone is known), and how to name them on screen. The server credits a
+   * scan to whoever's token uploads it, so a row may only go up under this
+   * login — see `sendable`. Absent on rows queued by builds before 30 Sep,
+   * which upload as they always did. Local only, like offFormat; toWire omits
+   * all three.
+   */
+  ownerId?: string;
+  ownerEmail?: string;
+  ownerName?: string;
 }
+
+/** Who is signed in, as far as the phone can tell. Either half may be unknown. */
+export type Me = { id?: string | null; email?: string | null } | null | undefined;
 
 export interface Outbox {
   scans: QueuedScan[];
@@ -329,6 +344,111 @@ export function retagBlockedBy(
 export const pending = (o: Outbox) => o.scans.filter((s) => s.state !== 'SENT');
 export const queued = (o: Outbox) => o.scans.filter((s) => s.state === 'QUEUED');
 export const inFlight = (o: Outbox) => o.scans.filter((s) => s.state === 'UPLOADING');
+
+/**
+ * SCANS GO UP UNDER THE NAME OF WHOEVER SCANNED THEM.
+ *
+ * A login that expired mid-shift left its queue on disk, the next person
+ * signed in, and the next sync posted that queue with their token — so the
+ * ledger credited every bottle to someone who never touched it. A stamped row
+ * now waits for its own scanner: it is never sent under another login and
+ * never discarded, and it goes up the next time they sign in on this phone.
+ *
+ * `me` unknown (no session readable) holds back every stamped row, since
+ * nothing proves the token is theirs. Unstamped rows predate the stamp and
+ * upload exactly as before, so an update strands nothing already queued.
+ */
+const norm = (e: string | null | undefined) => e?.trim().toLowerCase() || null;
+
+/** The owner fields a scan taken now should carry, or none if nobody is known. */
+export function ownerStamp(me: Me, name?: string | null): Pick<QueuedScan, 'ownerId' | 'ownerEmail' | 'ownerName'> {
+  const id = me?.id || undefined;
+  const email = norm(me?.email) ?? undefined;
+  if (!id && !email) return {};
+  return {
+    ...(id ? { ownerId: id } : {}),
+    ...(email ? { ownerEmail: email } : {}),
+    ...(name ? { ownerName: name } : {}),
+  };
+}
+
+/**
+ * Mine if the user ids are equal, or the addresses are (case aside). The
+ * address alone is enough on purpose: a person removed and re-added with the
+ * same address gets a new id, and their queue must still go up once they sign
+ * in. A stamp the signed-in login matches neither way is held, not guessed at.
+ */
+export function heldForOther(s: QueuedScan, me: Me): boolean {
+  if (!s.ownerId && !s.ownerEmail) return false;
+  if (s.ownerId && me?.id && s.ownerId === me.id) return false;
+  const mine = norm(me?.email);
+  if (s.ownerEmail && mine && norm(s.ownerEmail) === mine) return false;
+  return true;
+}
+
+/** What this login may upload now. */
+export const sendable = (o: Outbox, me: Me) =>
+  queued(o).filter((s) => !heldForOther(s, me));
+
+/** Unsent work this login answers for — what a sign-out has to account for. */
+export const unsentMine = (o: Outbox, me: Me) =>
+  pending(o).filter((s) => !heldForOther(s, me));
+
+/** Unsent scans waiting for somebody else to sign in, per person. */
+export function waitingForOthers(o: Outbox, me: Me) {
+  const by = new Map<string, { name: string; count: number }>();
+  for (const s of pending(o)) {
+    if (!heldForOther(s, me)) continue;
+    const key = s.ownerEmail || s.ownerId!;
+    const w = by.get(key) ?? { name: s.ownerName || s.ownerEmail || 'another driver', count: 0 };
+    w.count++;
+    by.set(key, w);
+  }
+  return [...by.values()];
+}
+
+/**
+ * THE CHECK AND THE TOKEN ARE THE SAME READ.
+ *
+ * sync() chooses rows for whoever was signed in when it started, but the
+ * token is fetched again for each POST. A sign-in in between — above all
+ * between two chunks — would send the first person's rows under the second
+ * person's token. So the session that supplies the token is the session the
+ * rows are checked against, in one read, immediately before the send. Any row
+ * that login may not carry and nothing is sent: `OwnerChanged` puts the chunk
+ * back in line (UPLOAD_FAILED) and the next sync chooses again. Unstamped rows
+ * ride with any token, as they always have.
+ *
+ * No live session is not a change of owner. It goes up with no token, exactly
+ * as before this check: the server credits nobody and answers 401, which the
+ * driver sees as "sign in again" (api.ts postScans), or there is no signal
+ * and it fails as offline. Calling it OwnerChanged told a driver whose token
+ * had merely aged out that someone else had signed in, every 45 seconds.
+ */
+export class OwnerChanged extends Error {
+  constructor() {
+    super('Someone else signed in while scans were sending. They are still on this phone.');
+    this.name = 'OwnerChanged';
+  }
+}
+
+export type TokenSession = { token: string | null; id: string | null; email: string | null } | null;
+
+export async function sendAs<T>(
+  scans: QueuedScan[],
+  readSession: () => Promise<TokenSession>,
+  send: (token: string | null) => Promise<T>,
+): Promise<T> {
+  const session = await readSession();
+  if (!session?.token) return send(null);
+  if (scans.some((s) => heldForOther(s, session))) throw new OwnerChanged();
+  return send(session.token);
+}
+
+/** "3 scans saved by mike.t are waiting for them to sign in." */
+export const waitingLine = (w: { name: string; count: number }) =>
+  `${w.count} scan${w.count === 1 ? '' : 's'} saved by ${w.name} `
+  + `${w.count === 1 ? 'is' : 'are'} waiting for them to sign in.`;
 
 export function forOrder(o: Outbox, orderNumber: string) {
   return o.scans.filter((s) => s.orderNumber === orderNumber);

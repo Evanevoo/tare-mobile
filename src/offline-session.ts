@@ -62,13 +62,16 @@ export function verdictForEvent(event: string, hasSession: boolean): Verdict | n
  * A blob with no refresh token cannot become a live session, so it does not
  * count - trusting it would let the driver in and then fail every upload.
  */
-export function parseStoredSession(raw: string | null): { email: string | null } | null {
+export function parseStoredSession(raw: string | null): { email: string | null; id: string | null } | null {
   if (!raw) return null;
   try {
     const s = JSON.parse(raw);
     const session = s?.currentSession ?? s;
     if (typeof session?.refresh_token !== 'string' || !session.refresh_token) return null;
-    return { email: typeof session.user?.email === 'string' ? session.user.email : null };
+    return {
+      email: typeof session.user?.email === 'string' ? session.user.email : null,
+      id: typeof session.user?.id === 'string' ? session.user.id : null,
+    };
   } catch {
     return null;
   }
