@@ -327,6 +327,13 @@ export interface BootstrapStamp {
   at: string | null;
   assets: number;
   customers: number;
+  /**
+   * A fingerprint of every customer's QuickBooks terms name, so an account
+   * going on hold (or coming off it) moves the stamp and reaches the phone at
+   * its next check instead of its next cold start. Absent from servers older
+   * than the hold feature.
+   */
+  terms?: string | null;
 }
 
 export async function fetchBootstrapStamp(): Promise<BootstrapStamp> {
