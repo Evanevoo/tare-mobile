@@ -20,6 +20,7 @@ import { Sheet } from '@/sheet';
 import { Redirecting } from '@/redirecting';
 import { formatExample, barcodeRefusal } from '@/formats';
 import { scanAssist, type ScanAssist } from '@/scan-assist';
+import { holdFor } from '@/hold';
 
 /**
  * The scan loop.
@@ -275,6 +276,8 @@ export default function Scan() {
    * renders nothing in the single frame before the redirect lands.
    */
   const ready = Boolean(orderNumber && customerListId);
+  /** QuickBooks hold on this job's customer, if any. A notice, never a gate. */
+  const hold = holdFor(boot?.customers, customerListId);
 
   /**
    * `!leaving` IS THE WHOLE FIX FOR THE GREY SCREEN. HERE IS THE SEQUENCE.
@@ -804,6 +807,23 @@ export default function Scan() {
               style={{ color: T.needle, fontSize: 11.5, fontWeight: '800', marginTop: 8 }}
             >
               Not saving to this phone — upload before you stop
+            </Text>
+          )}
+          {/* ON HOLD IN QUICKBOOKS. Looked up fresh from the customer list
+              (the job stores only the account number), so a hold lifted
+              mid-shift goes away on the next sync. Words, not a gate: every
+              scan still records — see src/hold.ts. Fixed hex rather than
+              T.amber/T.needle because this sits on the dark camera gradient
+              in both themes, where the light palette's darker tones vanish. */}
+          {hold && (
+            <Text
+              accessibilityRole="alert"
+              style={{
+                color: hold.severe ? '#F0654A' : '#E0A43A',
+                fontSize: 12, fontWeight: '700', lineHeight: 16, marginTop: 8,
+              }}
+            >
+              {hold.text}
             </Text>
           )}
         </LinearGradient>

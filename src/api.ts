@@ -242,6 +242,14 @@ export interface CustomerRec {
   held: number;
   /** The one holding account for walk-ins with no account number yet. Never bills. */
   tmp?: number;
+  /**
+   * The account's QuickBooks hold, as QuickBooks words it ("Hard Hold",
+   * "Soft Hold", "Hold", "DO NOT SELL"). Absent when it is not on hold, and on
+   * any server that predates the field. A warning only, never a block — see
+   * src/hold.ts. No BOOTSTRAP_VERSION bump: absent already means "not on
+   * hold", and the whole payload is cached as-is, so the next sync brings it.
+   */
+  hold?: string;
 }
 
 /** One product code and how many of them the fleet has. */
