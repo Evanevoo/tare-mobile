@@ -5,7 +5,7 @@ import {
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { useStore } from '@/store';
-import { retagBlockedBy, type QueuedScan } from '@/outbox';
+import { retagBlockedBy, distinctScans, type QueuedScan } from '@/outbox';
 import { decodeParam } from '@/route-param';
 import { editSentScan, fetchOrderDetail, type RemoteOrder } from '@/api';
 import { classify } from '@/scan-match';
@@ -175,8 +175,11 @@ export default function OrderEdit() {
       .slice(0, 8);
   }, [boot, custQuery, listId]);
 
-  const ship = effectiveRows.filter((s) => s.mode === 'SHIP');
-  const ret = effectiveRows.filter((s) => s.mode === 'RETURN');
+  // Each bottle once per direction — the latest row for it — so the header
+  // and the two lists agree with the ledger's unique key (outbox.ts distinctScans).
+  const bottles = distinctScans(effectiveRows);
+  const ship = bottles.filter((s) => s.mode === 'SHIP');
+  const ret = bottles.filter((s) => s.mode === 'RETURN');
   const anySent = effectiveRows.some((s) => s.state === 'SENT');
 
   // Still waiting on the ledger's answer — only reachable once, since the

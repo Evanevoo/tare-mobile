@@ -11,6 +11,10 @@ export const CREW_DOMAIN = 'crew.scanified.com';
 
 export function displayLogin(email: string | null | undefined): string {
   const e = String(email ?? '').trim();
-  const at = e.toLowerCase().lastIndexOf(`@${CREW_DOMAIN}`);
-  return at > 0 && at + CREW_DOMAIN.length + 1 === e.length ? e.slice(0, at) : e;
+  // Compare the tail itself, not an index into a lower-cased copy: lower-casing
+  // can lengthen a string ("İ" becomes two characters), which moved the index
+  // and left the made-up address on screen (found by fuzz-strings, 1 Oct).
+  const tail = `@${CREW_DOMAIN}`;
+  return e.length > tail.length && e.slice(-tail.length).toLowerCase() === tail
+    ? e.slice(0, -tail.length) : e;
 }

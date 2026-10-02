@@ -15,7 +15,7 @@
  * reachable whatever these rows say.
  */
 import type { Outbox } from './outbox.ts';
-import { forOrder } from './outbox.ts';
+import { forOrder, distinctScans } from './outbox.ts';
 
 export interface TargetLine {
   productCode: string;
@@ -49,7 +49,9 @@ export function checklist(
   target: TargetLine[],
 ): ChecklistRow[] {
   const scannedByProduct = new Map<string, number>();
-  for (const s of forOrder(outbox, orderNumber)) {
+  // One bottle, one direction counts once, however many rows it has — a
+  // corrected-back scan left "Argon 2/2" for one bottle (outbox.ts distinctScans).
+  for (const s of distinctScans(forOrder(outbox, orderNumber))) {
     if (s.mode !== 'SHIP') continue;
     const p = productOf(s.barcode);
     if (!p) continue;

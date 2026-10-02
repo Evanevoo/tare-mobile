@@ -4,7 +4,7 @@ import {
 import { useState } from 'react';
 import { useRouter } from 'expo-router';
 import { useStore } from '@/store';
-import { counts, unsentMine, waitingForOthers, waitingLine, heldForOther } from '@/outbox';
+import { counts, unsentMine, waitingForOthers, waitingLine, heldForOther, distinctScans } from '@/outbox';
 import { useScanRoute, explainMiss } from '@/scan-route';
 import { Scanner } from '@/scanner';
 import {
@@ -103,7 +103,8 @@ export default function Home() {
   // tomorrow and "today's scans" silently dropped the busiest end of the run.
   const todayLocal = today();
   // And this driver's: another driver's scans still on the phone are not theirs.
-  const mine = outbox.scans.filter((x) => localDay(x.scannedAt) === todayLocal && !heldForOther(x, me));
+  // One bottle, one direction, one order counts once (outbox.ts distinctScans).
+  const mine = distinctScans(outbox.scans.filter((x) => localDay(x.scannedAt) === todayLocal && !heldForOther(x, me)));
   const orders = new Set(mine.map((x) => x.orderNumber)).size;
   const todayLine = mine.length
     ? `${mine.length} scanned today · ${orders} order${orders === 1 ? '' : 's'}`

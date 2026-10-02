@@ -7,7 +7,7 @@ import * as Haptics from 'expo-haptics';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import { useStore } from '@/store';
-import { forOrder, counts, type QueuedScan } from '@/outbox';
+import { forOrder, counts, distinctScans, type QueuedScan } from '@/outbox';
 import { checklist, isComplete } from '@/target-progress';
 import { classify } from '@/scan-match';
 import { playScanAccept, playScanAlert, playSubmitSuccess } from '@/sound';
@@ -186,7 +186,9 @@ export default function Scan() {
   // the screen to know the scan landed.
   const flash = useRef(new Animated.Value(0)).current;
 
-  const rows = orderNumber ? forOrder(outbox, orderNumber) : [];
+  // The review list shows each bottle once per direction, the same as the
+  // counts beside it (outbox.ts distinctScans): the latest row for the bottle.
+  const rows = orderNumber ? distinctScans(forOrder(outbox, orderNumber)) : [];
   const c = counts(outbox, orderNumber ?? undefined);
   // The live checklist — "Argon 2/3 · Oxygen 1/2" — against a Sales Order's
   // own target lines, when there is one. Advisory only, same as every other
