@@ -4,6 +4,7 @@ import { View, Text, TextInput, Pressable, ScrollView, Alert } from 'react-nativ
 import * as Haptics from 'expo-haptics';
 import { Vibration } from 'react-native';
 import { playScanAccept, playScanAlert, playSubmitSuccess } from '@/sound';
+import { DUPLICATE_BUZZ } from '@/buzz';
 import { useRouter } from 'expo-router';
 import { useStore } from '@/store';
 import { postFill } from '@/api';
@@ -183,6 +184,10 @@ export default function Locate() {
   */
   const justAdded = useRef<Set<string>>(new Set());
 
+  /* The barcode last kept or last warned about as a repeat — see the
+     duplicate branch of `add`. A ref for the same reason as the two above. */
+  const lastDupe = useRef<string | null>(null);
+
   /* Cleared on ANY change to codes, not just ours — removing a chip, saving
      the shelf and restoring a draft all rewrite the array, and each of them
      makes it authoritative again. Clearing only after our own adds would
@@ -193,6 +198,7 @@ export default function Locate() {
      or the window above reopens. */
   function keep(bc: string) {
     justAdded.current.add(bc);
+    lastDupe.current = bc;
     setCodes((c) => (c.includes(bc) ? c : [...c, bc]));
   }
 
@@ -201,10 +207,28 @@ export default function Locate() {
     if (!bc) return;
 
     const verdict = admit(bc, codes, justAdded.current, deciding.current);
-    // Already on the shelf: the light tick, and nothing else.
-    if (verdict === 'duplicate') { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); return; }
+    /*
+      Already on the shelf. A repeat of the barcode handled last is a light
+      tick: the phone is still over that label, read again each time the
+      Scanner's cooldown lapses, or still there after "Shelve it anyway".
+      Coming back to a bottle after scanning another one gets the double-scan
+      buzz (src/buzz.ts), once, then ticks again until a different code comes
+      in. Until 1 Oct 2026 every repeat here was the light tick, so a bottle
+      scanned twice by mistake said nothing at all.
+    */
+    if (verdict === 'duplicate') {
+      if (lastDupe.current === bc) { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); return; }
+      lastDupe.current = bc;
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      Vibration.vibrate(DUPLICATE_BUZZ);
+      playScanAlert();
+      return;
+    }
     // A dialog is open about this one — the camera is just still looking.
     if (verdict === 'deciding') return;
+    // A different code has come in, so the next repeat of any earlier one is a
+    // genuine second visit. keep() marks this one once it is on the shelf.
+    lastDupe.current = null;
 
     const known = boot?.assets[bc];
 

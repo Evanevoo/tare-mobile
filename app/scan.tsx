@@ -11,6 +11,7 @@ import { forOrder, counts, distinctScans, type QueuedScan } from '@/outbox';
 import { checklist, isComplete } from '@/target-progress';
 import { classify } from '@/scan-match';
 import { playScanAccept, playScanAlert, playSubmitSuccess } from '@/sound';
+import { DUPLICATE_BUZZ } from '@/buzz';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T, shipTone, Surface, Btn, Tag, mono } from '@/ui';
 import { Scanner } from '@/scanner';
@@ -478,10 +479,10 @@ export default function Scan() {
     flash.setValue(1);
     Animated.timing(flash, { toValue: 0, duration: 620, useNativeDriver: false }).start();
 
-    // Duplicate stays quiet on purpose — see `take()`'s cooldown-tick comment
-    // above: a repeat read of a code still in view is the normal case while
-    // the phone holds steady over it, and a sound on every one of those
-    // would turn "still pointed at the same barcode" into a nuisance beep.
+    // A duplicate speaks once, then goes quiet — see dupe() below: a repeat
+    // read of a code still in view is the normal case while the phone holds
+    // steady over it, and a sound on every one of those would turn "still
+    // pointed at the same barcode" into a nuisance beep.
     //
     // Why Vibration.vibrate ALONGSIDE the Haptics call: driver feedback
     // (17 Aug — "more vibrate feedback for each scan cause it's hard to feel
@@ -490,8 +491,8 @@ export default function Scan() {
     // Vibration drives the motor for a real, gloved-hand buzz. Durations
     // are deliberate: a short solid thump for accept, a longer double for
     // unknown — distinguishable by feel alone, without looking at the
-    // screen. Duplicates keep only the light tick; a strong buzz there
-    // would read as "another one counted", which is exactly wrong.
+    // screen. A duplicate gets three pulses (src/buzz.ts), never the accept
+    // thump, which would read as "another one counted" — exactly wrong.
     if (kind === 'added' || kind === 'unknown') {
       // A different code has been read, so the next repeat of whatever was
       // last flagged as a duplicate is a genuine second visit rather than the
@@ -529,9 +530,10 @@ export default function Scan() {
    * Coming back to a bottle later is loud, because by then something else
    * has been scanned in between.
    *
-   * Deliberately NOT the accept buzz. A double pulse with a gap is what the
-   * legacy app used for duplicates and what a gloved hand can tell apart
-   * from the single solid thump of a real add without looking.
+   * Deliberately NOT the accept buzz. Legacy used a double pulse; ours was
+   * two 60 ms pulses until 1 Oct 2026, too faint to feel through a glove, and
+   * two pulses is already what "unknown" means here. It is now three — see
+   * src/buzz.ts.
    */
   // Declared above the `ready` guard with the other hooks — see the note there.
   function dupe(barcode: string) {
@@ -541,7 +543,7 @@ export default function Scan() {
     }
     lastDupe.current = barcode;
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-    Vibration.vibrate([0, 60, 70, 60]);
+    Vibration.vibrate(DUPLICATE_BUZZ);
     playScanAlert();
   }
 
