@@ -269,9 +269,11 @@ export function reduce(state: Outbox, action: Action): Outbox {
         Without `from` the source is the other direction, which is the only
         one a flip can come from; with two modes that is no guess.
 
-        A whole-order move is the same shape: onto an order that already has
-        the bottle SENT the same way, the moved row would be the second copy of
-        a pair the server keeps once, so it goes instead. Only SENT rows count
+        A whole-order move is the same shape: the server refuses a move onto an
+        order that already has the bottle the same way ("Order X already has
+        B9 as SHIP"), so if one lands here the phone's copy is stale and the
+        moved row would be the second copy of a pair the server keeps once, so
+        it goes instead. Only SENT rows count
         as "already there" — the server has never seen a queued one, and a SENT
         row dropped on the strength of one the driver can still remove would
         leave the phone showing nothing where the ledger has a scan.
