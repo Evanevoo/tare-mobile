@@ -135,9 +135,9 @@ h.section('Session encryption');
   const key = Uint8Array.from({ length: 32 }, (_, i) => (i * 7) & 255);
   h.prop('round trip for any well-formed string; garbage throws an ordinary Error, fast', iters(3000), () => {
     const s = messyString(r);
-    // A leading U+FEFF is eaten by TextDecoder (known issue K4, see
-    // known-issues.mts); a stored session is JSON and starts with "{".
-    if ((s as any).isWellFormed?.() !== false && !s.startsWith('﻿')) {
+    // A leading U+FEFF round-trips too since 1 Oct 2026 (K4, ignoreBOM in
+    // session-crypto.ts); before that TextDecoder ate it.
+    if ((s as any).isWellFormed?.() !== false) {
       const nonce = Uint8Array.from({ length: 12 }, () => r.int(256));
       const enc = encryptSession(key, nonce, s);
       if (decryptSession(key, enc) !== s) return `round trip lost ${show(s)}`;

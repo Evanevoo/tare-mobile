@@ -56,3 +56,18 @@ test('the warning is shown on the picker and the scan screen, and never gates', 
   assert.ok(canStart, 'canStart not found');
   assert.doesNotMatch(canStart, /hold/i);
 });
+
+// K5, found by __tests__/fuzz-readers.test.mts and fixed 1 Oct 2026: a
+// bootstrap whose `customers` is not a list, or has holes, threw out of
+// holdFor and the scan screen with it. A hold is advisory, so none it is.
+test('holdFor reads a customer list that is not a list as no hold', () => {
+  for (const customers of ['abc', 42, { customerListId: 'C1', hold: 'Hold' }, true]) {
+    assert.equal(holdFor(customers as any, 'C1'), null);
+  }
+});
+
+test('holdFor skips holes in the list and still finds the customer', () => {
+  const list = [null, undefined, 7, { customerListId: 'C1', hold: 'Hard Hold' }] as any;
+  assert.equal(holdFor(list, 'C1')?.label, 'Hard Hold');
+  assert.equal(holdFor(list, 'C2'), null);
+});

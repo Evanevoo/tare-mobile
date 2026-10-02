@@ -165,10 +165,13 @@ export default function Scan() {
         mode: removingSent.mode,
         reason,
       });
+      // `from`: the server voided this direction only. A bottle that went out
+      // and came back keeps its other row (1 Oct 2026, see outbox.ts).
       dispatch({
         type: 'APPLY_SERVER_EDIT',
         orderNumber: removingSent.orderNumber,
         barcode: removingSent.barcode,
+        from: removingSent.mode,
         drop: true,
       });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);

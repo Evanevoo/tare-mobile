@@ -50,5 +50,20 @@ export function decryptSession(key: Uint8Array, value: string): string {
   }
 
   const decrypted = gcmsiv(asBytes(key), hexToBytes(nonceHex)).decrypt(hexToBytes(encryptedHex));
-  return new TextDecoder().decode(decrypted);
+  /*
+    ignoreBOM (1 Oct 2026): TextDecoder strips a leading byte-order mark by
+    default, so a value starting with U+FEFF came back one character short.
+    TextEncoder never strips one, so decrypt now returns exactly what
+    encryptSession was given.
+
+    This cannot change how any session already on a phone decrypts. Every v2
+    blob is written by secure-storage.ts setItem, whose values come from
+    Supabase auth-js (setItemAsync JSON.stringifies everything it stores, so
+    the first character is `{`, `[`, `"` or a JSON literal) or from the legacy
+    upgrade, which re-encrypts what auth-js wrote before. None starts with
+    U+FEFF, so the decoded bytes never begin EF BB BF, and with no BOM to
+    strip both decoders return the same string. Expo's TextDecoder polyfill
+    (expo/src/winter/TextDecoder.ts) honours the option, as Node's does.
+  */
+  return new TextDecoder('utf-8', { ignoreBOM: true }).decode(decrypted);
 }

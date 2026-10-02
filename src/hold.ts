@@ -50,7 +50,10 @@ export function holdFor(
   customers: ReadonlyArray<{ customerListId: string; hold?: string | null }> | null | undefined,
   customerListId: string | null | undefined,
 ): HoldNotice | null {
-  if (!customers || !customerListId) return null;
-  const c = customers.find((x) => x.customerListId === customerListId);
+  // A bootstrap from an older server or cache may carry something other than
+  // a list here, or holes in it; a hold is advisory, so none is the answer
+  // rather than a scan screen that will not open (K5, 1 Oct 2026).
+  if (!Array.isArray(customers) || !customerListId) return null;
+  const c = customers.find((x) => x?.customerListId === customerListId);
   return c ? holdNotice(c.hold) : null;
 }

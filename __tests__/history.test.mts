@@ -218,5 +218,51 @@ section('SAYING IT PLAINLY WHEN THERE IS NO SIGNAL');
     !/\b[1-5]\d\d\b/.test(never) && !never.toLowerCase().includes('error'), never);
 }
 
+section('K5 — a malformed record degrades instead of taking History down');
+{
+  /*
+    Found by __tests__/fuzz-readers.test.mts, fixed 1 Oct 2026. An order with
+    no lastScanAt threw out of the sort; one with no order number threw out of
+    orderKey, here and in appendPage. Either took the whole screen with it.
+  */
+  const good = { orderNumber: 'A', customerListId: 'C', customerName: 'x', ship: 1, ret: 0, voided: 0, lastScanAt: '2026-10-01', scannedBy: [] };
+  const srv = [
+    good,
+    { orderNumber: 'B', customerListId: 'C', customerName: 'x', ship: 1, ret: 0, voided: 0, scannedBy: [] },
+    { orderNumber: 'D', customerListId: 'C', customerName: 'x', ship: 1, ret: 0, voided: 0, scannedBy: [] },
+  ] as unknown as ServerOrder[];
+  let threw = '', rows: ReturnType<typeof mergeHistory> = [];
+  try { rows = mergeHistory(srv, []); } catch (e: any) { threw = e.message; }
+  ok('mergeHistory survives an order with no lastScanAt', !threw, threw);
+  ok('and still draws it, after the dated one, with no time on it',
+    rows.map((x) => x.orderNumber).join() === 'A,B,D' && rows[2].lastScanAt === '', rows.map((x) => x.orderNumber).join());
+
+  const noNumber = [good, { ...good, orderNumber: null }, { ...good, orderNumber: 42 }, null] as unknown as ServerOrder[];
+  threw = '';
+  try { rows = mergeHistory(noNumber, []); } catch (e: any) { threw = e.message; }
+  ok('an order with no order number is skipped, not thrown on',
+    !threw && rows.length === 1 && rows[0].orderNumber === 'A', threw);
+
+  const badLocal = [
+    { orderNumber: undefined, customerListId: 'C', mode: 'SHIP', scannedAt: '2026-10-01', state: 'QUEUED' },
+    { orderNumber: 'Z', customerListId: 'C', mode: 'SHIP', scannedAt: 1234, state: 'QUEUED' },
+  ] as unknown as LocalScan[];
+  threw = '';
+  try { rows = mergeHistory([good] as ServerOrder[], badLocal); } catch (e: any) { threw = e.message; }
+  ok('a local row with no order number or a non-string time does not throw either',
+    !threw && rows.map((x) => x.orderNumber).join() === 'A,Z', threw || rows.map((x) => x.orderNumber).join());
+
+  const odd = [{ ...good, scannedBy: 'mike' }] as unknown as ServerOrder[];
+  ok('a scannedBy that is not a list reads as nobody named', Array.isArray(mergeHistory(odd, [])[0].scannedBy));
+
+  threw = '';
+  let paged: ServerOrder[] = [];
+  try {
+    paged = appendPage(noNumber, [{ ...good, orderNumber: 'E' }, { ...good, orderNumber: undefined } as unknown as ServerOrder]);
+  } catch (e: any) { threw = e.message; }
+  ok('appendPage skips a next-page order with no number, and keeps what it had',
+    !threw && paged.length === noNumber.length + 1 && paged[paged.length - 1].orderNumber === 'E', threw);
+}
+
 console.log(`\n${passed} passed, ${failed} failed\n`);
 if (failed) process.exit(1);

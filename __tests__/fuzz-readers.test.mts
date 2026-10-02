@@ -194,11 +194,9 @@ h.section('Payloads with missing or wrong-typed fields (older server, older cach
     try { explainMiss(raw, boot); } catch (e) { note('explainMiss', e, boot); }
     try { holdFor(boot?.customers, 'C1'); } catch (e) { note('holdFor', e, boot?.customers); }
   }
-  // Known, documented in known-issues.mts (K5). Anything else fails.
-  const KNOWN = new Set(['mergeHistory', 'appendPage', 'classify', 'explainMiss', 'holdFor']);
-  for (const [where, why] of crashes) console.log(`    known (K5): ${where} throws on a malformed payload — ${why}`);
-  const unknown = [...crashes.keys()].filter((k) => !KNOWN.has(k));
-  h.ok('no reader crashes on a malformed payload except the documented ones', unknown.length === 0, unknown.join(', '));
+  // K5 (fixed 1 Oct 2026): every one of these used to throw here. None may now.
+  for (const [where, why] of crashes) console.log(`    ${where} throws on a malformed payload — ${why}`);
+  h.ok('no reader crashes on a malformed payload', crashes.size === 0, [...crashes.keys()].join(', '));
 }
 
 h.done();
