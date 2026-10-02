@@ -277,13 +277,19 @@ export default function OrderEdit() {
     }
   }
 
-  /** The server call, expressed as what it means to this phone's own copy. */
+  /**
+   * The server call, expressed as what it means to this phone's own copy.
+   *
+   * `from` carries the direction of the row the server touched (1 Oct 2026).
+   * A bottle can be SENT out and back on one order; without it a flip landed
+   * on both rows and a void took both — see APPLY_SERVER_EDIT in outbox.ts.
+   */
   function serverEditToLocal(body: Parameters<typeof editSentScan>[0]) {
     switch (body.action) {
       case 'mode':
-        return { orderNumber: body.orderNumber, barcode: body.barcode, mode: body.value as 'SHIP' | 'RETURN' };
+        return { orderNumber: body.orderNumber, barcode: body.barcode, from: body.mode, mode: body.value as 'SHIP' | 'RETURN' };
       case 'void':
-        return { orderNumber: body.orderNumber, barcode: body.barcode, drop: true };
+        return { orderNumber: body.orderNumber, barcode: body.barcode, from: body.mode, drop: true };
       case 'order':
         return { orderNumber: body.orderNumber, toOrderNumber: body.value };
       case 'customer':

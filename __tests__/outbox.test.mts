@@ -345,5 +345,99 @@ section('APPLY_SERVER_EDIT — the phone follows the ledger for SENT rows');
     partial.scans.find((s) => s.barcode === 'B9')?.orderNumber === 'SO-1');
 }
 
+/*
+  K2 and K3, found by __tests__/fuzz-outbox.test.mts and fixed 1 Oct 2026.
+  B9 went out and came back on one order — SENT SHIP and SENT RETURN, which
+  the server allows. A server edit names ONE of those rows; the phone used to
+  apply it to both.
+*/
+section('APPLY_SERVER_EDIT — a bottle SENT both ways on one order');
+{
+  const sendAll = (o: Outbox) => {
+    const ids = o.scans.filter((s) => s.state === 'QUEUED').map((s) => s.clientId);
+    return run([{ type: 'BEGIN_UPLOAD', clientIds: ids }, { type: 'UPLOAD_OK', clientIds: ids }], o);
+  };
+  const outAndBack = (order = 'INV-1') => sendAll(run(
+    [{ type: 'ENQUEUE', scan: scan('B9', 'RETURN', order) }],
+    sendAll(run([{ type: 'ENQUEUE', scan: scan('B9', 'SHIP', order) }])),
+  ));
+  const modes = (o: Outbox, order = 'INV-1') =>
+    o.scans.filter((s) => s.orderNumber === order && s.barcode === 'B9').map((s) => s.mode).join();
+
+  // K2, the reproduction.
+  const both = outAndBack();
+  const flipped = reduce(both, {
+    type: 'APPLY_SERVER_EDIT', orderNumber: 'INV-1', barcode: 'B9', from: 'SHIP', mode: 'RETURN',
+  });
+  ok('flip SHIP→RETURN when a RETURN exists leaves one RETURN row, like the ledger',
+    modes(flipped) === 'RETURN', modes(flipped));
+  ok('and the row kept is the RETURN that was already there',
+    flipped.scans.length === 1 && flipped.scans[0].clientId === both.scans[1].clientId);
+
+  const legacyFlip = reduce(both, {
+    type: 'APPLY_SERVER_EDIT', orderNumber: 'INV-1', barcode: 'B9', mode: 'RETURN',
+  });
+  ok('a flip without `from` comes from the other direction, the only one there is',
+    modes(legacyFlip) === 'RETURN', modes(legacyFlip));
+
+  const backFlip = reduce(both, {
+    type: 'APPLY_SERVER_EDIT', orderNumber: 'INV-1', barcode: 'B9', from: 'RETURN', mode: 'SHIP',
+  });
+  ok('flip RETURN→SHIP when a SHIP exists leaves the one SHIP', modes(backFlip) === 'SHIP', modes(backFlip));
+
+  const outOnly = sendAll(run([{ type: 'ENQUEUE', scan: scan('B9', 'SHIP', 'INV-1') }]));
+  const plain = reduce(outOnly, {
+    type: 'APPLY_SERVER_EDIT', orderNumber: 'INV-1', barcode: 'B9', from: 'SHIP', mode: 'RETURN',
+  });
+  ok('with no row in the target direction the flip just moves the row',
+    modes(plain) === 'RETURN' && plain.scans[0].clientId === outOnly.scans[0].clientId, modes(plain));
+
+  const same = reduce(outOnly, {
+    type: 'APPLY_SERVER_EDIT', orderNumber: 'INV-1', barcode: 'B9', from: 'SHIP', mode: 'SHIP',
+  });
+  ok('a flip onto its own direction changes nothing', modes(same) === 'SHIP' && same.scans.length === 1);
+
+  // A queued copy in the target direction is the phone's own, not the ledger's:
+  // it does not count as "already there" (the SENT row would vanish while the
+  // driver could still remove the queued one).
+  const withQueued = run([{ type: 'ENQUEUE', scan: scan('B9', 'RETURN', 'INV-1') }], outOnly);
+  const besideQueued = reduce(withQueued, {
+    type: 'APPLY_SERVER_EDIT', orderNumber: 'INV-1', barcode: 'B9', from: 'SHIP', mode: 'RETURN',
+  });
+  ok('a flip beside a QUEUED copy keeps the SENT row (moved) and leaves the queued one alone',
+    besideQueued.scans.length === 2
+      && besideQueued.scans[0].state === 'SENT' && besideQueued.scans[0].mode === 'RETURN'
+      && besideQueued.scans[1].state === 'QUEUED');
+
+  // Whole-order move onto an order that already has the bottle SENT the same way.
+  const onTarget = sendAll(run([{ type: 'ENQUEUE', scan: scan('B9', 'SHIP', 'INV-2') }], outAndBack()));
+  const moved = reduce(onTarget, { type: 'APPLY_SERVER_EDIT', orderNumber: 'INV-1', toOrderNumber: 'INV-2' });
+  ok('a whole-order move onto an order with B9 SENT out keeps one SHIP there, and brings the RETURN',
+    modes(moved, 'INV-2') === 'RETURN,SHIP' && modes(moved, 'INV-1') === '', modes(moved, 'INV-2'));
+  ok('the SHIP kept on the target is the one that was already there',
+    moved.scans.filter((s) => s.mode === 'SHIP').map((s) => s.clientId).join() === onTarget.scans[2].clientId);
+
+  // K3, the reproduction.
+  const voided = reduce(both, {
+    type: 'APPLY_SERVER_EDIT', orderNumber: 'INV-1', barcode: 'B9', from: 'SHIP', drop: true,
+  });
+  ok('voiding the SHIP keeps the RETURN', modes(voided) === 'RETURN', modes(voided) || 'nothing');
+
+  const voidedRet = reduce(both, {
+    type: 'APPLY_SERVER_EDIT', orderNumber: 'INV-1', barcode: 'B9', from: 'RETURN', drop: true,
+  });
+  ok('voiding the RETURN keeps the SHIP', modes(voidedRet) === 'SHIP', modes(voidedRet) || 'nothing');
+
+  const byMode = reduce(both, {
+    type: 'APPLY_SERVER_EDIT', orderNumber: 'INV-1', barcode: 'B9', mode: 'SHIP', drop: true,
+  });
+  ok('on a drop a lone `mode` names the row too (a void has no new direction)',
+    modes(byMode) === 'RETURN', modes(byMode) || 'nothing');
+
+  const whole = reduce(both, { type: 'APPLY_SERVER_EDIT', orderNumber: 'INV-1', barcode: 'B9', drop: true });
+  ok('a drop that names no direction withdraws the bottle both ways, as remote-edit.ts does',
+    whole.scans.length === 0);
+}
+
 console.log(`\n\x1b[1m${passed} passed, ${failed} failed\x1b[0m\n`);
 if (failed > 0) process.exit(1);

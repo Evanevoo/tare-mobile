@@ -87,11 +87,18 @@ export type Action =
    * SENT rows only. Anything still QUEUED is the phone's own and is edited
    * through the actions above; applying a server edit to it would double-apply
    * a change the server has not seen.
+   *
+   * `from` is the direction of the row the server changed, the way remote-edit's
+   * ServerEdit.mode is: a flip names the row it flipped, a void the row it
+   * withdrew. A bottle can be SENT both ways on one order (out and back), and
+   * the server only ever touches the one named. `mode` is the NEW direction,
+   * for a flip only.
    */
   | {
       type: 'APPLY_SERVER_EDIT';
       orderNumber: string;
       barcode?: string;
+      from?: Mode;
       mode?: Mode;
       drop?: boolean;
       toOrderNumber?: string;
@@ -229,18 +236,64 @@ export function reduce(state: Outbox, action: Action): Outbox {
         s.state === 'SENT' && s.orderNumber === orderNumber &&
         (barcode ? s.barcode === barcode : true);
 
-      if (drop) return { scans: state.scans.filter((s) => !isTarget(s)) };
+      /*
+        1 Oct 2026 (K3): a void names one direction, and only that row goes.
+        Voiding the SENT SHIP of a bottle that also came back used to drop the
+        SENT RETURN with it, so the phone was short a return the ledger still
+        had. A void has no new direction, so a lone `mode` on a drop can only
+        mean the row's own and is read the same as `from`.
 
-      return {
-        scans: state.scans.map((s) => (isTarget(s)
-          ? {
-              ...s,
-              ...(mode ? { mode } : {}),
-              ...(toOrderNumber ? { orderNumber: toOrderNumber } : {}),
-              ...(toCustomerListId ? { customerListId: toCustomerListId } : {}),
-            }
-          : s)),
-      };
+        A drop that names no direction at all takes every direction of the
+        bottle, as it always did and as remote-edit.ts's void does for the
+        snapshot. Actions are never persisted (only the outbox is), so nothing
+        old-shaped can arrive from disk; this is just the meaning of "withdraw
+        this bottle" when the caller does not narrow it.
+      */
+      if (drop) {
+        const which = action.from ?? mode;
+        return {
+          scans: state.scans.filter((s) => !(isTarget(s) && (which ? s.mode === which : true))),
+        };
+      }
+
+      /*
+        1 Oct 2026 (K2): a flip moves the one row it names, and lands on a row
+        that is already there by disappearing. B9 SENT out and back on one
+        order, the SHIP flipped to RETURN: the server finds a RETURN already
+        there and drops the SHIP (AssetScan is unique on order, barcode, mode),
+        the same rule remote-edit.ts applies to the snapshot. Here the new mode
+        used to be stamped on every SENT row of the bottle, which left two
+        RETURN rows the ledger did not have, and a later edit of B9 acted on
+        both.
+
+        Without `from` the source is the other direction, which is the only
+        one a flip can come from; with two modes that is no guess.
+
+        A whole-order move is the same shape: onto an order that already has
+        the bottle SENT the same way, the moved row would be the second copy of
+        a pair the server keeps once, so it goes instead. Only SENT rows count
+        as "already there" — the server has never seen a queued one, and a SENT
+        row dropped on the strength of one the driver can still remove would
+        leave the phone showing nothing where the ledger has a scan.
+      */
+      const from = mode ? (action.from ?? (mode === 'SHIP' ? 'RETURN' : 'SHIP')) : action.from;
+      const sentAs = (on: string, bc: string, m: Mode) => state.scans.some((s) =>
+        s.state === 'SENT' && s.orderNumber === on && s.barcode === bc && s.mode === m);
+
+      const scans: QueuedScan[] = [];
+      for (const s of state.scans) {
+        if (!isTarget(s) || (from && s.mode !== from)) { scans.push(s); continue; }
+        const next: QueuedScan = {
+          ...s,
+          ...(mode ? { mode } : {}),
+          ...(toOrderNumber ? { orderNumber: toOrderNumber } : {}),
+          ...(toCustomerListId ? { customerListId: toCustomerListId } : {}),
+        };
+        const moved = next.mode !== s.mode || next.orderNumber !== s.orderNumber;
+        if (moved && sentAs(next.orderNumber, next.barcode, next.mode)) continue;
+        scans.push(next);
+      }
+      return { scans };
     }
 
     case 'BEGIN_UPLOAD': {

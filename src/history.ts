@@ -99,6 +99,18 @@ export interface HistoryRow {
  */
 export const orderKey = (n: string) => n.trim().toUpperCase();
 
+/*
+  K5, 1 Oct 2026: a record from an older server or cache with no order
+  number, or a non-string where a timestamp belongs, threw out of the sort and
+  the paging below and took the whole History screen with it. These are the
+  only fields the join itself leans on. A record with no order number cannot
+  be drawn as an order and is skipped; a missing timestamp reads as no time at
+  all, so the row sorts last instead of throwing.
+*/
+const hasOrder = (o: unknown): o is { orderNumber: string } =>
+  !!o && typeof (o as { orderNumber?: unknown }).orderNumber === 'string';
+const stamp = (t: unknown) => (typeof t === 'string' ? t : '');
+
 /**
  * Server orders and this phone's outbox, as one list, newest first.
  *
@@ -120,6 +132,7 @@ export function mergeHistory(
   const rows = new Map<string, HistoryRow>();
 
   for (const o of server) {
+    if (!hasOrder(o)) continue;
     const key = orderKey(o.orderNumber);
     // Pages are asked for newest first, so where one repeats across a page
     // boundary the copy already in hand is the fresher of the two.
@@ -133,8 +146,8 @@ export function mergeHistory(
       voided: o.voided,
       pending: 0,
       onlyOnPhone: false,
-      lastScanAt: o.lastScanAt,
-      scannedBy: o.scannedBy ?? [],
+      lastScanAt: stamp(o.lastScanAt),
+      scannedBy: Array.isArray(o.scannedBy) ? o.scannedBy : [],
     });
   }
 
@@ -152,6 +165,7 @@ export function mergeHistory(
   const counted = new Set<string>();
 
   for (const s of scans) {
+    if (!hasOrder(s)) continue;
     const key = orderKey(s.orderNumber);
     const row = rows.get(key);
     const unsent = s.state !== 'SENT';
@@ -169,7 +183,7 @@ export function mergeHistory(
         voided: 0,
         pending: unsent ? 1 : 0,
         onlyOnPhone: true,
-        lastScanAt: s.scannedAt,
+        lastScanAt: stamp(s.scannedAt),
         // Nobody else can have touched an order nobody else has seen.
         scannedBy: opts.me ? [opts.me] : [],
       });
@@ -182,7 +196,7 @@ export function mergeHistory(
     if (unsent) row.pending++;
     // The server's own last scan is usually the later one; it is not while a
     // driver is standing in a yard adding to an order that synced this morning.
-    if (s.scannedAt > row.lastScanAt) row.lastScanAt = s.scannedAt;
+    if (stamp(s.scannedAt) > row.lastScanAt) row.lastScanAt = stamp(s.scannedAt);
   }
 
   return [...rows.values()].sort(
@@ -202,9 +216,10 @@ export function mergeHistory(
 export function appendPage(
   have: readonly ServerOrder[], next: readonly ServerOrder[],
 ): ServerOrder[] {
-  const seen = new Set(have.map((o) => orderKey(o.orderNumber)));
+  const seen = new Set(have.filter(hasOrder).map((o) => orderKey(o.orderNumber)));
   const out = have.slice();
   for (const o of next) {
+    if (!hasOrder(o)) continue;
     const key = orderKey(o.orderNumber);
     if (seen.has(key)) continue;
     seen.add(key);

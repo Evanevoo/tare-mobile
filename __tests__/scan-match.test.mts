@@ -175,5 +175,39 @@ section('A MISS SAYS WHY — the thing whose absence made this expensive');
     explainMiss('AB123', null).includes('nothing is downloaded'));
 }
 
+section('K5 — a malformed customer list degrades instead of throwing');
+{
+  /*
+    Found by __tests__/fuzz-readers.test.mts, fixed 1 Oct 2026. A customer with
+    a null account number, a non-string card code, a hole in the list, or a
+    list that is not a list threw out of classify / explainMiss and took
+    Delivery, Home search and the scan screen with it.
+  */
+  const odd = (customers: unknown) => ({ ...boot([]), customers } as unknown as Bootstrap);
+  const tryBoth = (b: Bootstrap) => {
+    try { return { t: classify('C1', b), m: explainMiss('C1', b), threw: '' }; }
+    catch (e: any) { return { t: null, m: '', threw: String(e?.message) }; }
+  };
+
+  let r = tryBoth(odd([{ customerListId: null, name: 'Acme', bc: null }]));
+  ok('classify survives a customer with a null customerListId', !r.threw, r.threw);
+  ok('and that record matches nothing', r.t?.kind === 'text');
+
+  r = tryBoth(odd([null, 7, { customerListId: 'C1', name: 'Acme', bc: 12345 }]));
+  ok('holes in the list and a numeric card code do not throw', !r.threw, r.threw);
+  ok('and the good record still matches on its account number',
+    r.t?.kind === 'customer' && r.t.id === 'C1', JSON.stringify(r.t));
+
+  r = tryBoth(odd([{ customerListId: 'X9', name: 'Acme', bc: null }, { customerListId: 'C2', name: 'Borealis', bc: '*C1*' }]));
+  ok('a bad record does not stop the rest of the list matching by card',
+    r.t?.kind === 'customer' && r.t.id === 'C2', JSON.stringify(r.t));
+
+  for (const customers of ['abc', 42, { a: 1 }, null, undefined]) {
+    r = tryBoth(odd(customers));
+    ok(`customers = ${JSON.stringify(customers) ?? 'undefined'} reads as an empty list`,
+      !r.threw && r.t?.kind === 'text' && /no customers are on this phone/.test(r.m), r.threw || r.m);
+  }
+}
+
 console.log(`\n\x1b[1m${passed} passed, ${failed} failed\x1b[0m`);
 if (failed) process.exit(1);

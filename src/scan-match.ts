@@ -1,4 +1,4 @@
-import type { Bootstrap } from './api';
+import type { Bootstrap, CustomerRec } from './api';
 
 /**
  * WHAT A SCANNED CODE TURNED OUT TO BE.
@@ -48,19 +48,37 @@ export type ScanTarget =
  */
 export const key = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, '');
 
+/**
+ * The customers a scan can be matched against, and nothing that is not one.
+ *
+ * K5, 1 Oct 2026: a bootstrap from an older server or cache with `customers`
+ * not a list, a hole in the list, or a record whose account number is null
+ * threw out of classify and took Delivery, Home search and the scan screen
+ * down with it. A record with no account number cannot be billed, so it is
+ * not a match for anything; it is skipped rather than allowed to stop the
+ * rest of the list from matching. `bc` is read through `card` for the same
+ * reason: absent is the honest reading of a code that is not a string.
+ */
+function customerList(boot: Bootstrap | null): CustomerRec[] {
+  const list: unknown = boot?.customers;
+  if (!Array.isArray(list)) return [];
+  return list.filter((c): c is CustomerRec => !!c && typeof c === 'object' && typeof c.customerListId === 'string');
+}
+const card = (c: CustomerRec) => (typeof c.bc === 'string' ? c.bc : '');
+
 export function classify(raw: string, boot: Bootstrap | null): ScanTarget | null {
   const up = raw.trim().toUpperCase();
   if (!up) return null;
 
   if (boot?.assets?.[up]) return { kind: 'asset', barcode: up };
 
-  const customers = boot?.customers ?? [];
+  const customers = customerList(boot);
   const k = key(up);
   if (!k) return { kind: 'text', code: up };
 
   // Exact first: if a tenant's stored code is byte-identical to what came off
   // the scanner, nothing further needs deciding.
-  let hit = customers.find((c) => c.bc && c.bc.toUpperCase() === up);
+  let hit = customers.find((c) => card(c) && card(c).toUpperCase() === up);
 
   /**
    * Then reduced, and ONLY IF IT IS UNAMBIGUOUS.
@@ -76,7 +94,7 @@ export function classify(raw: string, boot: Bootstrap | null): ScanTarget | null
    * their account number wrapped.
    */
   if (!hit) {
-    const byCard = customers.filter((c) => c.bc && key(c.bc) === k);
+    const byCard = customers.filter((c) => card(c) && key(card(c)) === k);
     if (byCard.length === 1) hit = byCard[0];
     else if (byCard.length === 0) {
       const byAccount = customers.filter((c) => key(c.customerListId) === k);
@@ -117,7 +135,7 @@ export function explainMiss(raw: string, boot: Bootstrap | null): string {
       `Pull down on Home to fetch the customer list.`;
   }
 
-  const customers = boot.customers ?? [];
+  const customers = customerList(boot);
   if (!customers.length) {
     return `Read ${up} — no customers are on this phone. ` +
       `Pull down on Home to download the list.`;
@@ -127,7 +145,7 @@ export function explainMiss(raw: string, boot: Bootstrap | null): string {
   // picking one of them is how a cylinder lands on the wrong account.
   const k = key(up);
   const collisions = k
-    ? customers.filter((c) => (c.bc && key(c.bc) === k) || key(c.customerListId) === k)
+    ? customers.filter((c) => (card(c) && key(card(c)) === k) || key(c.customerListId) === k)
     : [];
   if (collisions.length > 1) {
     return `Read ${up} — that code matches ${collisions.length} customers ` +
@@ -138,7 +156,7 @@ export function explainMiss(raw: string, boot: Bootstrap | null): string {
   // The symptom that started this: a customer list downloaded before customer
   // barcodes shipped, or an import that never mapped the barcode column. Name
   // search still works, so nothing else on the phone looks wrong.
-  const withCard = customers.filter((c) => c.bc).length;
+  const withCard = customers.filter((c) => card(c)).length;
   if (!withCard) {
     return `Read ${up} — no customer or ${thing} matches. None of the ` +
       `${customers.length} customers on this phone carry a card code, so this ` +

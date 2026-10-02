@@ -53,3 +53,19 @@ test('an array-like object (not an Array, not a Uint8Array) is accepted too', ()
   const blob = encryptSession(like, nonce(5), 'session');
   assert.equal(decryptSession(key, blob), 'session');
 });
+
+// K4, found by __tests__/fuzz-session-policy.test.mts and fixed 1 Oct 2026:
+// TextDecoder strips a leading byte-order mark unless told not to.
+test('a leading U+FEFF survives encrypt → decrypt', () => {
+  const s = '﻿{"refresh_token":"r"}';
+  assert.equal(decryptSession(key, encryptSession(key, nonce(1), s)), s);
+});
+
+test('a session as auth-js writes it decrypts the same under the old decoder and the new', () => {
+  // What is on phones today: JSON, which never starts with a BOM, so the old
+  // default decoder and ignoreBOM agree on it and no stored session changes.
+  const s = JSON.stringify({ access_token: 'a', refresh_token: 'r', user: { email: 'mike@x.com' } });
+  const plain = new TextEncoder().encode(s);
+  assert.equal(new TextDecoder().decode(plain), new TextDecoder('utf-8', { ignoreBOM: true }).decode(plain));
+  assert.equal(decryptSession(key, encryptSession(key, nonce(4), s)), s);
+});

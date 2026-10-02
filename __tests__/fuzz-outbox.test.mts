@@ -19,11 +19,13 @@
  * phone; owner rules hold for every login.
  *
  * Duplicate ROWS for one bottle — the same (order, barcode, mode) twice — are
- * reachable in two ways. K1 (a queued correction undone, via ENQUEUE or
- * TOGGLE) is by design now: both rows upload, the server keeps one, and every
- * screen counts through distinctScans, which the derived-view check below
- * holds to. K2 (server edits) is documented in __tests__/known-issues.mts.
- * This file tallies both and fails on any OTHER way of producing a duplicate.
+ * reachable in two ways, both by design: a queued correction undone (K1, via
+ * ENQUEUE or TOGGLE), and a server edit landing a SENT row beside a QUEUED
+ * copy the server has not seen. Both rows upload, the server keeps one, and
+ * every screen counts through distinctScans, which the derived-view check
+ * below holds to. A server edit that makes a second SENT copy — the ledger
+ * keeps one, so the phone would be telling a different story — is K2, fixed
+ * 1 Oct 2026, and fails here. So does any other way of producing a duplicate.
  */
 import {
   reduce, empty, latestScan, retagBlockedBy, pending, queued, inFlight,
@@ -106,6 +108,28 @@ function excess(o: Outbox): number {
   return n;
 }
 
+/** Rows beyond the first for each key among SENT rows only: what the ledger would disagree with. */
+const excessSent = (o: Outbox) => excess({ scans: o.scans.filter((s) => s.state === 'SENT') });
+
+/**
+ * When a server edit may take a row off the phone. A drop takes the SENT rows
+ * it names (one direction when it names one — K3). A flip or move takes a SENT
+ * row only when the row it would become is already SENT there, as the server
+ * does (K2): never a row it was not about, and never because of a queued copy.
+ */
+function serverEditMayDrop(pre: Outbox, a: Extract<Action, { type: 'APPLY_SERVER_EDIT' }>, p: QueuedScan): boolean {
+  if (p.state !== 'SENT' || p.orderNumber !== a.orderNumber || (a.barcode && p.barcode !== a.barcode)) return false;
+  if (a.drop) {
+    const which = a.from ?? a.mode;
+    return !which || p.mode === which;
+  }
+  const from = a.mode ? (a.from ?? flip(a.mode)) : a.from;
+  if (from && p.mode !== from) return false;
+  const on = a.toOrderNumber || p.orderNumber, m = a.mode || p.mode;
+  if (on === p.orderNumber && m === p.mode) return false;
+  return pre.scans.some((q) => q !== p && q.state === 'SENT' && q.orderNumber === on && q.barcode === p.barcode && q.mode === m);
+}
+
 /**
  * Everything the reducer is allowed to do in one step. Returns why it broke
  * the rules, or null. `strict` adds the rules that only hold for sequences the
@@ -131,8 +155,7 @@ function checkStep(pre: Outbox, a: Action, post: Outbox, strict: boolean): strin
     const allowed =
       (a.type === 'REMOVE' && a.clientId === id && p.state === 'QUEUED')
       || (a.type === 'CLEAR_SENT' && p.state === 'SENT')
-      || (a.type === 'APPLY_SERVER_EDIT' && a.drop && p.state === 'SENT'
-        && p.orderNumber === a.orderNumber && (!a.barcode || p.barcode === a.barcode));
+      || (a.type === 'APPLY_SERVER_EDIT' && serverEditMayDrop(pre, a, p));
     if (!allowed) return `row ${id} (${p.state}) LOST by ${a.type}`;
   }
 
@@ -222,7 +245,7 @@ function checkOwners(o: Outbox): string | null {
 
 /* ------------------------------------------------------------ store-shaped runs */
 
-const tally = { K1_enqueue: 0, K1_toggle: 0, K2_serverEdit: 0, steps: 0, sent: 0, recovered: 0 };
+const tally = { K1_enqueue: 0, K1_toggle: 0, besideQueued: 0, collided: 0, steps: 0, sent: 0, recovered: 0 };
 
 function storeShaped(rr: Rng, steps: number): string | null {
   let o: Outbox = empty;
@@ -235,11 +258,15 @@ function storeShaped(rr: Rng, steps: number): string | null {
     tally.steps++;
     const why = checkStep(pre, a, post, true);
     if (why) return `${why}\n      action: ${show(a)}\n      before: ${show(pre.scans.map(brief), 600)}`;
+    if (a.type === 'APPLY_SERVER_EDIT' && excessSent(post) > excessSent(pre))
+      return `K2: a server edit made a second SENT copy of one (order, barcode, mode): ${show(a)}
+      before: ${show(pre.scans.map(brief), 600)}`;
+    if (a.type === 'APPLY_SERVER_EDIT' && !a.drop && post.scans.length < pre.scans.length) tally.collided++;
     const grew = excess(post) - excess(pre);
     if (grew > 0) {
       if (a.type === 'ENQUEUE') tally.K1_enqueue++;
       else if (a.type === 'TOGGLE') tally.K1_toggle++;
-      else if (a.type === 'APPLY_SERVER_EDIT' && (a.mode || a.toOrderNumber)) tally.K2_serverEdit++;
+      else if (a.type === 'APPLY_SERVER_EDIT' && (a.mode || a.toOrderNumber)) tally.besideQueued++;
       else return `a duplicate (order, barcode, mode) was created by ${a.type}: ${show(a)}\n      before: ${show(pre.scans.map(brief), 600)}`;
     }
     o = post;
@@ -297,9 +324,9 @@ function storeShaped(rr: Rng, steps: number): string | null {
       const kind = rr.int(4);
       // Shaped exactly as app/order/[orderNumber].tsx serverEditToLocal and scan.tsx build them.
       const a: Action = kind === 0
-        ? { type: 'APPLY_SERVER_EDIT', orderNumber: s.orderNumber, barcode: s.barcode, mode: flip(s.mode) }
+        ? { type: 'APPLY_SERVER_EDIT', orderNumber: s.orderNumber, barcode: s.barcode, from: s.mode, mode: flip(s.mode) }
         : kind === 1
-          ? { type: 'APPLY_SERVER_EDIT', orderNumber: s.orderNumber, barcode: s.barcode, drop: true }
+          ? { type: 'APPLY_SERVER_EDIT', orderNumber: s.orderNumber, barcode: s.barcode, from: s.mode, drop: true }
           : kind === 2
             ? { type: 'APPLY_SERVER_EDIT', orderNumber: s.orderNumber, toOrderNumber: rr.pick(ORDERS) }
             : { type: 'APPLY_SERVER_EDIT', orderNumber: s.orderNumber, toCustomerListId: rr.pick(CUSTOMERS) };
@@ -339,6 +366,7 @@ function arbitraryAction(rr: Rng, o: Outbox): Action {
     case 6: return {
       type: 'APPLY_SERVER_EDIT', orderNumber: order(),
       barcode: rr.bool(0.7) ? rr.pick(BARCODES) : undefined,
+      from: rr.bool(0.4) ? mode() : undefined,
       mode: rr.bool(0.4) ? mode() : undefined,
       drop: rr.bool(0.2),
       toOrderNumber: rr.bool(0.2) ? order() : undefined,
@@ -389,8 +417,8 @@ h.prop('no scan lost, none in two states, SENT is final, owners respected', iter
 console.log(`    ${tally.steps} reducer steps, ${tally.sent} rows sent, ${tally.recovered} crash recoveries`);
 console.log(`    K1 duplicate rows (correction undone; by design, counted once on screen): `
   + `${tally.K1_enqueue} via ENQUEUE, ${tally.K1_toggle} via TOGGLE`);
-console.log(`    known issue K2 (server mode/order edit applied to every SENT row of the bottle): ${tally.K2_serverEdit}`);
-console.log('    (K2 reproduced minimally in __tests__/known-issues.mts, not in the chain)');
+console.log(`    server edits that landed on a row already SENT there and dropped instead (K2's rule): ${tally.collided}`);
+console.log(`    server edits that landed beside a QUEUED copy (by design, counted once on screen): ${tally.besideQueued}`);
 
 h.section('Arbitrary action sequences');
 h.prop('reducer keeps its rules for any input', iters(5000), () => arbitrary(r, r.range(5, 80)));
