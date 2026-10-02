@@ -257,14 +257,19 @@ export function reduce(state: Outbox, action: Action): Outbox {
       }
 
       /*
-        1 Oct 2026 (K2): a flip moves the one row it names, and lands on a row
-        that is already there by disappearing. B9 SENT out and back on one
-        order, the SHIP flipped to RETURN: the server finds a RETURN already
-        there and drops the SHIP (AssetScan is unique on order, barcode, mode),
-        the same rule remote-edit.ts applies to the snapshot. Here the new mode
-        used to be stamped on every SENT row of the bottle, which left two
-        RETURN rows the ledger did not have, and a later edit of B9 acted on
-        both.
+        1 Oct 2026 (K2): a flip moves the one row it names. The new mode used
+        to be stamped on every SENT row of the bottle, so B9 SENT out and back
+        on one order, its SHIP flipped to RETURN, left two RETURN rows, and a
+        later edit of B9 acted on both.
+
+        A flip that lands on a row already there drops the source instead. The
+        server refuses that flip while its RETURN is live ("B9 is already on
+        this order as RETURN", api/mobile/scan-edit), and this only runs after
+        the server said yes — so the phone reaching this branch means its copy
+        is stale (the other row was removed at the office). The server then
+        holds one row for B9 in that direction (AssetScan is unique on order,
+        barcode, mode), and so does the phone. remote-edit.ts does the same for
+        the snapshot.
 
         Without `from` the source is the other direction, which is the only
         one a flip can come from; with two modes that is no guess.
