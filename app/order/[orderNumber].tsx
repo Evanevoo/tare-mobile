@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  View, Text, TextInput, Pressable, ScrollView, Alert, ActivityIndicator,
+  View, Text, TextInput, Pressable, ScrollView, Alert, ActivityIndicator, Vibration,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
@@ -11,6 +11,7 @@ import { editSentScan, fetchOrderDetail, type RemoteOrder } from '@/api';
 import { classify } from '@/scan-match';
 import { applyEditToRemote } from '@/remote-edit';
 import { ulid } from '@/ulid';
+import { DUPLICATE_BUZZ } from '@/buzz';
 import {
   T, Screen, Surface, Btn, Eyebrow, Tag, Rise, Icon, ICON, mono, useBottomInset, tint,
 } from '@/ui';
@@ -358,6 +359,9 @@ export default function OrderEdit() {
     const remoteDup = remote?.scans.some((s) => s.barcode === barcode && s.mode === addMode);
     if (localDup || remoteDup) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      // The motor too, as on the scan screen: the OS haptic alone is a tick
+      // tuned for a bare fingertip. See src/buzz.ts.
+      Vibration.vibrate(DUPLICATE_BUZZ);
       Alert.alert(
         'Already on this order',
         `${barcode} is already recorded as ${addMode === 'SHIP' ? 'out' : 'back'} on ${orderNumber}.`,

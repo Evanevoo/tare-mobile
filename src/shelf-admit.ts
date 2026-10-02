@@ -33,7 +33,7 @@
 export type Admit =
   /** Not on the shelf and nothing pending — count it. */
   | 'add'
-  /** Already on this shelf. Tick, and say nothing. */
+  /** Already on this shelf. The screen decides how loudly (warehouse.tsx add). */
   | 'duplicate'
   /** A dialog is open about this one; the camera is just still looking. */
   | 'deciding';
@@ -44,8 +44,8 @@ export function admit(
   justAdded: ReadonlySet<string>,
   deciding: ReadonlySet<string>,
 ): Admit {
-  // `codes` first, matching the screen: a bottle already on the shelf gets the
-  // light tick, a bottle mid-decision gets silence.
+  // `codes` first, matching the screen: a bottle already on the shelf gets a
+  // tick or the double-scan buzz, a bottle mid-decision gets silence.
   if (codes.includes(bc) || justAdded.has(bc)) return 'duplicate';
   if (deciding.has(bc)) return 'deciding';
   return 'add';
