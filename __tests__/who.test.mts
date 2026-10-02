@@ -13,6 +13,13 @@ test('a crew address shows as the username', () => {
   assert.equal(displayLogin(' Mike.T@Crew.Scanified.com '), 'Mike.T');
 });
 
+test('a username that grows when lower-cased still loses the crew domain (fuzz, 1 Oct)', () => {
+  // "İ".toLowerCase() is two characters, which used to shift the index check.
+  assert.equal(displayLogin('İpek@crew.scanified.com'), 'İpek');
+  assert.equal(displayLogin('a@crew.scanified.com@crew.scanified.com'), 'a@crew.scanified.com');
+  assert.equal(displayLogin('@crew.scanified.com'), '@crew.scanified.com');
+});
+
 test('every other address is shown as it is', () => {
   assert.equal(displayLogin('jace@weldcor.ca'), 'jace@weldcor.ca');
   assert.equal(displayLogin('mike@evilcrew.scanified.com'), 'mike@evilcrew.scanified.com');
