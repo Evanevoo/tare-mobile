@@ -67,6 +67,8 @@ export interface LocalScan {
   mode: 'SHIP' | 'RETURN';
   scannedAt: string;
   state: 'QUEUED' | 'UPLOADING' | 'SENT';
+  /** When given, a bottle counts once per direction per order (see mergeHistory). */
+  barcode?: string;
 }
 
 /** One row on the screen, whichever side it came from — or both. */
@@ -136,10 +138,26 @@ export function mergeHistory(
     });
   }
 
+  /*
+    ONE BOTTLE, ONE DIRECTION, ONE ORDER COUNTS ONCE (outbox.ts distinctScans).
+    The outbox can hold two rows with the server's unique key — a SENT SHIP
+    and a queued SHIP after a correction was undone — and both upload, but the
+    ledger keeps one. A row whose bottle and direction are already counted on
+    this order is not counted again, and an unsent copy of a row this phone
+    already SENT is not added to the server's figure, which includes it.
+    `pending` still counts every unsent row: each one still has to go up.
+  */
+  const bottle = (s: LocalScan) => (s.barcode === undefined ? null : `${orderKey(s.orderNumber)}\u0000${s.barcode}\u0000${s.mode}`);
+  const sentHere = new Set(scans.filter((s) => s.state === 'SENT').map(bottle).filter((k) => k !== null));
+  const counted = new Set<string>();
+
   for (const s of scans) {
     const key = orderKey(s.orderNumber);
     const row = rows.get(key);
     const unsent = s.state !== 'SENT';
+    const b = bottle(s);
+    const already = b !== null && (counted.has(b) || (!!row && !row.onlyOnPhone && sentHere.has(b)));
+    if (b !== null) counted.add(b);
 
     if (!row) {
       rows.set(key, {
@@ -158,7 +176,7 @@ export function mergeHistory(
       continue;
     }
 
-    if (row.onlyOnPhone || unsent) {
+    if ((row.onlyOnPhone || unsent) && !already) {
       if (s.mode === 'SHIP') row.ship++; else row.ret++;
     }
     if (unsent) row.pending++;

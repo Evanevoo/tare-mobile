@@ -18,15 +18,17 @@
  * created except by ENQUEUE; rows that are not QUEUED never edited by the
  * phone; owner rules hold for every login.
  *
- * Duplicate rows for one bottle — the same (order, barcode, mode) twice — are
- * known to be reachable in two ways, documented with minimal inputs in
- * __tests__/known-issues.mts (outside the chain until fixed). This file
- * tallies those two and fails on any OTHER way of producing a duplicate.
+ * Duplicate ROWS for one bottle — the same (order, barcode, mode) twice — are
+ * reachable in two ways. K1 (a queued correction undone, via ENQUEUE or
+ * TOGGLE) is by design now: both rows upload, the server keeps one, and every
+ * screen counts through distinctScans, which the derived-view check below
+ * holds to. K2 (server edits) is documented in __tests__/known-issues.mts.
+ * This file tallies both and fails on any OTHER way of producing a duplicate.
  */
 import {
   reduce, empty, latestScan, retagBlockedBy, pending, queued, inFlight,
   ownerStamp, heldForOther, sendable, unsentMine, waitingForOthers, sendAs, OwnerChanged,
-  counts, toWire,
+  counts, toWire, scanKey, distinctScans,
   type QueuedScan, type Outbox, type Action, type Mode, type Me,
 } from '../src/outbox.ts';
 import { prng, seedFromEnv, harness, iters, messyString, show, type Rng } from './fuzz-kit.mts';
@@ -171,7 +173,14 @@ function checkStep(pre: Outbox, a: Action, post: Outbox, strict: boolean): strin
 
   // Derived views agree with the rows.
   const c = counts(post);
-  if (c.total !== post.scans.length || c.ship + c.ret !== c.total) return 'counts() disagree with rows';
+  // Screens count each bottle once per direction per order, however many rows.
+  const bottles = new Set(post.scans.map(scanKey));
+  if (c.total !== bottles.size || c.ship + c.ret !== c.total) return 'counts() is not one per (order, barcode, mode)';
+  if (c.pending !== pending(post).length) return 'counts().pending is not unsent ROWS';
+  const d = distinctScans(post.scans);
+  if (d.length !== bottles.size
+    || d.some((s) => post.scans.slice(post.scans.indexOf(s) + 1).some((x) => scanKey(x) === scanKey(s))))
+    return 'distinctScans did not keep the latest row of each key';
   if (pending(post).length + post.scans.filter((s) => s.state === 'SENT').length !== post.scans.length)
     return 'pending() is not "everything but SENT"';
   if (queued(post).length + inFlight(post).length !== pending(post).length) return 'queued+inFlight != pending';
@@ -378,10 +387,10 @@ function arbitrary(rr: Rng, steps: number): string | null {
 h.section('Store-shaped sequences');
 h.prop('no scan lost, none in two states, SENT is final, owners respected', iters(5000), () => storeShaped(r, r.range(10, 120)));
 console.log(`    ${tally.steps} reducer steps, ${tally.sent} rows sent, ${tally.recovered} crash recoveries`);
-console.log(`    known issue K1 (same bottle counted twice after a queued correction is undone): `
+console.log(`    K1 duplicate rows (correction undone; by design, counted once on screen): `
   + `${tally.K1_enqueue} via ENQUEUE, ${tally.K1_toggle} via TOGGLE`);
 console.log(`    known issue K2 (server mode/order edit applied to every SENT row of the bottle): ${tally.K2_serverEdit}`);
-console.log('    (both reproduced minimally in __tests__/known-issues.mts, not in the chain)');
+console.log('    (K2 reproduced minimally in __tests__/known-issues.mts, not in the chain)');
 
 h.section('Arbitrary action sequences');
 h.prop('reducer keeps its rules for any input', iters(5000), () => arbitrary(r, r.range(5, 80)));

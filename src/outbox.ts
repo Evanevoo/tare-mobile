@@ -454,13 +454,50 @@ export function forOrder(o: Outbox, orderNumber: string) {
   return o.scans.filter((s) => s.orderNumber === orderNumber);
 }
 
+/** The server's unique key for a scan (AssetScan: org, order, barcode, mode). */
+export const scanKey = (s: { orderNumber: string; barcode: string; mode: Mode }) =>
+  `${s.orderNumber}\u0000${s.barcode}\u0000${s.mode}`;
+
+/**
+ * ONE BOTTLE, ONE DIRECTION, ONE ORDER COUNTS ONCE ON SCREEN.
+ *
+ * The outbox can hold two rows with the same key, and both still upload: ship
+ * B9 (sent in seconds), scan it as a return by mistake, then correct back to
+ * ship — the queued RETURN is rewritten to SHIP beside the SENT SHIP. The
+ * server keeps one (its unique key is the one above, and ingest skips
+ * duplicates), but every screen that counted rows said 2: the Ship pill, the
+ * checklist ("Argon 2/2" with one bottle on the truck), Home's "scanned
+ * today". Found by __tests__/fuzz-outbox.test.mts, 1 Oct 2026.
+ *
+ * So screens count through this, and rows are left exactly as they are: what
+ * uploads does not change. Keeps the LATEST row for each key (in its place),
+ * which is the bottle's current state on this order — unsent if any copy is.
+ *
+ * Counts that protect data — unsent rows for sign-out, hand-over, the sync
+ * badge, "N not uploaded" — deliberately keep counting ROWS (pending,
+ * unsentMine): every one of those rows still has to reach the server.
+ */
+export function distinctScans<T extends { orderNumber: string; barcode: string; mode: Mode }>(
+  scans: readonly T[],
+): T[] {
+  const last = new Map<string, number>();
+  scans.forEach((s, i) => last.set(scanKey(s), i));
+  return scans.filter((s, i) => last.get(scanKey(s)) === i);
+}
+
+/**
+ * What the screens show for an order (or everything): bottles out and back,
+ * each counted once per direction — see distinctScans. `pending` is still
+ * unsent ROWS, because that number is about uploads, not bottles.
+ */
 export function counts(o: Outbox, orderNumber?: string) {
   const rows = orderNumber ? forOrder(o, orderNumber) : o.scans;
+  const bottles = distinctScans(rows);
   return {
-    ship: rows.filter((s) => s.mode === 'SHIP').length,
-    ret: rows.filter((s) => s.mode === 'RETURN').length,
+    ship: bottles.filter((s) => s.mode === 'SHIP').length,
+    ret: bottles.filter((s) => s.mode === 'RETURN').length,
     pending: rows.filter((s) => s.state !== 'SENT').length,
-    total: rows.length,
+    total: bottles.length,
   };
 }
 

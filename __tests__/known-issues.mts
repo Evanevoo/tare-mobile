@@ -10,14 +10,14 @@
  * to. When an issue is fixed, move its check into the matching test file (it
  * then guards the fix) and delete it here. When this file passes, delete it.
  *
- * K1  Same bottle counted twice after a queued correction is undone.   MEDIUM
+ * K1  (fixed 1 Oct: screens count through outbox.ts distinctScans — see
+ *      __tests__/double-count.test.mts)
  * K2  A server mode flip lands on every SENT row of the bottle.          LOW
  * K3  A server void of one direction drops both directions locally.      LOW
  * K4  decryptSession drops a leading U+FEFF.                             INFO
  * K5  Readers crash on wrong-typed / missing server fields.              LOW
  */
-import { reduce, empty, counts, type QueuedScan, type Outbox, type Action } from '../src/outbox.ts';
-import { checklist } from '../src/target-progress.ts';
+import { reduce, empty, type QueuedScan, type Outbox, type Action } from '../src/outbox.ts';
 import { encryptSession, decryptSession } from '../src/session-crypto.ts';
 import { mergeHistory, type ServerOrder } from '../src/history.ts';
 import { classify } from '../src/scan-match.ts';
@@ -40,41 +40,6 @@ const sendAll = (o: Outbox) => {
   return run([{ type: 'BEGIN_UPLOAD', clientIds: ids }, { type: 'UPLOAD_OK', clientIds: ids }], o);
 };
 
-section('K1 — SHIP (sent) → RETURN (queued) → SHIP again reads as two SHIPs   [MEDIUM]');
-/*
-  The driver ships B9 (it uploads in seconds), scans it again as a RETURN by
-  mistake, then corrects back to SHIP. ENQUEUE compares with the latest row —
-  the queued RETURN — sees the opposite direction, and rewrites it in place to
-  SHIP. Now the order holds a SENT SHIP and a QUEUED SHIP for one bottle. The
-  server's unique index (org, order, barcode, mode) keeps one, but the phone
-  counts two: the scan screen's Ship pill and the Sales Order checklist both say
-  2 — "Argon 2/2" with one bottle on the truck. TOGGLE in the review list does
-  the same, and so does the UPLOADING variant (first SHIP still in flight).
-
-  Suggested fix (outbox.ts, ENQUEUE's QUEUED branch and TOGGLE): when the row
-  being corrected would take the direction of the bottle's previous row on this
-  order, drop the queued row instead of rewriting it — the correction cancels.
-*/
-{
-  const shipped = sendAll(run([{ type: 'ENQUEUE', scan: scan('SHIP') }]));
-  const wrong = run([{ type: 'ENQUEUE', scan: scan('RETURN') }], shipped);
-  const back = run([{ type: 'ENQUEUE', scan: scan('SHIP') }], wrong);
-  ok('ENQUEUE: one bottle shipped once counts as 1 ship', counts(back, 'INV-1').ship === 1,
-    `ship=${counts(back, 'INV-1').ship} rows=${back.scans.map((s) => `${s.mode}/${s.state}`).join(',')}`);
-  const rows = checklist(back, 'INV-1', () => 'ARGON', [{ productCode: 'ARGON', quantity: 2 }]);
-  ok('ENQUEUE: the checklist does not read 2/2 for one bottle', rows[0].scanned === 1, `scanned=${rows[0].scanned}`);
-
-  const toggled = run([{ type: 'TOGGLE', orderNumber: 'INV-1', barcode: 'B9', mode: 'SHIP' }], wrong);
-  ok('TOGGLE: flipping the queued RETURN back counts as 1 ship', counts(toggled, 'INV-1').ship === 1,
-    `ship=${counts(toggled, 'INV-1').ship}`);
-
-  const first = run([{ type: 'ENQUEUE', scan: scan('SHIP') }]);
-  const flying = run([{ type: 'BEGIN_UPLOAD', clientIds: [first.scans[0].clientId] }], first);
-  const again = run([{ type: 'ENQUEUE', scan: scan('RETURN') }, { type: 'ENQUEUE', scan: scan('SHIP') }], flying);
-  ok('UPLOADING variant: one pending SHIP, not two', again.scans.filter((s) => s.mode === 'SHIP').length === 1,
-    again.scans.map((s) => `${s.mode}/${s.state}`).join(','));
-}
-
 section('K2 — server mode flip applied to every SENT row of the bottle   [LOW]');
 /*
   B9 went out and came back on one order (SENT SHIP + SENT RETURN — the server
@@ -82,7 +47,9 @@ section('K2 — server mode flip applied to every SENT row of the bottle   [LOW]
   server sees that a RETURN already exists and removes the SHIP (the same rule
   remote-edit.ts applies to the snapshot). serverEditToLocal passes only the
   NEW mode, and APPLY_SERVER_EDIT sets it on every SENT row of the bottle, so
-  the outbox ends with two RETURNs (scan screen pill: ret 2). Same shape: a
+  the outbox ends with two RETURN rows. Since K1's fix the screens count it once
+  (distinctScans), so what is left is local rows that disagree with the ledger
+  (a later edit of that bottle acts on both). Same shape: a
   whole-order move onto an order that already has the bottle SENT.
 
   Fix needs the old mode on the action (callers in app/order/[orderNumber].tsx)
@@ -91,8 +58,8 @@ section('K2 — server mode flip applied to every SENT row of the bottle   [LOW]
 {
   const both = sendAll(run([{ type: 'ENQUEUE', scan: scan('RETURN') }], sendAll(run([{ type: 'ENQUEUE', scan: scan('SHIP') }]))));
   const flipped = reduce(both, { type: 'APPLY_SERVER_EDIT', orderNumber: 'INV-1', barcode: 'B9', mode: 'RETURN' });
-  const c = counts(flipped, 'INV-1');
-  ok('flip SHIP→RETURN when a RETURN exists leaves one RETURN', c.ret === 1 && c.ship === 0, `ship=${c.ship} ret=${c.ret}`);
+  const rows = flipped.scans.map((s) => s.mode);
+  ok('flip SHIP→RETURN when a RETURN exists leaves one RETURN row, like the ledger', rows.join() === 'RETURN', rows.join());
 }
 
 section('K3 — server void of one direction drops both locally   [LOW]');
