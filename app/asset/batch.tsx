@@ -8,6 +8,7 @@ import { playScanAccept, playScanAlert } from '@/sound';
 import { useNavigation, useRouter } from 'expo-router';
 import { usePreventRemove } from '@react-navigation/native';
 import { useStore } from '@/store';
+import { assetWords, kindHint } from '@/asset-words';
 import { createAssets, ApiError } from '@/api';
 import {
   T, Screen, Surface, Btn, Rise, Icon, ICON, Eyebrow, mono, useBottomInset, wash,
@@ -484,7 +485,7 @@ export default function BatchAssets() {
 
           {/* ── the details first, like old Scanified: set once, every bottle gets them ── */}
           <Rise delay={40}>
-              <Field style={{ marginTop: 24 }} label="What kind" hint="Pick one. Gas type, category, group and description fill in from it.">
+              <Field style={{ marginTop: 24 }} label="What kind" hint={kindHint(assetWords(boot?.org?.assetType))}>
                 <Chips
                   options={products}
                   value={product}

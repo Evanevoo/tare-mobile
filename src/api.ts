@@ -280,7 +280,11 @@ export const BOOTSTRAP_VERSION = 7;
 export interface Bootstrap {
   /** Shape version. A cache without this is from an older app and is discarded. */
   v?: number;
-  org: { name: string; assetLabel: string; assetPlural: string };
+  org: {
+    name: string; assetLabel: string; assetPlural: string;
+    /** What the company tracks: cylinder, keg, tool… Absent from older servers; reads as cylinder. See src/asset-words.ts. */
+    assetType?: string;
+  };
   user: { name: string; email: string; role: string };
   customers: CustomerRec[];
   assets: Record<string, AssetRec>;

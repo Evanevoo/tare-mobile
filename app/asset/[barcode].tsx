@@ -1,6 +1,7 @@
 import { View, Text, ScrollView, Pressable } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useStore } from '@/store';
+import { assetWords } from '@/asset-words';
 import { decodeParam } from '@/route-param';
 import { T, Screen, Surface, Btn, Eyebrow, Tag, Rise, Hairline, mono, tint } from '@/ui';
 import { whenLabel } from '@/when';
@@ -19,6 +20,7 @@ export default function AssetDetail() {
   const { barcode } = useLocalSearchParams<{ barcode: string }>();
   const router = useRouter();
   const { boot } = useStore();
+  const W = assetWords(boot?.org?.assetType);
 
   // decodeParam, not a bare decodeURIComponent — same fatal-throw shape as
   // OrderEdit (SCANIFIED-MOBILE-7): a param carrying a literal '%' after the
@@ -201,9 +203,9 @@ export default function AssetDetail() {
             ) : null}
             {/* The columns 017 restored. Only the ones with something to say
                 — a record is not a form, and four dashes teach nothing. */}
-            {a.gt ? (<><Hairline /><Row label="Gas type" value={a.gt} /></>) : null}
-            {a.cat ? (<><Hairline /><Row label="Category" value={a.cat} /></>) : null}
-            {a.grp ? (<><Hairline /><Row label="Group" value={a.grp} /></>) : null}
+            {a.gt ? (<><Hairline /><Row label={W.contents?.label ?? 'Contents'} value={a.gt} /></>) : null}
+            {a.cat ? (<><Hairline /><Row label={W.category.label} value={a.cat} /></>) : null}
+            {a.grp ? (<><Hairline /><Row label={W.group.label} value={a.grp} /></>) : null}
             {a.ds ? (<><Hairline /><Row label="Description" value={a.ds} /></>) : null}
             {a.sup ? (<><Hairline /><Row label="Belongs to" value={a.sup} /></>) : null}
           </Surface>

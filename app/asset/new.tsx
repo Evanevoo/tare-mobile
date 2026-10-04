@@ -7,6 +7,7 @@ import { Vibration } from 'react-native';
 import { playScanAccept, playScanAlert } from '@/sound';
 import { useRouter } from 'expo-router';
 import { useStore } from '@/store';
+import { assetWords } from '@/asset-words';
 import { createAsset, ApiError, type AssetDraft } from '@/api';
 import { T, Screen, Surface, Btn, Rise, Icon, ICON, mono, useBottomInset, wash } from '@/ui';
 import {
@@ -72,6 +73,8 @@ export default function NewAsset() {
 
   // Gas, category, group and supplier, as this fleet already spells them.
   const attrs = useAttributeOptions();
+  // What this company's descriptive boxes are called. See src/asset-words.ts.
+  const W = assetWords(boot?.org?.assetType);
   const typeFilled = !!boot?.types?.some((t) => t.code === product);
 
   const existing = barcode ? boot?.assets[barcode] : undefined;
@@ -399,27 +402,29 @@ export default function NewAsset() {
                 mistyping one that exists. Description stays a box: it is prose
                 about one object, not a value that has to match.
               */}
-              <Field
-                label="Gas type"
-                hint={typeFilled ? 'Filled from the product code — change it if this one differs.' : 'What is in it.'}
-              >
-                <Chips
-                  options={attrs.gas} value={gas} onChange={setGas}
-                  placeholder="Gas type — Oxygen, Acetylene…" freeLabel="Not on the list"
-                />
-              </Field>
+              {W.contents ? (
+                <Field
+                  label={W.contents.label}
+                  hint={typeFilled ? 'Filled from the product code — change it if this one differs.' : W.contents.hint}
+                >
+                  <Chips
+                    options={attrs.gas} value={gas} onChange={setGas}
+                    placeholder={W.contents.placeholder} freeLabel="Not on the list"
+                  />
+                </Field>
+              ) : null}
 
-              <Field label="Category" hint="Industrial, medical, beverage.">
+              <Field label={W.category.label} hint={W.category.hint}>
                 <Chips
                   options={attrs.category} value={category} onChange={setCategory}
-                  placeholder="Category — Industrial, Medical…" freeLabel="Not on the list"
+                  placeholder={W.category.placeholder} freeLabel="Not on the list"
                 />
               </Field>
 
-              <Field label="Group" hint="How it is grouped on reports.">
+              <Field label={W.group.label} hint={W.group.hint}>
                 <Chips
                   options={attrs.group} value={group} onChange={setGroup}
-                  placeholder="Group — High-Pressure, Cryo…" freeLabel="Not on the list"
+                  placeholder={W.group.placeholder} freeLabel="Not on the list"
                 />
               </Field>
 

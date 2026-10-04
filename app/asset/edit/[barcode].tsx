@@ -5,6 +5,7 @@ import {
 import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useStore } from '@/store';
+import { assetWords, describedField, type AssetWords } from '@/asset-words';
 import { decodeParam } from '@/route-param';
 import { updateAsset, getAsset, ApiError, type AssetDraft, type AssetRec } from '@/api';
 import {
@@ -51,6 +52,8 @@ export default function EditAsset() {
   // What this org already calls its gases, categories, groups and suppliers —
   // derived from the fleet on the phone, so the pickers work with no signal.
   const attrs = useAttributeOptions();
+  // What this company's descriptive boxes are called. See src/asset-words.ts.
+  const W = assetWords(boot?.org?.assetType);
 
   /**
    * The record can come from two places: the phone's downloaded copy, or —
@@ -384,32 +387,34 @@ export default function EditAsset() {
               accident. Description stays typed: it is prose about this one
               object, not a value that has to match anything.
             */}
-            <Field label="Gas type" hint="What is in it.">
-              <Chips
-                options={attrs.gas}
-                value={gas}
-                onChange={setGas}
-                placeholder="Gas type — Oxygen, Acetylene…"
-                freeLabel="Not on the list"
-              />
-            </Field>
+            {W.contents ? (
+              <Field label={W.contents.label} hint={W.contents.hint}>
+                <Chips
+                  options={attrs.gas}
+                  value={gas}
+                  onChange={setGas}
+                  placeholder={W.contents.placeholder}
+                  freeLabel="Not on the list"
+                />
+              </Field>
+            ) : null}
 
-            <Field label="Category" hint="Industrial, medical, beverage.">
+            <Field label={W.category.label} hint={W.category.hint}>
               <Chips
                 options={attrs.category}
                 value={category}
                 onChange={setCategory}
-                placeholder="Category — Industrial, Medical…"
+                placeholder={W.category.placeholder}
                 freeLabel="Not on the list"
               />
             </Field>
 
-            <Field label="Group" hint="How it is grouped on reports.">
+            <Field label={W.group.label} hint={W.group.hint}>
               <Chips
                 options={attrs.group}
                 value={group}
                 onChange={setGroup}
-                placeholder="Group — High-Pressure, Cryo…"
+                placeholder={W.group.placeholder}
                 freeLabel="Not on the list"
               />
             </Field>
@@ -456,7 +461,7 @@ export default function EditAsset() {
         >
           <Btn
             label={`Save ${count} change${count === 1 ? '' : 's'}`}
-            sub={[...(codeChanged ? ['barcode'] : []), ...Object.keys(changes).map(prettyField)].join(' · ')}
+            sub={[...(codeChanged ? ['barcode'] : []), ...Object.keys(changes).map((k) => prettyField(k, W))].join(' · ')}
             busy={busy}
             disabled={!ready}
             onPress={() => { void save(false); }}
@@ -468,7 +473,9 @@ export default function EditAsset() {
 }
 
 /** Field names as a person would say them, for the button subtitle. */
-function prettyField(k: string): string {
+function prettyField(k: string, w: AssetWords): string {
+  const described = describedField(k, w);
+  if (described) return described;
   switch (k) {
     case 'productCode': return 'kind';
     case 'serialNumber': return 'serial';
@@ -476,9 +483,6 @@ function prettyField(k: string): string {
     case 'location': return 'location';
     case 'status': return 'condition';
     case 'nextRequalOn': return 'requal';
-    case 'gasType': return 'gas type';
-    case 'category': return 'category';
-    case 'groupName': return 'group';
     case 'description': return 'description';
     case 'owner': return 'belongs to';
     default: return k;
