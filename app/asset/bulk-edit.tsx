@@ -5,6 +5,7 @@ import {
 import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useStore } from '@/store';
+import { assetWords, leaveAloneHint, describedField, type AssetWords } from '@/asset-words';
 import { bulkUpdateAssets, type BulkAssetPatch } from '@/api';
 import {
   T, Screen, Btn, Rise, mono, useBottomInset,
@@ -54,6 +55,8 @@ export default function BulkEditAssets() {
 
   // Gas, category, group and supplier, as this fleet already spells them.
   const attrs = useAttributeOptions();
+  // What this company's descriptive boxes are called. See src/asset-words.ts.
+  const W = assetWords(boot?.org?.assetType);
 
   const products = useMemo(
     () => (boot?.products ?? []).map((p) => ({ key: p.code, sub: `${p.n} on fleet` })),
@@ -177,24 +180,26 @@ export default function BulkEditAssets() {
               object. Forty cylinders sharing one sentence is a sentence that
               describes none of them.
             */}
-            <Field label="Gas type" hint="Leave blank to leave each one's gas type alone.">
-              <Chips
-                options={attrs.gas} value={gas} onChange={setGas}
-                placeholder="Gas type" freeLabel="Not on the list"
-              />
-            </Field>
+            {W.contents ? (
+              <Field label={W.contents.label} hint={leaveAloneHint(W.contents)}>
+                <Chips
+                  options={attrs.gas} value={gas} onChange={setGas}
+                  placeholder={W.contents.label} freeLabel="Not on the list"
+                />
+              </Field>
+            ) : null}
 
-            <Field label="Category" hint="Leave blank to leave each one's category alone.">
+            <Field label={W.category.label} hint={leaveAloneHint(W.category)}>
               <Chips
                 options={attrs.category} value={category} onChange={setCategory}
-                placeholder="Category" freeLabel="Not on the list"
+                placeholder={W.category.label} freeLabel="Not on the list"
               />
             </Field>
 
-            <Field label="Group" hint="Leave blank to leave each one's group alone.">
+            <Field label={W.group.label} hint={leaveAloneHint(W.group)}>
               <Chips
                 options={attrs.group} value={group} onChange={setGroup}
-                placeholder="Group" freeLabel="Not on the list"
+                placeholder={W.group.label} freeLabel="Not on the list"
               />
             </Field>
 
@@ -243,7 +248,7 @@ export default function BulkEditAssets() {
         >
           <Btn
             label={`Save on ${barcodes.length} ${label.toLowerCase()}`}
-            sub={Object.keys(changes).map(prettyField).join(' · ')}
+            sub={Object.keys(changes).map((k) => prettyField(k, W)).join(' · ')}
             busy={busy}
             disabled={!ready}
             onPress={() => { void save(); }}
@@ -254,13 +259,12 @@ export default function BulkEditAssets() {
   );
 }
 
-function prettyField(k: string): string {
+function prettyField(k: string, w: AssetWords): string {
+  const described = describedField(k, w);
+  if (described) return described;
   switch (k) {
     case 'productCode': return 'kind';
     case 'location': return 'location';
-    case 'gasType': return 'gas type';
-    case 'category': return 'category';
-    case 'groupName': return 'group';
     case 'owner': return 'belongs to';
     case 'customerOwned': return 'ownership';
     default: return k;
