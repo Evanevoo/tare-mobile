@@ -1,5 +1,5 @@
 import {
-  View, Text, Pressable, ScrollView, RefreshControl, ActivityIndicator, Alert,
+  View, Text, Pressable, ScrollView, ActivityIndicator, Alert,
 } from 'react-native';
 import { useState } from 'react';
 import { useRouter } from 'expo-router';
@@ -71,13 +71,12 @@ export default function Home() {
     boot, ready, online, outbox, refresh, lastSync, dbUnavailable,
     orderNumber, customerName, customerListId, endDelivery, sync, userId, email,
   } = useStore();
-  const [busy, setBusy] = useState(false);
   const [scanning, setScanning] = useState(false);
   const route = useScanRoute();
   /* Keeps this screen current on focus, on return to the foreground, and on a
-     cheap 45s stamp check — so the numbers on the custody bar are not last
-     time somebody remembered to swipe. */
-  const refreshNow = useLiveData();
+     cheap 45s stamp check. There is no pull-to-refresh any more (see
+     src/live.ts), so this is the only thing that updates the custody bar. */
+  useLiveData();
   // Another driver's unsent scans are not this driver's queue; they are named
   // on their own line below and go up when that driver signs in (outbox.ts).
   const me = { id: userId, email };
@@ -202,14 +201,6 @@ export default function Home() {
     <Screen>
       <ScrollView
         contentContainerStyle={{ paddingHorizontal: 18, paddingTop: 14, paddingBottom: 40 }}
-        /* Still here, and now it means "now" rather than being the only way
-           this screen ever finds anything out — see src/live.ts. */
-        refreshControl={
-          <RefreshControl
-            refreshing={busy} tintColor={T.steel}
-            onRefresh={async () => { setBusy(true); await refreshNow(); setBusy(false); }}
-          />
-        }
       >
         {/* ── who, where, and the way out ── */}
         <Rise>

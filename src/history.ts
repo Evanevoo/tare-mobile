@@ -233,15 +233,15 @@ export function appendPage(
  *
  * Said as what it is, with the time on it, and never as a code. A driver who
  * is told "500" learns nothing they can act on; a driver who is told this list
- * came down at 06:12 knows exactly how much to trust it and that pulling down
- * is worth a try. The yard with no bars is the ordinary case here, so this is
+ * came down at 06:12 knows exactly how much to trust it and that Try again,
+ * the button the screen puts under this, is worth a tap. The yard with no bars is the ordinary case here, so this is
  * ordinary copy rather than an error.
  */
 export function offlineNotice(fetchedAt: string | null): string {
   if (!fetchedAt) {
     return 'No signal, and nothing downloaded to this phone yet. What is below is only what '
-      + 'this handset has scanned itself. Pull down to try again.';
+      + 'this handset has scanned itself. Tap Try again when the phone has signal.';
   }
   return `No signal. This is what the phone downloaded ${whenLabel(fetchedAt)} — anything `
-    + 'scanned since, on any handset, is not in it. Pull down to try again.';
+    + 'scanned since, on any handset, is not in it. Tap Try again when the phone has signal.';
 }

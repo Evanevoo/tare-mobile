@@ -28,9 +28,8 @@ import { fetchBootstrapStamp } from './api';
  * direction is the driver's own work reaching the office, it is small, and it
  * matters more than anything coming the other way.
  *
- * Pull-to-refresh stays. It is now a way to insist rather than the only way to
- * find out, and a driver who has just been handed a cylinder at the counter
- * should not have to wait 45 seconds to believe the screen.
+ * Pull-to-refresh was removed on 5 Oct 2026 because drivers found it
+ * confusing. The screens that can be empty offer a button instead.
  */
 
 /** Never two full refreshes closer together than this, whatever fires. */
@@ -94,7 +93,7 @@ export function useLiveData(enabled = true) {
          * Clearing was the obvious-looking move and it cost a second full
          * payload every single time: with seen=null the next cheap check found
          * `seen !== key` by construction and downloaded the same 700 KB again,
-         * 45 seconds after every pull-to-refresh and every foreground. Asking
+         * 45 seconds after every forced refresh and every foreground. Asking
          * the stamp endpoint what we just downloaded costs a couple of hundred
          * bytes and makes the next check a real comparison.
          *
@@ -144,6 +143,6 @@ export function useLiveData(enabled = true) {
     return () => sub.remove();
   }, [tick]);
 
-  /** For pull-to-refresh, which should always mean "now", not "if you like". */
+  /** A forced refresh, for a caller that means "now", not "if you like". */
   return useCallback(() => tick(true), [tick]);
 }

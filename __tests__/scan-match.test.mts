@@ -173,6 +173,13 @@ section('A MISS SAYS WHY — the thing whose absence made this expensive');
     explainMiss('AB123', boot([])).includes('no customers are on this phone'));
   ok('and no bootstrap at all says so too',
     explainMiss('AB123', null).includes('nothing is downloaded'));
+
+  // Pull-to-refresh was removed on 5 Oct 2026; nothing may tell a driver to use it.
+  const all = [m, healthy, ambiguous, explainMiss('AB123', boot([])), explainMiss('AB123', null)];
+  ok('no miss tells anybody to pull down', all.every((x) => !/pull(ing)? down/i.test(x)), all.join(' | '));
+  ok('an empty phone is told the list downloads by itself',
+    all[3].includes('downloads by itself') && all[4].includes('downloads by itself'), all[3] + all[4]);
+  ok('and a stale list is told it updates by itself', m.includes('updates by itself'), m);
 }
 
 section('K5 — a malformed customer list degrades instead of throwing');

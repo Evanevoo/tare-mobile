@@ -206,7 +206,7 @@ section('SAYING IT PLAINLY WHEN THERE IS NO SIGNAL');
   const at = '2026-08-10T14:38:00.000Z';
   const said = offlineNotice(at);
   ok('it says the list is what came down, and when',
-    said.includes('downloaded') && said.includes('Pull down'), said);
+    said.includes('downloaded') && said.includes('Try again'), said);
   ok('it warns that anything scanned since is missing from it',
     said.includes('is not in it'), said);
   ok('never a status code', !/\b[1-5]\d\d\b/.test(said) && !said.toLowerCase().includes('error'),
@@ -216,6 +216,9 @@ section('SAYING IT PLAINLY WHEN THERE IS NO SIGNAL');
     never.includes('nothing downloaded') && !never.includes('downloaded Today'), never);
   ok('still no code in it',
     !/\b[1-5]\d\d\b/.test(never) && !never.toLowerCase().includes('error'), never);
+  // Pull-to-refresh was removed on 5 Oct 2026; nothing may tell a driver to use it.
+  ok('neither one tells anybody to pull down',
+    !/pull(ing)? down/i.test(said) && !/pull(ing)? down/i.test(never), said + never);
 }
 
 section('K5 — a malformed record degrades instead of taking History down');

@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { View, Text, ScrollView, Pressable, Linking } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useStore } from '@/store';
@@ -14,7 +14,8 @@ import { T, Screen, Surface, Btn, Eyebrow, Rise, Hairline, mono, tint } from '@/
 export default function CustomerDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { boot } = useStore();
+  const { boot, refresh } = useStore();
+  const [busy, setBusy] = useState(false);
 
   /**
    * BOTH NAMES FOR A CUSTOMER OPEN THIS SCREEN — and the fact that only one of
@@ -56,9 +57,11 @@ export default function CustomerDetail() {
       <Screen intensity={0.6}>
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 30 }}>
           <Text style={{ color: T.faint, fontSize: 14, textAlign: 'center', lineHeight: 21 }}>
-            That customer is not on this phone.{'\n'}Pull down on Home to refresh the list.
+            That customer is not on this phone.{'\n'}The list may be out of date.
           </Text>
-          <Btn label="Back" variant="ghost" style={{ marginTop: 24, minWidth: 160 }}
+          <Btn label="Refresh now" busy={busy} style={{ marginTop: 24, minWidth: 160 }}
+               onPress={async () => { setBusy(true); await refresh(); setBusy(false); }} />
+          <Btn label="Back" variant="ghost" style={{ marginTop: 10, minWidth: 160 }}
                onPress={() => router.back()} />
         </View>
       </Screen>
