@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { View, Text, ScrollView, Pressable } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useStore } from '@/store';
@@ -19,7 +20,8 @@ import {
 export default function AssetDetail() {
   const { barcode } = useLocalSearchParams<{ barcode: string }>();
   const router = useRouter();
-  const { boot } = useStore();
+  const { boot, refresh } = useStore();
+  const [busy, setBusy] = useState(false);
   const W = assetWords(boot?.org?.assetType);
 
   // decodeParam, not a bare decodeURIComponent — same fatal-throw shape as
@@ -36,12 +38,14 @@ export default function AssetDetail() {
           <Text style={[mono(19, '700'), { color: T.ink, marginBottom: 10 }]}>{code}</Text>
           <Text style={{ color: T.faint, fontSize: 14, textAlign: 'center', lineHeight: 21 }}>
             Not on this phone.{'\n'}
-            It may be new, or the list may be out of date — pull down on Home to refresh.
+            It may be new, or the list may be out of date.
           </Text>
           {/* An unknown barcode in a driver's hand is usually a real thing
               nobody has recorded yet, so the useful next step is to record it. */}
           <Btn label="Add it to the fleet" style={{ marginTop: 24, minWidth: 220 }}
                onPress={() => router.replace('/asset/batch' as never)} />
+          <Btn label="Refresh now" variant="ghost" busy={busy} style={{ marginTop: 10, minWidth: 220 }}
+               onPress={async () => { setBusy(true); await refresh(); setBusy(false); }} />
           <Btn label="Back" variant="ghost" style={{ marginTop: 10, minWidth: 220 }}
                onPress={() => router.back()} />
         </View>

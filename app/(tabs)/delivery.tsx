@@ -27,13 +27,16 @@ export default function Delivery() {
   // driver off to that customer's screen in the middle of setting a job up.
   const route = useScanRoute({ customerScreen: false });
   const {
-    boot, startDelivery, outbox, sync,
+    boot, startDelivery, outbox, sync, refresh,
     orderNumber: openOrderNumber, customerName: openCustomerName, endDelivery,
   } = useStore();
   // The customer list this screen searches is only as good as the last time
   // somebody thought to refresh it. Now it refreshes itself — an account added
   // in the office at 09:00 is searchable in the cab without anyone swiping.
   useLiveData();
+  /** The Download now / Refresh now buttons, while the download runs. */
+  const [fetching, setFetching] = useState(false);
+  const fetchNow = async () => { setFetching(true); await refresh(); setFetching(false); };
   const [q, setQ] = useState('');
   const [picked, setPicked] = useState<{ id: string; name: string } | null>(null);
   const [order, setOrder] = useState('');
@@ -432,10 +435,14 @@ export default function Delivery() {
                     {orderNudge}
                   </Text>
                 ) : rulesMissing ? (
-                  <Text style={{ color: T.faint, fontSize: 12, lineHeight: 18, marginTop: 7 }}>
-                    No number rules on this phone yet — pull down on Home to refresh, and
-                    order numbers will be checked against your own.
-                  </Text>
+                  <>
+                    <Text style={{ color: T.faint, fontSize: 12, lineHeight: 18, marginTop: 7 }}>
+                      No number rules on this phone yet. Refresh, and order numbers will be
+                      checked against your own.
+                    </Text>
+                    <Btn label="Refresh now" variant="quiet" busy={fetching}
+                         style={{ marginTop: 4 }} onPress={fetchNow} />
+                  </>
                 ) : null}
                 {openJob && (
                   <Text style={{ color: T.amber, fontSize: 12.5, lineHeight: 18, marginTop: 7 }}>
@@ -468,16 +475,21 @@ export default function Delivery() {
             )}
 
             {!picked && customers.length === 0 && (
-              <Text
-                style={{
-                  color: T.faint, fontSize: 13.5, paddingVertical: 28,
-                  textAlign: 'center', lineHeight: 20,
-                }}
-              >
-                {boot
-                  ? 'No customers match.'
-                  : 'No customer list on this phone yet.\nPull down on Home to download it.'}
-              </Text>
+              <>
+                <Text
+                  style={{
+                    color: T.faint, fontSize: 13.5, paddingVertical: 28,
+                    textAlign: 'center', lineHeight: 20,
+                  }}
+                >
+                  {boot
+                    ? 'No customers match.'
+                    : 'No customer list on this phone yet.'}
+                </Text>
+                {!boot && (
+                  <Btn label="Download now" busy={fetching} onPress={fetchNow} />
+                )}
+              </>
             )}
           </View>
         }

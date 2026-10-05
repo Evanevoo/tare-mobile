@@ -132,13 +132,13 @@ export function explainMiss(raw: string, boot: Bootstrap | null): string {
 
   if (!boot) {
     return `Read ${up} — nothing is downloaded to this phone yet. ` +
-      `Pull down on Home to fetch the customer list.`;
+      `It downloads by itself when the phone has signal, so check the connection.`;
   }
 
   const customers = customerList(boot);
   if (!customers.length) {
     return `Read ${up} — no customers are on this phone. ` +
-      `Pull down on Home to download the list.`;
+      `The list downloads by itself when the phone has signal, so check the connection.`;
   }
 
   // Refused rather than missed: the code describes more than one customer, and
@@ -160,7 +160,8 @@ export function explainMiss(raw: string, boot: Bootstrap | null): string {
   if (!withCard) {
     return `Read ${up} — no customer or ${thing} matches. None of the ` +
       `${customers.length} customers on this phone carry a card code, so this ` +
-      `list is out of date or was imported without one. Pull down on Home to refresh.`;
+      `list is out of date or was imported without one. It updates by itself when the ` +
+      `phone has signal, so check the connection.`;
   }
 
   return `Read ${up} — no customer or ${thing} matches on this phone ` +

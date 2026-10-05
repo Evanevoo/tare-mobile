@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
-import { View, Text, Pressable, SectionList, RefreshControl } from 'react-native';
+import { View, Text, Pressable, SectionList } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useStore } from '@/store';
 import { pending } from '@/outbox';
+import { useLiveData } from '@/live';
 import {
   T, Screen, Surface, Btn, Dot, Eyebrow, Tag, Rise, Icon, ICON, mono, tint, wash,
 } from '@/ui';
@@ -20,9 +21,11 @@ type Seg = 'waiting' | 'sent';
 
 export default function Activity() {
   const router = useRouter();
-  const { outbox, sync, syncing, online, lastError, lastSync, dispatch, refresh } = useStore();
+  const { outbox, sync, syncing, online, lastError, lastSync, dispatch } = useStore();
   const [seg, setSeg] = useState<Seg>('waiting');
-  const [busy, setBusy] = useState(false);
+  // Syncs and refreshes on focus, on return to the foreground and on the 45s
+  // check. This screen used to update only when somebody pulled it down.
+  useLiveData();
 
   const unsent = pending(outbox);
   const sent = outbox.scans.filter((s) => s.state === 'SENT');
@@ -45,12 +48,6 @@ export default function Activity() {
         keyExtractor={(s) => s.clientId}
         stickySectionHeadersEnabled={false}
         contentContainerStyle={{ paddingBottom: 40 }}
-        refreshControl={
-          <RefreshControl
-            refreshing={busy} tintColor={T.steel}
-            onRefresh={async () => { setBusy(true); await refresh(); setBusy(false); }}
-          />
-        }
         ListHeaderComponent={
           <View style={{ paddingHorizontal: 18, paddingTop: 14 }}>
             <Rise>

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  View, Text, FlatList, Pressable, RefreshControl, ActivityIndicator,
+  View, Text, FlatList, Pressable, ActivityIndicator,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { useStore } from '@/store';
 import {
   fetchHistory, fetchFillHistory, HISTORY_PAGE, type FillHistoryEntry,
@@ -13,7 +13,7 @@ import {
   appendPage, mergeHistory, offlineNotice,
   type CachedHistory, type ServerOrder,
 } from '@/history';
-import { T, Screen, Rise, Icon, ICON, mono, tint } from '@/ui';
+import { T, Screen, Btn, Rise, Icon, ICON, mono, tint } from '@/ui';
 import { Note } from '@/form';
 import { whenLabel } from '@/when';
 
@@ -120,7 +120,8 @@ export default function History() {
   }, []);
 
   /**
-   * The first page, and the same call again on a pull.
+   * The first page, and the same call again when the screen is come back to
+   * or Try again is tapped (`pull`, which is what makes the button show busy).
    *
    * A failure is not reported as a failure. What was already on screen — the
    * cache, or the page from before the truck went under the bridge — stays
@@ -264,6 +265,25 @@ export default function History() {
     }
   }, [fillBefore, fillPaging, refreshing]);
 
+  /**
+   * Coming back to this screen asks again, which is what the swipe used to be
+   * for. Not on the first focus, because the effects above already load on
+   * mount. Through a ref so that a new `load` identity does not re-run it. No
+   * polling here: this is a list somebody reads, not one they scan against.
+   */
+  const reload = useRef(() => {});
+  reload.current = () => {
+    void load(false);
+    if (fillLoaded) void loadFills(false);
+  };
+  const focusedOnce = useRef(false);
+  useFocusEffect(
+    useCallback(() => {
+      if (!focusedOnce.current) { focusedOnce.current = true; return; }
+      reload.current();
+    }, []),
+  );
+
   const locateRows = useMemo(() => batchLocate(fills), [fills]);
 
   const names = useMemo(
@@ -334,8 +354,12 @@ export default function History() {
         </Text>
       )}
       {offline && (
-        <Note icon="wifi-off" tone={T.amber}
-              text={offlineNotice(mode === 'orders' ? fetchedAt : fillFetchedAt)} />
+        <>
+          <Note icon="wifi-off" tone={T.amber}
+                text={offlineNotice(mode === 'orders' ? fetchedAt : fillFetchedAt)} />
+          <Btn label="Try again" variant="ghost" busy={refreshing} style={{ marginTop: 10 }}
+               onPress={() => { void (mode === 'orders' ? load(true) : loadFills(true)); }} />
+        </>
       )}
     </Rise>
   );
@@ -405,20 +429,6 @@ export default function History() {
           ItemSeparatorComponent={() => (
             <View style={{ height: 1, backgroundColor: tint(0.05) }} />
           )}
-          refreshControl={
-            /* Every colour spelled out. Android draws this in its own theme
-               otherwise — a dark arrow on a white disc, which on this screen
-               is a white dot nobody can see is spinning — and it ignores
-               tintColor entirely, which is the prop iOS reads. Both, or it is
-               invisible on the phones the drivers actually carry. */
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={() => { void load(true); }}
-              tintColor={T.brandLit}
-              colors={[T.brandLit]}
-              progressBackgroundColor={T.panelBot}
-            />
-          }
           renderItem={({ item: g }) => {
             /* Three states, and the difference matters to somebody deciding
                whether to go back out to the truck. Not uploaded is work this
@@ -566,15 +576,6 @@ export default function History() {
           ItemSeparatorComponent={() => (
             <View style={{ height: 1, backgroundColor: tint(0.05) }} />
           )}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={() => { void loadFills(true); }}
-              tintColor={T.brandLit}
-              colors={[T.brandLit]}
-              progressBackgroundColor={T.panelBot}
-            />
-          }
           renderItem={({ item: b }) => (
             <View style={{ paddingVertical: 14, paddingHorizontal: 4 }}>
               <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
