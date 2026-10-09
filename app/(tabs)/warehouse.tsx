@@ -210,7 +210,7 @@ export default function Locate() {
     /*
       Already on the shelf. A repeat of the barcode handled last is a light
       tick: the phone is still over that label, read again each time the
-      Scanner's cooldown lapses, or still there after "Shelve it anyway".
+      Scanner's cooldown lapses, or still there after "Mark full anyway".
       Coming back to a bottle after scanning another one gets the double-scan
       buzz (src/buzz.ts), once, then ticks again until a different code comes
       in. Until 1 Oct 2026 every repeat here was the light tick, so a bottle
@@ -258,7 +258,7 @@ export default function Locate() {
       playScanAlert();
       Alert.alert(
         'Not in the system',
-        `${bc} is not on the downloaded list. It may be new, or the barcode may have misread.\n\nAdding it still records the shelf — the office assigns what it is later.`,
+        `${bc} is not on the downloaded list. It may be new, or the barcode may have misread.\n\nAdding it still records it here — the office assigns what it is later.`,
         [
           { text: 'Skip it', style: 'cancel', onPress: () => deciding.current.delete(bc) },
           { text: 'Add anyway', onPress: () => { deciding.current.delete(bc); keep(bc); } },
@@ -288,7 +288,7 @@ export default function Locate() {
       below stops being read too.
     */
     if (warn === 'return-pending') {
-      setNote(`${bc} — already scanned back, waiting on the paperwork. Shelving it is fine.`);
+      setNote(`${bc} — already scanned back, waiting on the paperwork. Marking it is fine.`);
     }
 
     if (warn === 'not-returned') {
@@ -311,11 +311,11 @@ export default function Locate() {
       Alert.alert(
         'No return scan for this one',
         `${bc} is still on ${known?.c}'s account and nothing has been scanned back for it.\n\n`
-        + 'Shelving it as full will end that rental with no return on record. If it came back on '
+        + 'Marking it full will end that rental with no return on record. If it came back on '
         + 'a delivery, scan it as a return there first — that way the order and the rental agree.',
         [
           { text: 'Skip', style: 'cancel', onPress: () => deciding.current.delete(bc) },
-          { text: 'Shelve it anyway', onPress: () => { deciding.current.delete(bc); keep(bc); } },
+          { text: 'Mark full anyway', onPress: () => { deciding.current.delete(bc); keep(bc); } },
         ],
         { onDismiss: () => deciding.current.delete(bc) },
       );
@@ -372,7 +372,7 @@ export default function Locate() {
       // draft and the live state were two different copies of the same
       // "what's on this shelf" fact, and clearing one was never going to
       // clear the other.
-      // Only the shelf clears. Location and state are held so "Next shelf"
+      // Only the shelf clears. Location and state are held so "Next batch"
       // below can pick straight up — see the note on that button.
       // Only what was SENT leaves. A bottle scanned while the request was in
       // flight was never part of it and must stay staged, not vanish unsaved.
@@ -412,13 +412,13 @@ export default function Locate() {
          * forty shelves it is the difference between two taps and six,
          * every time.
          *
-         * Next shelf keeps the location deliberately: a sweep is usually
+         * Next batch keeps the location deliberately: a sweep is usually
          * several passes at ONE location (fulls, then empties), and the
          * location is the slower of the two to re-pick. Changing it is one
          * tap on the chip that is already on screen.
          */
         [
-          { text: 'Next shelf', onPress: () => { setStep(3); } },
+          { text: 'Next batch', onPress: () => { setStep(3); } },
           { text: 'Done', style: 'cancel', onPress: () => {
             setStep(1); setLocation(''); setCustom(false); setState(null);
             // The scanner on this screen is a plain view now (src/sheet.tsx),
@@ -678,7 +678,7 @@ export default function Locate() {
                   : `Scan everything going ${state ?? ''} at ${location}.`}
               </Text>
               <Text style={{ color: '#FFFFFF', fontSize: 12.5, textAlign: 'center', lineHeight: 18, opacity: 0.6, marginTop: 6 }}>
-                Tap Stop when the shelf is done.
+                Tap Stop when you are done.
               </Text>
             </View>
           </Scanner>

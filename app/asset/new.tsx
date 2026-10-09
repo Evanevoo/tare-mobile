@@ -369,7 +369,7 @@ export default function NewAsset() {
                 />
               </Field>
 
-              <Field label="Where it lives" hint="Optional. Leave it blank if it has no shelf yet.">
+              <Field label="Where it lives" hint="Optional. Leave it blank if it has no set place yet.">
                 <Chips
                   options={locations}
                   value={location}

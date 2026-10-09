@@ -14,7 +14,7 @@
  *      reported "scanning three and saving five": one warned bottle, three
  *      stacked dialogs, three taps, three copies.
  *
- * Guard 2 is released the moment the driver taps "Shelve it anyway", and the
+ * Guard 2 is released the moment the driver taps "Mark full anyway", and the
  * `setCodes` beside it does not reach `codes` until the next render. Between
  * those two events a camera frame passes BOTH guards — the ref no longer
  * holds it, the array does not hold it yet — and lands on the unguarded

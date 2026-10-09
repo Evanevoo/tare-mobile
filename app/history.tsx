@@ -541,7 +541,7 @@ export default function History() {
                     Nothing put away yet
                   </Text>
                   <Text style={{ color: T.faint, fontSize: 13, marginTop: 6, lineHeight: 19 }}>
-                    The moment anybody saves a shelf in Locate it lands here — where it went,
+                    The moment anybody saves bottles in Locate they land here — where it went,
                     full or empty, and what it was before.
                   </Text>
                 </>

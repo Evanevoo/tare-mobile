@@ -25,7 +25,7 @@ test('a barcode with a dialog open about it is neither — the camera is just st
 });
 
 /* ── the bug ──────────────────────────────────────────────────────────────
-   The driver taps "Shelve it anyway". That handler deletes the barcode from
+   The driver taps "Mark full anyway". That handler deletes the barcode from
    `deciding` and calls setCodes in the same breath — but `codes` does not
    contain it until the next render. A camera frame landing in that window
    used to see an empty `deciding` and a stale `codes`, pass both guards, and

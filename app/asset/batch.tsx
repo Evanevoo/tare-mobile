@@ -516,7 +516,7 @@ export default function BatchAssets() {
                 />
               </Field>
 
-              <Field label="Where they live" hint="Optional. Leave it blank if they have no shelf yet.">
+              <Field label="Where they live" hint="Optional. Leave it blank if they have no set place yet.">
                 <Chips
                   options={locations}
                   value={location}
