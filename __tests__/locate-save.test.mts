@@ -77,7 +77,7 @@ test('no-return warning confirmation counts an asset only once',()=>{
   const h=harness([]);
   h.screen.add('A1');h.screen.add('A1');
   assert.equal(h.alerts.length,1);
-  const accept=h.alerts[0][2].find((button:any)=>button.text==='Shelve it anyway');
+  const accept=h.alerts[0][2].find((button:any)=>button.text==='Mark full anyway');
   accept.onPress();h.screen.add('A1');accept.onPress();
   assert.deepEqual(Array.from(h.state[4]),['A1']);
 });

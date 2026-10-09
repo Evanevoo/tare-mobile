@@ -523,7 +523,7 @@ export async function postFill(
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
     body: JSON.stringify({ location, state, barcodes }),
-  }, 60_000, 'Saving the shelf timed out');
+  }, 60_000, 'Saving timed out');
   if (res.status === 401) throw new Error('Your session expired. Sign in again.');
   if (!res.ok) {
     const j = await res.json().catch(() => null);

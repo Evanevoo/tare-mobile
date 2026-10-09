@@ -60,7 +60,7 @@ import { useLiveData } from '@/live';
 const ACTIONS = [
   { key: 'add',       icon: 'plus',        label: 'Add',       hint: 'New to the fleet',     href: '/asset/batch' },
   { key: 'edit',      icon: 'edit-2',      label: 'Edit',      hint: 'Correct a record',     href: '/search' },
-  { key: 'locate',    icon: 'map-pin',     label: 'Locate',    hint: 'Shelf, full or empty', href: '/warehouse' },
+  { key: 'locate',    icon: 'map-pin',     label: 'Locate',    hint: 'Mark full or empty', href: '/warehouse' },
   { key: 'history',   icon: 'clock',       label: 'History',   hint: 'What was scanned',     href: '/history' },
   { key: 'analytics', icon: 'trending-up', label: 'Analytics', hint: 'Where the fleet sits', href: '/analytics' },
 ] as const;
